@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+/site/
+.DS_Store
+._*
+.claude/*
+!.claude/settings.json

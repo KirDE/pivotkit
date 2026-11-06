@@ -1,0 +1,8 @@
+{
+  "name": "pivotkit-element",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The web component <pivot-report> with its own React, for Angular, PHP and plain HTML pages. Not built yet.",
+  "license": "MIT",
+  "type": "module"
+}

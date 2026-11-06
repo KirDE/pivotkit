@@ -1,0 +1,16 @@
+name: Feature request
+description: An aggregation, a chart type, an export option or something the report builder should let people do.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to show or do
+      description: The data you have and what the report should let people do with it.
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: References
+      description: How Excel's PivotTable or another tool does it, if it helps.

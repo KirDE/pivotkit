@@ -1,0 +1,41 @@
+name: Bug report
+description: Something does not work as described.
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options:
+        - pivotkit-core
+        - pivotkit-react
+        - pivotkit-element
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package version and host
+      placeholder: pivotkit-core 0.1.0 in Node 24 / React 18.3 / plain HTML
+    validations:
+      required: true
+  - type: textarea
+    id: view
+    attributes:
+      label: The view (template JSON) and a few rows of sample data
+      description: Made-up data that shows the problem, no real data.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens, what you expected
+      description: Include console errors and a screenshot if it is visual.
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      placeholder: Firefox 145, dark theme, window 1440 px wide

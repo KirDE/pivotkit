@@ -1,0 +1,8 @@
+{
+  "name": "pivotkit-react",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React 18/19 pivot report builder on pivotkit-core: drag-and-drop fields, table and Apache ECharts chart, templates as JSON, Excel export. Not built yet.",
+  "license": "MIT",
+  "type": "module"
+}
