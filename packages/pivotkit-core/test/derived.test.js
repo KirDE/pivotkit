@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computePivot, encode, isoWeek, toGrid } from "../src/index.js";
+import { computePivot, encode, toGrid, validate } from "../src/index.js";
+import { isoWeek } from "../src/derive.js";
 import { SALES } from "./fixtures.js";
 
 const data = encode(SALES);
@@ -61,4 +62,51 @@ test("wrong source types are refused", () => {
     const r = computePivot(data, { derived: [{ name: "X", field: "Region", by: "year" }, { name: "Y", field: "Date", by: "bin", size: 5 }], rows: ["X", "Y"] });
     assert.deepEqual(r.view.derived, []);
     assert.deepEqual(r.view.rows, []);
+});
+
+/** Bin labels and counts of a number column. */
+function bins(values, size, origin) {
+    const d = encode(values.map((x) => ({ x })));
+    const r = computePivot(d, { derived: [{ name: "B", field: "x", by: "bin", size, origin }], rows: ["B"], values: [{ agg: "count" }], formatting: { locale: "en-US" } });
+    return r.rowRoot.children.map((n) => [n.key, r.label("rows", n), r.value(n, r.colRoot, 0)]);
+}
+
+test("bins of decimal sizes put boundary values into the bin they start", () => {
+    assert.deepEqual(bins([0.3, 0.1, 0.7, 0.6, 0.29], 0.1), [
+        [0.1, "0.1 – 0.2", 1], [0.2, "0.2 – 0.3", 1], [0.3, "0.3 – 0.4", 1], [0.6, "0.6 – 0.7", 1], [0.7, "0.7 – 0.8", 1]
+    ]);
+    assert.deepEqual(bins([0.07, 0.06, 0.03], 0.01).map((b) => b[0]), [0.03, 0.06, 0.07]);
+    assert.deepEqual(bins([0.15, 0.1, 0.35, 0.3, 0.05], 0.05).map((b) => b[0]), [0.05, 0.1, 0.15, 0.3, 0.35]);
+    assert.deepEqual(bins([1.1, 1.2, 1.3], 0.1, 0.05).map((b) => b[1]), ["1.05 – 1.15", "1.15 – 1.25", "1.25 – 1.35"]);
+});
+
+test("negative values and origins", () => {
+    assert.deepEqual(bins([-0.3, -0.1, -0.25, 0], 0.1), [[-0.3, "-0.3 – -0.2", 2], [-0.1, "-0.1 – 0", 1], [0, "0 – 0.1", 1]]);
+    assert.deepEqual(bins([-5, -10, 0, 4], 10), [[-10, "-10 – 0", 2], [0, "0 – 10", 2]]);
+    assert.deepEqual(bins([-7, 2], 5, -2).map((b) => b[1]), ["-7 – -2", "-2 – 3"]);
+});
+
+test("bins too small to be exact are refused; values beyond the range are blank", () => {
+    for (const size of [1e-10, 5e-324, 1e-300]) {
+        assert.deepEqual(validate({ derived: [{ name: "B", field: "Price", by: "bin", size }] }, data).errors.map((e) => e.path), ["derived[0]"], String(size));
+    }
+    // 1e300 / 1e-9 overflows to Infinity: no bin, not one bin labelled "∞"
+    const [only] = bins([1e300, 1], 1e-9);
+    assert.deepEqual(only.slice(1), ["1 – 1.000000001", 1]);
+    const d = encode([{ x: 1e300 }, { x: 1 }]);
+    const r = computePivot(d, { derived: [{ name: "B", field: "x", by: "bin", size: 1e-9 }], rows: ["B"], values: [{ agg: "count" }] });
+    assert.deepEqual(r.rowRoot.children.map((n) => n.key), [1, null]);
+});
+
+test("a bin index beyond 2^53 is blank instead of a bin whose bounds are equal", () => {
+    const big = encode([{ V: 1e15 }, { V: 2 }]);
+    const r = computePivot(big, { derived: [{ name: "B", field: "V", by: "bin", size: 1e-9 }], rows: ["B"], values: [{ agg: "count" }], formatting: { locale: "en-US" } });
+    const labels = r.rowRoot.children.map((n) => r.label("rows", n));
+    // 2 is still exact (2e9 bins from 0); 1e15 / 1e-9 = 1e24 bins is not
+    assert.equal(labels.length, 2);
+    assert.ok(labels.some((l) => l.startsWith("2 –")), labels.join(" | "));
+    for (const l of labels) {
+        const [lo, hi] = l.split(" – ");
+        assert.notEqual(lo, hi, `bin "${l}" has equal bounds`);
+    }
 });

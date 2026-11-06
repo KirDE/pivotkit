@@ -19,11 +19,16 @@
  * @typedef {object} AggregatorDef
  * @property {boolean} numeric        needs a number, boolean or date column
  * @property {boolean} [dates]        a numeric aggregator that also makes sense on dates
+ * @property {boolean} [additive]     values of groups add up to the value of their union, so running
+ *   totals make sense (sum, count); not true for average, median, countUnique, ...
  * @property {(columnType: string) => ResultType} resultType
  * @property {(column: import("./encode.js").Column | null, cells: number, ranks: Int32Array | null, labelOf: (code: number) => string) => Kernel} create
  */
 
+/** @type {(columnType: string) => ResultType} */
 const numberResult = () => "number";
+/** @type {(columnType: string) => ResultType} */
+const textResult = () => "text";
 
 function count(column, cells) {
     const n = new Float64Array(cells);
@@ -186,12 +191,14 @@ function firstLast(isLast) {
     };
 }
 
+/** @type {(columnType: string) => ResultType} */
 const dateOrNumber = (t) => (t === "date" ? "date" : "number");
+/** @type {(columnType: string) => ResultType} */
 const sameAsColumn = (t) => (t === "date" ? "date" : t === "number" ? "number" : "text");
 
 /** @type {Readonly<Record<string, AggregatorDef>>} */
 export const AGGREGATORS = Object.freeze({
-    count: { numeric: false, resultType: numberResult, create: count },
+    count: { numeric: false, additive: true, resultType: numberResult, create: count },
     countUnique: {
         numeric: false,
         resultType: numberResult,
@@ -202,7 +209,7 @@ export const AGGREGATORS = Object.freeze({
     },
     listUnique: {
         numeric: false,
-        resultType: () => "text",
+        resultType: textResult,
         create: (column, cells, ranks, labelOf) => {
             const u = uniqueSets(column, cells);
             return {
@@ -217,7 +224,7 @@ export const AGGREGATORS = Object.freeze({
             };
         }
     },
-    sum: { numeric: true, resultType: numberResult, create: sum },
+    sum: { numeric: true, additive: true, resultType: numberResult, create: sum },
     average: { numeric: true, dates: true, resultType: dateOrNumber, create: average },
     median: { numeric: true, dates: true, resultType: dateOrNumber, create: median },
     min: { numeric: true, dates: true, resultType: dateOrNumber, create: extreme(-1) },
@@ -232,9 +239,14 @@ export const AGGREGATORS = Object.freeze({
 
 export const AGGREGATOR_NAMES = Object.freeze(Object.keys(AGGREGATORS));
 
+/** The aggregator definition of a name; null for an unknown one (an own-property check). */
+export function aggregatorOf(agg) {
+    return typeof agg === "string" && Object.hasOwn(AGGREGATORS, agg) ? AGGREGATORS[agg] : null;
+}
+
 /** True when the aggregator can run on a column of this type. */
 export function aggregatorFits(agg, columnType) {
-    const def = Object.hasOwn(AGGREGATORS, agg) ? AGGREGATORS[agg] : null;
+    const def = aggregatorOf(agg);
     if (!def) {
         return false;
     }
@@ -243,4 +255,13 @@ export function aggregatorFits(agg, columnType) {
     }
     // a sum of dates means nothing; their average, median, min and max are dates again
     return columnType === "number" || columnType === "boolean" || columnType === "null" || (columnType === "date" && def.dates === true);
+}
+
+/**
+ * The aggregators that work on a field of this type, for a UI's list.
+ * @param {string} columnType
+ * @returns {string[]}
+ */
+export function aggregatorsFor(columnType) {
+    return AGGREGATOR_NAMES.filter((agg) => aggregatorFits(agg, columnType));
 }

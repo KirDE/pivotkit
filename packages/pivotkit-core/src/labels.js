@@ -2,7 +2,30 @@
  * Display labels of dimension values and the natural sort order of a column's dictionary.
  */
 
-/** Default texts of the grid; every one can be replaced through toGrid's `labels` option. */
+import { collator, dateTimeFormat } from "./intl.js";
+
+/** @type {Intl.DateTimeFormatOptions} */
+const DATE = { dateStyle: "medium", timeZone: "UTC" };
+/** @type {Intl.DateTimeFormatOptions} */
+const DATE_TIME = { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" };
+
+/**
+ * @typedef {object} Labels  texts of the grid and chart; {label}, {agg} and {field} are placeholders
+ * @property {string} blank
+ * @property {string} total
+ * @property {string} grandTotal
+ * @property {string} values
+ * @property {string} valueName
+ * @property {string} countRows
+ * @property {string} true
+ * @property {string} false
+ * @property {Record<string, string>} aggregators
+ */
+
+/**
+ * Default texts of the grid; every one can be replaced through toGrid's `labels` option.
+ * @type {Readonly<Labels>}
+ */
 export const DEFAULT_LABELS = Object.freeze({
     blank: "(blank)",
     total: "{label} Total",
@@ -30,25 +53,11 @@ export const DEFAULT_LABELS = Object.freeze({
     })
 });
 
-const dateFormats = new Map();
-
-function dateFormat(locale, withTime) {
-    const key = `${locale ?? ""}|${withTime}`;
-    let f = dateFormats.get(key);
-    if (!f) {
-        f = new Intl.DateTimeFormat(locale, withTime
-            ? { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }
-            : { dateStyle: "medium", timeZone: "UTC" });
-        dateFormats.set(key, f);
-    }
-    return f;
-}
-
 /**
  * The label of one dictionary value of a column.
  * @param {import("./encode.js").Column} column
  * @param {string | number | boolean | null} value  null for blank
- * @param {string} [locale]
+ * @param {string} locale
  * @param {{ blank?: string, true?: string, false?: string }} [labels]
  */
 export function labelOf(column, value, locale, labels = DEFAULT_LABELS) {
@@ -60,7 +69,7 @@ export function labelOf(column, value, locale, labels = DEFAULT_LABELS) {
     }
     switch (column.type) {
         case "date":
-            return dateFormat(locale, !column.dateOnly).format(new Date(value));
+            return dateTimeFormat(locale, column.dateOnly ? DATE : DATE_TIME).format(new Date(Number(value)));
         case "boolean":
             return value ? (labels.true ?? "true") : (labels.false ?? "false");
         default:
@@ -68,27 +77,11 @@ export function labelOf(column, value, locale, labels = DEFAULT_LABELS) {
     }
 }
 
-const collators = new Map();
-
-/**
- * Natural order: "Item 2" before "Item 10", case and accents ignored, as Excel sorts labels.
- * @param {string} [locale]
- */
-export function collator(locale) {
-    const key = locale ?? "";
-    let c = collators.get(key);
-    if (!c) {
-        c = new Intl.Collator(locale, { numeric: true, sensitivity: "base" });
-        collators.set(key, c);
-    }
-    return c;
-}
-
 /**
  * Compares two raw values: numbers (and dates, booleans) by value, text naturally. Blank sorts last.
  * @param {unknown} a
  * @param {unknown} b
- * @param {string} [locale]
+ * @param {string} locale
  */
 export function naturalCompare(a, b, locale) {
     const aBlank = a === null || a === undefined;
@@ -109,27 +102,23 @@ export function naturalCompare(a, b, locale) {
 }
 
 /**
- * Rank of every dictionary code of a column in natural order (0 = first), cached on the column.
+ * Rank of every dictionary code of a column in natural order (0 = first), cached on the encoded data
+ * (one bounded cache with the derived columns, see LIMITS.cacheEntries).
  * @param {import("./encode.js").Column} column
- * @param {string} [locale]
+ * @param {string} locale
+ * @param {ReturnType<typeof import("./util.js").createCache>} cache  encoded.cache
  * @returns {Int32Array}
  */
-export function ranksOf(column, locale) {
-    if (!column.ranks) {
-        Object.defineProperty(column, "ranks", { value: new Map(), enumerable: false });
-    }
-    const key = locale ?? "";
-    let ranks = column.ranks.get(key);
-    if (!ranks) {
+export function ranksOf(column, locale, cache) {
+    return cache.getOrSet(`ranks:${column.id}:${locale}`, () => {
         const order = column.dict.map((_, i) => i);
         order.sort((x, y) => naturalCompare(column.dict[x], column.dict[y], locale) || x - y);
-        ranks = new Int32Array(order.length);
+        const ranks = new Int32Array(order.length);
         order.forEach((code, rank) => {
             ranks[code] = rank;
         });
-        column.ranks.set(key, ranks);
-    }
-    return ranks;
+        return ranks;
+    });
 }
 
 /** Replaces {name} placeholders; unknown names stay as they are. */
