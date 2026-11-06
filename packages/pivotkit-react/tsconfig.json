@@ -1,0 +1,24 @@
+{
+  // Type check of the sources (JSDoc in .js and .jsx) and the .d.ts files that ship in the package:
+  // npm run types. Needs the core's generated types (npm run types in pivotkit-core runs first at the
+  // root). The output (types/) is not committed. strict, except noImplicitAny: the JSX components'
+  // props are typed where they cross module boundaries, not on every inner callback.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "types",
+    "rootDir": "src",
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "jsx": "react",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": [],
+    "skipLibCheck": true,
+    "strict": true,
+    "noImplicitAny": false
+  },
+  "include": ["src/**/*.js", "src/**/*.jsx"]
+}

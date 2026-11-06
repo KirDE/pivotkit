@@ -1,8 +1,8 @@
 # AGENTS.md
 
 pivotkit is a pivot report builder for the web (Excel's PivotTable is the reference), planned as three
-npm packages in this repository with npm workspaces: the engine `pivotkit-core` exists, the React UI
-and the web component follow; see [README.md](README.md).
+npm packages in this repository with npm workspaces: the engine `pivotkit-core` and the React UI
+`pivotkit-react` exist, the web component follows; see [README.md](README.md).
 
 ## Layout
 
@@ -12,9 +12,27 @@ and the web component follow; see [README.md](README.md).
   importer of fflate); every other module is internal. The vocabulary of a view lives in tables:
   `AGGREGATORS` (aggregators.js), `DERIVED` (derive.js), `FILTERS` (filters.js), `SHOW_AS`
   (show-as.js); `CATALOG` (catalog.js) lists them for a UI.
-- `packages/pivotkit-react/` - planned, not built yet: the React 18/19 UI on the core. React will be a
-  peer dependency the host provides (PowerShell Universal provides React 18.3.1 at runtime), never
-  bundled.
+- `packages/pivotkit-react/` - the React 18/19 UI on the core: `<PivotReport>`. JSX in `src/` with
+  JSDoc types, built by esbuild (`build.js`) into `dist/` (JSX as `React.createElement`, every
+  dependency left as an import) and `dist/styles.css`. React, ReactDOM and ECharts are peer
+  dependencies the host provides (PowerShell Universal provides React 18.3.1 at runtime), never
+  bundled; pivotkit-core and @dnd-kit stay bare imports the host's bundler (or import map) resolves.
+  One module per concern: `PivotReport.jsx` wires the parts and defines `commit()`, which it passes to
+  the zones, the chip menus, the filter and the toolbar; `use-view-history.js` (with the pure
+  `view-history.js`) owns the view and its undo history, controlled or not; every view change is a
+  pure function in `view-ops.js`; `chart-types.js` is the one table of chart types; `dnd.jsx` is the
+  only importer of @dnd-kit, its pure logic in `dnd-moves.js`; `chart.jsx` the only importer of
+  echarts (lazy); `dom.js` the shadow-root-safe focus and Escape helpers; `labels.js` the texts (en,
+  de); `styles.css` every `--pk-*` token. Logic that needs no DOM lives in `.js` modules; `test/` runs
+  them with `node --test` (plus a server render of the built package and the contrast of the tokens);
+  `test/types/` is a TypeScript consumer.
+- `examples/playground/` - the playground: generated data with a fixed seed, built by esbuild into
+  static files (`dist/`), served by `serve.js`.
+- `tests/browser/` - Playwright tests in Chromium, Firefox and WebKit of the playground and of
+  `pages/` (a host page that loads `dist/index.js` with React from an import map and renders again
+  all the time; a shadow root); CI runs them on React 18 and React 19 (`tests/react19/`, own lock
+  file). `tests/ci.test.js` checks the pinning (Playwright image = locked `@playwright/test`, exact
+  versions, caret ranges for this repository's own packages).
 - `packages/pivotkit-element/` - planned, not built yet: the web component `<pivot-report>`, bundling
   its own React for hosts without one (Angular, PHP, plain HTML).
 - `scripts/check-pack.js` - checks what `npm pack` would publish.
@@ -23,12 +41,15 @@ and the web component follow; see [README.md](README.md).
 
 ```bash
 npm ci                              # install all workspaces from the lock file
-npm run lint                        # ESLint, recommended rules only (as CI)
+npm run lint                        # ESLint recommended rules and React's hook rules (as CI)
 npm run types                       # tsc with checkJs, generated .d.ts, TypeScript consumer (as CI)
 npm test                            # node --test in every workspace (as CI)
-npm run coverage                    # the tests with a coverage report (as CI)
-npm run pack:check                  # npm pack --dry-run of pivotkit-core, checked (as CI)
+npm run coverage                    # the tests with a coverage report (as CI); pivotkit-react: its .js modules only
+npm run pack:check                  # npm pack --dry-run of pivotkit-core and pivotkit-react, checked (as CI)
 npm run bench -w pivotkit-core      # engine timings for 2k, 4k and 100k rows
+npm run playground                  # playground with rebuilds on http://localhost:5173
+npm run test:browser                # build the playground and test pages, Playwright in three browsers (as CI)
+PIVOTKIT_REACT=19 npm run test:browser   # the same on React 19 (npm ci --prefix tests/react19 first)
 ```
 
 ## Rules that matter here
@@ -49,9 +70,13 @@ npm run bench -w pivotkit-core      # engine timings for 2k, 4k and 100k rows
 - `pivotkit-core` has no runtime dependency except `fflate` (zip for XLSX). The XLSX XML is written by
   hand; no SheetJS, no ExcelJS. The core builds plain ECharts option objects and does not import
   ECharts.
-- Every package is pinned to an exact version with the lock file; CI installs with
-  `npm ci --ignore-scripts`. Chart wrapper packages have been hijacked on npm before: prefer a small
-  own wrapper over a wrapper package.
+- Every third-party package is pinned to an exact version with the lock file; CI installs with
+  `npm ci --ignore-scripts`. Exception: a package of this repository that another one depends on
+  takes a caret range on its current version (`"pivotkit-core": "^0.0.0"` in pivotkit-react); the lock
+  file still pins it in development. In 0.x a caret range spans patch versions only (`^0.0.0` is
+  0.0.0 alone), so a host that also uses pivotkit-core directly must use a version inside the range;
+  npm shares one copy only when the ranges overlap. Chart wrapper packages have been hijacked on npm
+  before: prefer a small own wrapper over a wrapper package.
 - Exports must be safe to open: CSV text that a spreadsheet would run as a formula gets a leading `'`
   (the rule is in `src/csv.js`: tab or CR first, or `=` `@` after leading whitespace and control
   characters, or `+` `-` unless the text is a plain number or a number range); XLSX writes text as
@@ -59,13 +84,25 @@ npm run bench -w pivotkit-core      # engine timings for 2k, 4k and 100k rows
 - Designed for up to about 100,000 rows: typed arrays, no per-row objects in hot loops. Run the
   benchmark before and after engine changes and compare with the baseline in the package README.
 - The engine sources use only globals browsers and Node share (ESLint enforces it for `src/`).
+- UI: text at least 14 px (`--pk-font-size`, `--pk-small`), controls at least 24 x 24 px
+  (`--pk-target`), buttons with visible text (an icon alone only where the text is next to it), every
+  action reachable by keyboard and by a menu (drag and drop is never the only way), focus kept or
+  moved on purpose after every change, code that reads focus or clicks shadow-root safe (`dom.js`:
+  the node's root, `composedPath()`), colours only from `--pk-*` tokens
+  (both themes must pass `test/contrast.test.js`), animations through `--pk-duration` so
+  `prefers-reduced-motion` turns them off. Layout follows the report's width (`data-pk-size`), not the
+  window's. Check changes with screenshots in both themes at wide and narrow width.
+- Browser tests fail on any console error or warning (`tests/browser/fixtures.js`).
+- A host may render the report on every change of its own state: props compared by value
+  (`labels`, `limits`), data by `dataKey`, the history kept across renders (`use-view-history.js`).
 - Docs describe the current state; history belongs in each package's `CHANGELOG.md`, commits and pull
   requests. Conventional Commits with the package as scope (`feat(core): ...`).
 
 ## Do not
 
 - Commit `node_modules/` or build output.
-- Add a runtime dependency to `pivotkit-core`, or bundle React into `pivotkit-react`.
+- Add a runtime dependency to `pivotkit-core`, or bundle React or ECharts into `pivotkit-react`.
+- Add a UI framework or an animation library to `pivotkit-react`; it has its own CSS.
 - Put secrets, host names or real data into code, examples or tests.
 
 ## Exceptions to the repository standards

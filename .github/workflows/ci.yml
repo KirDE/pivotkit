@@ -39,6 +39,9 @@ jobs:
         run: npm run types
       - name: Unit tests with coverage
         run: npm run coverage
+      - name: Repository checks
+        # the Playwright image matches the locked @playwright/test, every dependency is pinned
+        run: node --test "tests/*.test.js"
       - name: Package contents
         # npm pack --dry-run: LICENSE, docs, sources and types in the tarball; publishes nothing
         run: npm run pack:check
@@ -48,3 +51,51 @@ jobs:
         # timings for the log only: shared runners vary too much for a threshold
         if: matrix.node == '24'
         run: npm run bench -w pivotkit-core
+
+  browser:
+    # The playground (examples/playground) and the host pages (tests/browser/pages) in Chromium,
+    # Firefox and WebKit, on React 18 (the workspace's, as PowerShell Universal provides it) and on
+    # React 19 (tests/react19, its own lock file). Playwright's own image carries the browsers and
+    # their system libraries, so nothing is installed with apt. Its version must be the one of
+    # @playwright/test in package-lock.json; tests/ci.test.js checks that.
+    name: browser (React ${{ matrix.react }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        react: ["18", "19"]
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --user 1001
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install
+        run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Install React 19
+        if: matrix.react == '19'
+        run: npm ci --prefix tests/react19 --no-audit --no-fund --ignore-scripts
+      - name: Browser tests
+        # builds the package, the playground and the host pages, then runs tests/browser against them
+        env:
+          PIVOTKIT_REACT: ${{ matrix.react }}
+        run: npm run test:browser
+      - name: Playground build
+        # the static files the tests opened, to try the playground without building it
+        if: success() && matrix.react == '18'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playground
+          path: examples/playground/dist/
+          retention-days: 14
+      - name: Test report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-react-${{ matrix.react }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14

@@ -9,7 +9,9 @@ security reports privately (see [SECURITY.md](SECURITY.md)).
 1. Fork, create a branch named after the change (`feat/...`, `fix/...`, `docs/...`).
 2. Follow [AGENTS.md](AGENTS.md): layout, commands and the rules that keep the packages safe and small.
 3. Run `npm ci`, `npm run lint`, `npm run types` and `npm test`; for engine changes also
-   `npm run bench -w pivotkit-core` and compare with the baseline in the package README.
+   `npm run bench -w pivotkit-core` and compare with the baseline in the package README; for UI
+   changes `npm run test:browser` (Playwright's browsers: `npx playwright install` once) and a look
+   at the playground (`npm run playground`) in light and dark, wide and narrow.
    The type declarations in `packages/pivotkit-core/types/` are generated, not committed: run
    `npm run types` before a TypeScript consumer in this repository (a later package) imports the core.
 4. Add an entry under `[Unreleased]` in the `CHANGELOG.md` of each package you changed.
@@ -18,7 +20,14 @@ security reports privately (see [SECURITY.md](SECURITY.md)).
 
 ## Dependencies
 
-Every package is pinned to an exact version with the lock file. Check the license of every library
+Every package of a third party is pinned to an exact version with the lock file; a package of this
+repository that another one depends on takes a caret range on its current version (`pivotkit-react`
+depends on `^<version of pivotkit-core>`); `tests/ci.test.js` checks both. In 0.x a caret range
+spans patch versions only (`^0.0.0` matches 0.0.0 alone, `^0.2.0` matches 0.2.x), so a host that
+also uses pivotkit-core directly must use a version inside that range; npm shares one copy only
+when the ranges overlap.
+React 19 for the browser tests is a separate install with its own lock file in `tests/react19/` (an
+alias in the workspace would clash with React 18's peer dependencies). Check the license of every library
 you add: permissive (MIT, Apache-2.0, BSD) and free for companies. `pivotkit-core` has no runtime
 dependency except `fflate` for the XLSX zip; keep it that way.
 
@@ -52,6 +61,12 @@ changelog. A new public function is exported from `src/index.js` (or `src/export
   `LANG` set, as in `test/time-zones.test.js`.
 - A type change: `test/types/consumer.ts` compiles against the generated declarations
   (`npm run types`).
+- UI logic of `pivotkit-react` (view changes, the history, keyboard moves, names, the chart's text)
+  lives in plain `.js` modules and is tested with `node --test` in `packages/pivotkit-react/test/`;
+  `npm run coverage` measures those modules only. What needs a browser (drag and drop, menus, focus,
+  downloads, themes, layouts) is a Playwright test in `tests/browser/` against the playground and the
+  pages of `tests/browser/pages/` (a host page with React from an import map, a shadow root); it fails
+  on any console error or warning. A test that measures layout waits until it has settled.
 
 ## Releasing
 
