@@ -17,14 +17,18 @@ const paths = new Set(files.map((f) => f.path));
 const pkg = JSON.parse(readFileSync(new URL(`../packages/${workspace}/package.json`, import.meta.url), "utf8"));
 
 const exportPaths = Object.values(pkg.exports).flatMap((target) => (typeof target === "string" ? [target] : Object.values(target)));
-const required = ["LICENSE", "README.md", "CHANGELOG.md", "package.json", ...exportPaths.map((p) => p.replace(/^\.\//, ""))];
+// a package that bundles third-party code ships their license texts
+const BUNDLED_LICENSES = { "pivotkit-element": ["dist/THIRD_PARTY_LICENSES.txt"] };
+const required = ["LICENSE", "README.md", "CHANGELOG.md", "package.json", ...exportPaths.map((p) => p.replace(/^\.\//, "")), ...(BUNDLED_LICENSES[workspace] ?? [])];
 const forbidden = /^(test|bench|scripts)\/|^tsconfig\.json$|^node_modules\//;
 
+// a package marked private cannot be published: npm publish stops with EPRIVATE
+const problems = pkg.private ? [`${workspace} is "private": true in package.json`] : [];
 const missing = required.filter((p) => !paths.has(p));
 const unwanted = [...paths].filter((p) => forbidden.test(p));
 console.log(`${name}@${version}: ${paths.size} files`);
-if (missing.length || unwanted.length) {
-    console.error(`missing: ${missing.join(", ") || "-"}\nunwanted: ${unwanted.join(", ") || "-"}`);
+if (missing.length || unwanted.length || problems.length) {
+    console.error(`missing: ${missing.join(", ") || "-"}\nunwanted: ${unwanted.join(", ") || "-"}${problems.length ? `\n${problems.join("\n")}` : ""}`);
     process.exit(1);
 }
 console.log("ok: license, docs, sources and types are in; tests and tooling are out");

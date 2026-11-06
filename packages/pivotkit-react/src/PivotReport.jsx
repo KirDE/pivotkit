@@ -146,7 +146,8 @@ export function PivotReport(props) {
         limits: limitsProp,
         className,
         fileName = "pivot",
-        fieldDefaults
+        fieldDefaults,
+        onExport
     } = props;
 
     // props a host may rebuild on every render, compared by value
@@ -355,7 +356,7 @@ export function PivotReport(props) {
         [result, encodedProp, data, drillDownLimit, onCellClick, drillDown, labels, encoded]
     );
 
-    const doExport = useExport({ fileName, result, locale, labels, limits, root, chartRef, announce });
+    const doExport = useExport({ fileName, result, locale, labels, limits, root, chartRef, announce, onExport });
 
     const loadTemplate = useCallback(
         (t) => {
@@ -564,7 +565,10 @@ export function PivotReport(props) {
                     <FilterPopover target={filterTarget} onClose={closeFilter} view={view} encoded={encoded} locale={locale} labels={labels} commit={commit} />
                 </PivotDnd>
                 <DrillPanel drill={drill} onClose={() => setDrill(null)} labels={labels} locale={locale} timeZone={encoded.timeZone} />
-                <div className="pk-layer" ref={setLayer} />
+                <div className="pk-layer" ref={setLayer}>
+                    {/* a fixed probe at 0, 0: where fixed popovers start (popover.jsx) */}
+                    <span className="pk-origin" aria-hidden="true" />
+                </div>
             </LayerContext.Provider>
         </div>
     );

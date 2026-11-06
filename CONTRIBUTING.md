@@ -11,21 +11,27 @@ security reports privately (see [SECURITY.md](SECURITY.md)).
 3. Run `npm ci`, `npm run lint`, `npm run types` and `npm test`; for engine changes also
    `npm run bench -w pivotkit-core` and compare with the baseline in the package README; for UI
    changes `npm run test:browser` (Playwright's browsers: `npx playwright install` once) and a look
-   at the playground (`npm run playground`) in light and dark, wide and narrow.
+   at the playground (`npm run playground`) in light and dark, wide and narrow; for the web component
+   also `npm run size -w pivotkit-element` and the example (`examples/element/`, served after
+   `npm run build:playground` with `node examples/playground/serve.js` at `/examples/element/`).
    The type declarations in `packages/pivotkit-core/types/` are generated, not committed: run
    `npm run types` before a TypeScript consumer in this repository (a later package) imports the core.
 4. Add an entry under `[Unreleased]` in the `CHANGELOG.md` of each package you changed.
 5. Open a pull request with a short description and what you tested; use Conventional Commits
-   (`feat(core): ...`, `fix(react): ...`).
+   (`feat(core): ...`, `fix(react): ...`, `feat(element): ...`).
 
 ## Dependencies
 
 Every package of a third party is pinned to an exact version with the lock file; a package of this
 repository that another one depends on takes a caret range on its current version (`pivotkit-react`
 depends on `^<version of pivotkit-core>`); `tests/ci.test.js` checks both. In 0.x a caret range
-spans patch versions only (`^0.0.0` matches 0.0.0 alone, `^0.2.0` matches 0.2.x), so a host that
+spans patch versions only (`^0.1.0` matches 0.1.x, `^0.0.1` matches 0.0.1 alone), so a host that
 also uses pivotkit-core directly must use a version inside that range; npm shares one copy only
 when the ranges overlap.
+`pivotkit-element` bundles everything it needs: each bundled package (React, ReactDOM, @dnd-kit,
+ECharts, and pivotkit-core and pivotkit-react at the version in this repository) is an exact
+devDependency, and the package has no runtime dependency. A change of a bundled version changes what
+the element ships; its license lands in `dist/THIRD_PARTY_LICENSES.txt` by itself.
 React 19 for the browser tests is a separate install with its own lock file in `tests/react19/` (an
 alias in the workspace would clash with React 18's peer dependencies). Check the license of every library
 you add: permissive (MIT, Apache-2.0, BSD) and free for companies. `pivotkit-core` has no runtime
@@ -65,8 +71,8 @@ changelog. A new public function is exported from `src/index.js` (or `src/export
   lives in plain `.js` modules and is tested with `node --test` in `packages/pivotkit-react/test/`;
   `npm run coverage` measures those modules only. What needs a browser (drag and drop, menus, focus,
   downloads, themes, layouts) is a Playwright test in `tests/browser/` against the playground and the
-  pages of `tests/browser/pages/` (a host page with React from an import map, a shadow root); it fails
-  on any console error or warning. A test that measures layout waits until it has settled.
+  pages of `tests/browser/pages/` (a host page with React from an import map, a shadow root, the web
+  component's pages in `pages/element/`); it fails on any console error or warning. A test that measures layout waits until it has settled.
 
 ## Releasing
 
@@ -74,19 +80,33 @@ Nothing is published yet, and there is no npm account for the packages. The rele
 (`.github/workflows/release.yml`) is prepared but skipped until it is switched on. To switch it on
 once:
 
-1. Create the package on npm and configure trusted publishing for this repository and the workflow
-   file `release.yml` (npm's documentation: "Trusted publishers"). No npm token is stored in GitHub.
-2. In the repository settings, create the environment `npm` with required reviewers.
-3. Set the repository variable `NPM_RELEASE_ENABLED` to `true`.
+1. Make the repository public: npm provenance is not available for private repositories (npm's
+   documentation, "Trusted publishers").
+2. Create the packages on npm and configure trusted publishing for each: this repository, the
+   workflow file `release.yml` and the environment `npm`. No npm token is stored in GitHub. The
+   split into a "build" and a "publish" job keeps the OIDC token away from the dependencies; it does
+   not prove the tarball: "build" runs the dev dependencies that make `dist/`, and provenance attests
+   the workflow and the commit, not that `dist/` is unaltered. "publish" checks only that the
+   tarball's name and version match the tag.
+3. In the repository settings, create the environment `npm` with required reviewers and deployments
+   from tags only (deployment branch and tag rule `*@*`).
+4. Add a tag ruleset for `*@*`: only maintainers create, move or delete release tags.
+5. Set the repository variable `NPM_RELEASE_ENABLED` to `true`.
 
-Then for each release of `pivotkit-core`:
+Then for each release of a package, in the order `pivotkit-core`, `pivotkit-react`,
+`pivotkit-element` (pivotkit-react depends on a published pivotkit-core; the element bundles both):
 
-1. Move the `[Unreleased]` entries in `packages/pivotkit-core/CHANGELOG.md` under the new version and
-   date; set `version` in `packages/pivotkit-core/package.json`; merge that pull request.
-2. Tag the merge commit `pivotkit-core@<version>` and push the tag.
-3. The workflow checks that the tag matches the version, runs lint, types, tests and the package
-   check, waits for an environment reviewer, and publishes with an npm provenance attestation.
+1. Move the `[Unreleased]` entries in `packages/<package>/CHANGELOG.md` under the new version and
+   date; set `version` in `packages/<package>/package.json`, and the caret range or the
+   devDependency of the packages that use it (`tests/ci.test.js` checks that every own range takes
+   the version in this repository); merge that pull request.
+2. Wait for CI on main, then tag the merge commit `<package>@<version>` and push the tag.
+3. The workflow's `build` job checks that the tag matches the version, that the commit is on main
+   and that CI passed for it, runs lint, types, tests and the package check, and packs the tarball;
+   it has no publishing right. The `publish` job waits for an environment reviewer, then publishes
+   only that tarball with an npm provenance attestation, with npm 11.21.1 (trusted publishing needs
+   11.5.1 or later and Node 22.14.0 or later).
 
-`npm run pack:check` shows locally what would be published (LICENSE, README, CHANGELOG, `src/`,
-`types/`). Verify against npm's current documentation which npm CLI version trusted publishing needs
-before the first release; the workflow uses the npm that ships with Node 24.
+`npm run pack:check` shows locally what would be published (LICENSE, README, CHANGELOG, `src/` or
+`dist/`, `types/`, and for pivotkit-element `dist/THIRD_PARTY_LICENSES.txt`); it fails while a
+package is marked `"private": true`.

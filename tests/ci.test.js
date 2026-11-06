@@ -24,7 +24,7 @@ test("the Playwright container image matches @playwright/test in package-lock.js
 const OWN = new Set(["pivotkit-core", "pivotkit-react", "pivotkit-element"]);
 
 test("every dependency is pinned to an exact version; this repository's own packages take a caret range", () => {
-    const manifests = ["package.json", "packages/pivotkit-core/package.json", "packages/pivotkit-react/package.json", "tests/react19/package.json"];
+    const manifests = ["package.json", "packages/pivotkit-core/package.json", "packages/pivotkit-react/package.json", "packages/pivotkit-element/package.json", "tests/react19/package.json"];
     for (const file of manifests) {
         const pkg = JSON.parse(readFileSync(new URL(file, root), "utf8"));
         for (const section of ["dependencies", "devDependencies"]) {
@@ -39,10 +39,57 @@ test("every dependency is pinned to an exact version; this repository's own pack
     }
 });
 
+/**
+ * Whether a version is inside a caret range, as npm reads it: ^1.2.3 is 1.x from 1.2.3, ^0.2.3 is
+ * 0.2.x from 0.2.3, ^0.0.3 is 0.0.3 alone. Plain x.y.z versions only, as this repository uses them.
+ */
+function caretSatisfies(range, version) {
+    const [a, b, c] = range.replace(/^\^/, "").split(".").map(Number);
+    const [x, y, z] = version.split(".").map(Number);
+    const atLeast = x > a || (x === a && (y > b || (y === b && z >= c)));
+    if (a > 0) return atLeast && x === a;
+    if (b > 0) return atLeast && x === 0 && y === b;
+    return x === 0 && y === 0 && z === c;
+}
+
+test("caretSatisfies reads caret ranges as npm does", () => {
+    assert.equal(caretSatisfies("^0.1.0", "0.1.4"), true);
+    assert.equal(caretSatisfies("^0.1.0", "0.2.0"), false);
+    assert.equal(caretSatisfies("^0.0.1", "0.0.2"), false);
+    assert.equal(caretSatisfies("^1.2.0", "1.9.0"), true);
+    assert.equal(caretSatisfies("^1.2.0", "1.1.9"), false);
+});
+
+// publish order core, react, element: a range of an own package must take the version in this
+// repository, else npm would fetch another one from the registry instead of linking the workspace
+test("every caret range on an own package is satisfied by the workspace version", () => {
+    for (const name of ["pivotkit-core", "pivotkit-react", "pivotkit-element"]) {
+        const pkg = JSON.parse(readFileSync(new URL(`packages/${name}/package.json`, root), "utf8"));
+        for (const [dep, range] of Object.entries(pkg.dependencies ?? {})) {
+            if (OWN.has(dep)) {
+                const own = JSON.parse(readFileSync(new URL(`packages/${dep}/package.json`, root), "utf8"));
+                assert.ok(caretSatisfies(range, own.version), `${name} needs ${dep}@${range}, the repository has ${own.version}`);
+            }
+        }
+    }
+});
+
 test("the own packages' caret ranges take the version of the package in this repository", () => {
     const core = JSON.parse(readFileSync(new URL("packages/pivotkit-core/package.json", root), "utf8"));
     const react = JSON.parse(readFileSync(new URL("packages/pivotkit-react/package.json", root), "utf8"));
     assert.equal(react.dependencies["pivotkit-core"], `^${core.version}`);
+});
+
+// pivotkit-element bundles its own packages: they are build-time devDependencies, pinned to the
+// version in this repository (npm links the workspace only when the version matches; else it would
+// fetch the package from the registry)
+test("pivotkit-element bundles the pivotkit-core and pivotkit-react of this repository", () => {
+    const element = JSON.parse(readFileSync(new URL("packages/pivotkit-element/package.json", root), "utf8"));
+    assert.deepEqual(Object.keys(element.dependencies ?? {}), [], "pivotkit-element has no runtime dependency: it bundles everything");
+    for (const name of ["pivotkit-core", "pivotkit-react"]) {
+        const own = JSON.parse(readFileSync(new URL(`packages/${name}/package.json`, root), "utf8"));
+        assert.equal(element.devDependencies[name], own.version, `pivotkit-element devDependencies.${name}`);
+    }
 });
 
 test("the React 19 check installs from its own lock file", () => {

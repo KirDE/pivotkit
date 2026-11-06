@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": [
+      "es2023",
+      "dom"
+    ],
+    "types": [],
+    "skipLibCheck": false,
+    "jsx": "react",
+    "esModuleInterop": true
+  },
+  "files": [
+    "consumer.ts",
+    "jsx.tsx"
+  ]
+}
