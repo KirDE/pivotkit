@@ -1,6 +1,9 @@
 // A host page as PowerShell Universal renders a component: React comes from the page (import map),
 // pivotkit-react is its own file, the view is controlled, and the page renders again every 200 ms
-// with a new copy of the rows (and the same dataKey).
+// with a new copy of the rows (and the same dataKey). ?persist keeps the view per tab (persistView),
+// ?options passes chartOptions (a new object on every render), ?xss a chartOptions with markup in a
+// tooltip formatter, ?loading holds the data back for 800 ms. window.__chartOption() reads the option
+// the chart draws, from the ECharts the report loaded (the same module through the import map).
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { PivotReport } from "pivotkit-react";
@@ -8,21 +11,37 @@ import { DATASETS } from "../../../examples/playground/src/data.js";
 
 const rows = DATASETS.sales.make(2000);
 const start = DATASETS.sales.presets[0].view;
+const query = new URLSearchParams(location.search);
 
 function Host() {
     const [view, setView] = useState(start);
     const [tick, setTick] = useState(0);
+    const [loading, setLoading] = useState(query.has("loading"));
     useEffect(() => {
         const t = setInterval(() => setTick((n) => n + 1), 200);
-        return () => clearInterval(t);
+        const l = setTimeout(() => setLoading(false), 800);
+        return () => {
+            clearInterval(t);
+            clearTimeout(l);
+        };
     }, []);
+    const extra = {
+        ...(query.has("persist") ? { persistView: "session", storageKey: "host" } : {}),
+        ...(query.has("options") ? { chartOptions: { title: { textStyle: { fontSize: 20 } }, series: { barMaxWidth: 12 }, grid: { left: 40 } } } : {}),
+        ...(query.has("xss") ? { chartOptions: { tooltip: { formatter: '<img src="x" onerror="window.__xss = true">' }, series: { barMaxWidth: 10 } } } : {})
+    };
     return (
         <>
             <p data-testid="host-renders">{tick}</p>
-            <PivotReport data={[...rows]} dataKey="sales-2000" view={view} onViewChange={setView} height={640} />
+            <PivotReport data={loading ? [] : [...rows]} dataKey={loading ? "none" : "sales-2000"} view={view} onViewChange={setView} height={640} loading={loading} {...extra} />
         </>
     );
 }
 
 window.__pivotkitReact = React.version;
+window.__chartOption = async () => {
+    const { getInstanceByDom } = await import("echarts/core");
+    const chart = getInstanceByDom(document.querySelector('[data-testid="pivot-chart"]'));
+    return chart ? JSON.parse(JSON.stringify(chart.getOption(), (k, v) => (typeof v === "function" ? "[function]" : v))) : null;
+};
 createRoot(document.getElementById("app")).render(<Host />);
