@@ -103,10 +103,16 @@ test("share-link: present is the page's address, a value a base URL, false off; 
     assert.equal(fromAttribute(def("loading"), ""), true);
     assert.equal(fromAttribute(def("loading"), null), false);
     assert.ok(OBJECT_PROPS.includes("chartOptions"), "an object is a property");
+    assert.ok(OBJECT_PROPS.includes("sources"), "a list is a property");
+    assert.equal(fromAttribute(def("source-id"), "sales"), "sales");
+    assert.equal(fromAttribute(def("source-name"), null), undefined);
+    // "" leaves $schema out of the view files; unset is pivotkit's published schema
+    assert.equal(fromAttribute(def("schema-url"), ""), "");
+    assert.equal(fromAttribute(def("schema-url"), null), undefined);
 });
 
-test("field-info and zone-info: on or off decide, anything else leaves it to the user", () => {
-    for (const attr of ["field-info", "zone-info"]) {
+test("field-info, zone-info and setting-info: on or off decide, anything else leaves it to the user", () => {
+    for (const attr of ["field-info", "zone-info", "setting-info", "grow"]) {
         assert.equal(fromAttribute(def(attr), " OFF "), "off");
         assert.equal(fromAttribute(def(attr), "on"), "on");
         assert.equal(fromAttribute(def(attr), "maybe"), undefined);

@@ -12,14 +12,14 @@ const src = fileURLToPath(new URL("../src/", import.meta.url));
 
 test("the package exports its documented entry points and nothing else", () => {
     assert.deepEqual(Object.keys(core).sort(), [
-        "CATALOG", "DEFAULT_LABELS", "DEFAULT_THEME", "LIMITS", "PivotkitError", "VIEW_VERSION", "aggregatorsFor",
-        "cellRows", "computePivot", "createHistory", "emptyView", "encode", "fieldDefaultsFromSchema", "fieldItems", "fieldLabel", "findNode", "formatter", "isFormat",
-        "migrate", "normalize", "suggestDateUnit", "toEChartsOption", "toGrid", "toSeries", "validate", "viewFields"
+        "CATALOG", "DEFAULT_LABELS", "DEFAULT_THEME", "LIMITS", "PivotkitError", "VIEW_FILE_FORMAT", "VIEW_FILE_LIMITS", "VIEW_FILE_SCHEMA", "VIEW_FILE_VERSION", "VIEW_VERSION", "aggregatorsFor",
+        "cellRows", "computePivot", "createHistory", "emptyView", "encode", "fieldDefaultsFromSchema", "fieldItems", "fieldLabel", "findNode", "formatter", "fromViewFile", "isFormat",
+        "migrate", "normalize", "suggestDateUnit", "toEChartsOption", "toGrid", "toSeries", "toViewFile", "validate", "viewFields", "viewFileFields", "viewFileName", "viewFileText"
     ]);
     assert.deepEqual(Object.keys(exporters).sort(), ["toCsv", "toCsvBytes", "toXlsx"]);
     assert.deepEqual(Object.keys(links).sort(), ["LINK_LIMITS", "decodeViewLink", "encodeViewLink"]);
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-    assert.deepEqual(Object.keys(pkg.exports), [".", "./export", "./link", "./package.json"]);
+    assert.deepEqual(Object.keys(pkg.exports), [".", "./export", "./link", "./schema/view-file-1.json", "./package.json"]);
 });
 
 /** Every module the file imports, transitively, as paths relative to src/, and the bare imports. */
@@ -59,7 +59,7 @@ test("the catalog lists exactly what normalize accepts", () => {
     for (const type of CATALOG.chartTypes) {
         assert.equal(validate({ chart: { type } }, data).valid, true, type);
     }
-    for (const [key, list] of [["valueLabels", CATALOG.chartValueLabels], ["legend", CATALOG.chartLegends], ["axisLabels", CATALOG.chartAxisLabels], ["groupLabels", CATALOG.chartGroupLabels]]) {
+    for (const [key, list] of [["valueLabels", CATALOG.chartValueLabels], ["legend", CATALOG.chartLegends], ["axisLabels", CATALOG.chartAxisLabels], ["groupLabels", CATALOG.chartGroupLabels], ["labelPosition", CATALOG.chartLabelPositions]]) {
         for (const value of list) {
             assert.equal(validate({ chart: { [key]: value } }, data).valid, true, `${key} ${value}`);
         }

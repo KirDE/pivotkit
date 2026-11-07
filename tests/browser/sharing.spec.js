@@ -2,6 +2,8 @@
 // the skeleton, and the help switches. Every test here fails without its feature.
 import { readFile } from "node:fs/promises";
 import { test as plain } from "@playwright/test";
+import { toViewFile } from "pivotkit-core";
+import { encodeViewLink } from "pivotkit-core/link";
 import { chips, expect, test, toolbar } from "./fixtures.js";
 
 /** A switch of a menu (its checkbox is drawn as a track): by keyboard, as a person reaches it. */
@@ -68,7 +70,7 @@ test.describe("sharing a view", () => {
         await expect.poll(() => new URL(page.url()).searchParams.get("start")).toBe("revenue-by-region-and-category");
         await page.getByRole("button", { name: "Remove Country" }).click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
-        await toolbar(page, "templates");
+        await toolbar(page, "views");
         await page.getByTestId("copy-link").click();
         await expect(page.locator(".pk-toasts")).toContainText("Link copied");
         const link = await page.evaluate(() => /** @type {any} */ (window).__copied);
@@ -99,7 +101,7 @@ test.describe("sharing a view", () => {
         await page.getByRole("button", { name: "Remove Region" }).click();
         // the entry is replaced, not added again
         await expect.poll(() => (new URL(page.url()).hash.match(/pivot-playground=/g) ?? []).length).toBe(1);
-        await toolbar(page, "templates");
+        await toolbar(page, "views");
         await page.getByTestId("copy-link").click();
         const link = await page.evaluate(() => /** @type {any} */ (window).__copied);
         expect(new URL(link).hash).toMatch(/^#\/reports\/a\?tab=2&pivot-playground=1\./);
@@ -131,19 +133,31 @@ test.describe("sharing a view", () => {
     test("the view as JSON: copied, downloaded, loaded again; what does not fit is named", async ({ page }) => {
         await captureClipboard(page);
         await page.goto("?data=sales");
-        await toolbar(page, "templates");
+        await toolbar(page, "views");
         await page.getByTestId("copy-json").click();
         await expect(page.locator(".pk-toasts")).toContainText("View copied as JSON");
-        const json = JSON.parse(await page.evaluate(() => /** @type {any} */ (window).__copied));
-        expect(json.rows).toEqual(["Region", "Country"]);
-        await toolbar(page, "templates");
+        // a view file: the envelope with the source and the fields the view uses, the view inside
+        const copied = await page.evaluate(() => /** @type {any} */ (window).__copied);
+        const json = JSON.parse(copied);
+        expect(Object.keys(json).slice(0, 3)).toEqual(["$schema", "format", "formatVersion"]);
+        expect(json.format).toBe("pivotkit-view");
+        expect(json.generator.name).toBe("pivotkit-react");
+        expect(json.generator.version).toMatch(/^\d+\.\d+\.\d+/);
+        expect(json.source.id).toBe("sales");
+        expect(json.source.fields.map((f) => f.name)).toEqual(expect.arrayContaining(["Region", "Country", "Category"]));
+        expect(json.view.rows).toEqual(["Region", "Country"]);
+        expect(copied.endsWith("}\n")).toBe(true);
+        // the Share section says what a shared view gives away
+        await toolbar(page, "views");
+        await expect(page.getByTestId("share-privacy")).toBeVisible();
         const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("download-view").click()]);
-        expect(download.suggestedFilename()).toBe("pivotkit-sales-view.json");
+        // named after the data (no view name yet), as <slug>.pivotkit.json
+        expect(download.suggestedFilename()).toBe("sales.pivotkit.json");
         const file = await download.path();
-        expect(JSON.parse(await readFile(file, "utf8")).cols).toEqual(["Category"]);
+        expect(JSON.parse(await readFile(file, "utf8")).view.cols).toEqual(["Category"]);
 
         // paste: a view with a field this data does not have
-        await toolbar(page, "templates");
+        await toolbar(page, "views");
         await page.getByTestId("load-view").click();
         await expect(page.getByTestId("load-view-text")).toBeFocused();
         await page.getByTestId("load-view-text").fill("{ nope");
@@ -151,18 +165,70 @@ test.describe("sharing a view", () => {
         await expect(page.getByTestId("load-view-problem")).toHaveText("This is neither a view in JSON nor a pivotkit link.");
         await page.getByTestId("load-view-text").fill(JSON.stringify({ rows: ["Product", "Planet"], values: [{ field: "Units", agg: "sum" }] }));
         await page.getByTestId("load-view-apply").click();
+        // a bare view: no source to compare, but a field the data lacks: asked first
+        await expect(page.getByTestId("load-check")).toContainText("Fields this data does not have: “Planet”.");
+        await expect(page.getByTestId("load-switch")).toHaveCount(0);
+        await page.getByTestId("load-anyway").click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Product"]);
-        await expect(page.locator(".pk-toasts")).toContainText("View loaded. Some parts did not fit this data and were left out: fields this data does not have (“Planet”)");
+        // a warning, not an error: the note goes by itself; what was left out stays above the result
+        const note = page.locator(".pk-toast").filter({ hasText: "View loaded; some parts did not fit this data" });
+        await expect(note).toBeVisible();
+        await expect(note).not.toHaveClass(/pk-error/);
+        await expect(page.getByTestId("view-issues")).toContainText("fields this data does not have (“Planet”)");
+        await expect(note).toHaveCount(0, { timeout: 10_000 });
+        await expect(page.getByTestId("view-issues")).toBeVisible();
+        await page.getByTestId("dismiss-issues").click();
+        await expect(page.getByTestId("view-issues")).toHaveCount(0);
         // one step: Undo goes back to the view before
         await page.getByTestId("undo").click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Region", "Country"]);
 
         // a file: the one downloaded above
-        await toolbar(page, "templates");
+        await toolbar(page, "views");
         await page.getByTestId("load-view").click();
         await page.getByTestId("load-view-file").setInputFiles(file);
         await expect(page.locator(".pk-toasts")).toContainText("View loaded");
         await expect.poll(() => chips(page, "cols")).toEqual(["Category"]);
+    });
+
+    test("a view file for other data asks before it loads: cancel, load anyway, or switch to its data", async ({ page }) => {
+        await page.goto("?data=sales");
+        const file = JSON.stringify({ $schema: "https://pivotkit.eize.dev/schema/view-file-1.json", format: "pivotkit-view", formatVersion: 1, name: "Sunshine", source: { id: "weather", name: "Weather", fields: [{ name: "City", type: "string" }] }, extensions: {}, view: { rows: ["City"], values: [{ field: "Sunshine h", agg: "average" }] } });
+        const open = async () => {
+            await toolbar(page, "views");
+            await page.getByTestId("load-view").click();
+            await page.getByTestId("load-view-text").fill(file);
+            await page.getByTestId("load-view-apply").click();
+            await expect(page.getByTestId("load-check")).toBeVisible();
+        };
+        await open();
+        // the source's name is the host's (sources), shown as text
+        await expect(page.getByTestId("load-check")).toContainText("It was made for “Weather of 14 cities, 2023-2025”.");
+        // Cancel: nothing changed, the form is back
+        await page.getByTestId("load-cancel").click();
+        await expect(page.getByTestId("load-view-text")).toBeVisible();
+        // the pasted text is still there: the first Escape empties the field, the next closes the menu
+        await expect(page.getByTestId("load-view-text")).toHaveValue(file);
+        await page.getByTestId("load-view-text").press("Escape");
+        await expect(page.getByTestId("load-view-text")).toHaveValue("");
+        await page.getByTestId("load-view-text").press("Escape");
+        await expect(page.locator(".pk-popover")).toHaveCount(0);
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region", "Country"]);
+        // Switch: the host shows the other data with the view
+        await open();
+        await page.getByTestId("load-switch").click();
+        await expect.poll(() => new URL(page.url()).searchParams.get("data")).toBe("weather");
+        await expect.poll(() => chips(page, "rows")).toEqual(["City"]);
+        await expect.poll(() => chips(page, "values")).toEqual(["Average of Sunshine h"]);
+    });
+
+    test("a view file of a newer format is refused with the advice to update pivotkit", async ({ page }) => {
+        await page.goto("?data=sales");
+        await toolbar(page, "views");
+        await page.getByTestId("load-view").click();
+        await page.getByTestId("load-view-text").fill(JSON.stringify({ format: "pivotkit-view", formatVersion: 2, view: { rows: ["Region"] } }));
+        await page.getByTestId("load-view-apply").click();
+        await expect(page.getByTestId("load-view-problem")).toContainText("Update pivotkit to open it.");
     });
 
     test("a host's page: the view is kept for the tab (persistView), chartOptions and loading change nothing else", async ({ page }) => {
@@ -281,4 +347,87 @@ test.describe("chartOptions", () => {
         expect((await page.evaluate(() => /** @type {any} */ (window).__chartOption())).tooltip[0].formatter).toBe("[function]");
         expect(errors).toEqual([]);
     });
+});
+
+test.describe("the view file check of the documentation site", () => {
+    test("reads a view file with pivotkit-core in the page: the format, what is left out, the fields it needs", async ({ page }) => {
+        await page.goto("validator.html");
+        const file = { format: "pivotkit-view", formatVersion: 1, name: "Units <b>", source: { id: "sales", fields: [{ name: "Region", type: "string" }, { name: "Units", type: "number" }] }, view: { rows: ["Region", "Planet"], values: [{ field: "Units", agg: "sum" }] } };
+        await page.getByTestId("vf-text").fill(JSON.stringify(file));
+        await page.getByTestId("vf-check").click();
+        const out = page.getByTestId("vf-out");
+        await expect(out).toContainText("Usable, with notes");
+        // the name is text, never markup
+        await expect(out).toContainText("“Units <b>”");
+        await expect(out.locator("b")).toHaveCount(0);
+        await expect(out).toContainText('rows[1] unknown field "Planet"');
+        await expect(out).toContainText("Units (number)");
+        // a newer format is refused with the advice to update
+        await page.getByTestId("vf-text").fill(JSON.stringify({ ...file, formatVersion: 2 }));
+        await page.getByTestId("vf-check").click();
+        await expect(out).toContainText("update pivotkit to open it");
+        // a valid file
+        await page.getByTestId("vf-text").fill(JSON.stringify({ ...file, view: { rows: ["Region"] } }));
+        await page.getByTestId("vf-check").click();
+        await expect(out).toContainText("Valid");
+    });
+});
+
+test.describe("a link for other data and a load check by keyboard", () => {
+    test("a link made for another data set asks before it opens: Cancel keeps the start, Load anyway opens it", async ({ page }) => {
+        const view = { rows: ["City"], values: [{ field: "Sunshine h", agg: "average" }] };
+        const link = encodeViewLink(toViewFile(view, { source: { id: "weather" } }, { link: true }));
+        await page.goto(`?data=sales#pivot-playground=${link}`);
+        const check = page.getByTestId("link-check");
+        await expect(check).toContainText("It was made for “Weather of 14 cities, 2023-2025”.");
+        // not opened yet: the start view stays
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region", "Country"]);
+        await check.getByTestId("load-cancel").click();
+        await expect(check).toHaveCount(0);
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region", "Country"]);
+        // the same in the same tab (only the fragment changes): Load anyway opens it as a step
+        await page.evaluate(() => {
+            location.hash = "";
+        });
+        await page.evaluate((text) => {
+            location.hash = `pivot-playground=${text}`;
+        }, link);
+        await expect(page.getByTestId("link-check")).toBeVisible();
+        await page.getByTestId("link-check").getByTestId("load-anyway").click();
+        await expect.poll(() => chips(page, "rows")).toEqual([]);
+        await expect(page.getByTestId("view-issues")).toContainText("“City”");
+    });
+
+    test("the load check takes the focus when it replaces the form", async ({ page, browserName }) => {
+        await page.goto("?data=sales");
+        await toolbar(page, "views");
+        await page.getByTestId("load-view").click();
+        await page.getByTestId("load-view-text").fill(JSON.stringify({ format: "pivotkit-view", formatVersion: 1, source: { id: "weather" }, view: { rows: ["City"] } }));
+        await page.getByTestId("load-view-apply").click();
+        // the form the focus was in is gone: the check's first choice has it
+        await expect(page.getByTestId("load-switch")).toBeFocused();
+        // Safari's Tab skips buttons unless the user turns that on
+        if (browserName !== "webkit") {
+            await page.keyboard.press("Tab");
+            await expect(page.getByTestId("load-anyway")).toBeFocused();
+        }
+    });
+});
+
+// a host that does not deploy the menus' chunk, or a connection that drops: the panel says so and tries again
+plain("a menu whose code cannot be loaded says so and loads on Try again", async ({ page }) => {
+    let blocked = true;
+    await page.route(/\/chunks\/menus-[^/]+\.js$/, (route) => (blocked ? route.abort() : route.continue()));
+    await page.goto("?data=sales");
+    await page.getByTestId("options").click();
+    const failed = page.getByTestId("menu-failed");
+    await expect(failed).toContainText("This menu could not be loaded.");
+    await expect(page.getByTestId("menu-retry")).toBeFocused();
+    blocked = false;
+    await page.getByTestId("menu-retry").click();
+    await expect(page.getByTestId("show-tips")).toBeVisible();
+    // loaded once, every menu has it
+    await page.keyboard.press("Escape");
+    await page.getByTestId("chip-menu-Region").click();
+    await expect(page.getByTestId("open-filter")).toBeVisible();
 });
