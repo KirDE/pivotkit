@@ -1114,6 +1114,15 @@
     white-space: nowrap;
 }
 
+/* the range form: size and start one below the other, their inputs in one column */
+.pk-bin-form .pk-field-label {
+    flex-basis: 100%;
+}
+
+.pk-bin-form .pk-field-label > span {
+    min-width: 7.5em;
+}
+
 .pk-narrow-input {
     flex: 0 0 5em;
     min-width: 5em;
@@ -1446,6 +1455,34 @@
     display: inline-flex;
     align-items: center;
     gap: 0.25em;
+}
+
+/* A long row label wraps instead of pushing every value out of view on a phone: the row label
+   columns (and the field names above them) share at most 40 % of the main area's width, each at
+   least 4.5em, and a value's name wraps beyond 30 %. A virtual table needs rows of one height, so
+   there a row label is cut with an ellipsis and its full text is the cell's title. */
+/* width: max-content keeps a label on one line when the table is merely wider than the report (its
+   columns would shrink to the longest word otherwise); only the cap makes it wrap */
+.pk-table :is(tbody th.pk-rowHeader, thead th.pk-corner) .pk-th-content {
+    width: max-content;
+    max-width: max(4.5em, calc(40cqi / var(--pk-row-cols, 1)));
+}
+
+.pk-table thead tr:last-child th.pk-colHeader .pk-th-content {
+    width: max-content;
+    max-width: max(6em, 30cqi);
+}
+
+.pk-table :is(tbody th.pk-rowHeader, thead th.pk-corner, thead tr:last-child th.pk-colHeader) .pk-th-text {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: break-word;
+}
+
+.pk-table.pk-virtual tbody th.pk-rowHeader .pk-th-text {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 .pk-draggable {
