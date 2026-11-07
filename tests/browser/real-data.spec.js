@@ -82,7 +82,7 @@ test.describe("countries", () => {
         const rows = await tableRows(page);
         const start = rows.findIndex((r) => r.includes("India"));
         expect(rows.slice(start, start + 3).map((r) => r.at(-2))).toEqual(sa.slice(0, 3).map((x) => x.Country));
-        await expect(page.getByTestId("note-top")).toContainText("Country shows the top 3 only");
+        await expect(page.getByTestId("tip-top")).toContainText("Country shows the top 3 only");
     });
 
     test("share of the world's CO2 per region", async ({ page }) => {
@@ -215,7 +215,7 @@ test.describe("software end of life", () => {
         expect(rows.map((r) => r[0])).toEqual([...ranked.slice(0, 10).map(([p]) => p), "Grand Total"]);
         const oldest = ranked[0][1].map((x) => x.Released).sort()[0];
         expect(rows[0].slice(1)).toEqual([int(ranked[0][1].length), usDate(oldest)]);
-        await expect(page.getByTestId("note-top")).toContainText("Product shows the top 10 only");
+        await expect(page.getByTestId("tip-top")).toContainText("Product shows the top 10 only");
     });
 
     test("support length per category in ranges of 2 years, without unknown ends", async ({ page }) => {
@@ -331,7 +331,7 @@ test.describe("learning tasks", () => {
         await open(page, "data=countries&preset=0");
         await page.getByTestId("chip-menu-Country").click();
         await page.getByRole("button", { name: "Clear" }).click();
-        await expect(page.getByTestId("note-top")).toHaveCount(0);
+        await expect(page.getByTestId("tip-top")).toHaveCount(0);
         const southAsia = countries.filter((x) => x.Year === 2024 && x.Region === "South Asia");
         const rows = await tableRows(page);
         expect(rows.filter((r) => southAsia.some((c) => r.includes(c.Country)))).toHaveLength(southAsia.length);

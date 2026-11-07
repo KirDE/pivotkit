@@ -6,7 +6,8 @@
  */
 
 import React, { useId, useState } from "react";
-import { CATALOG, aggregatorsFor, isFormat } from "pivotkit-core";
+import { CATALOG, aggregatorsFor, fieldLabel, isFormat } from "pivotkit-core";
+import { FieldDescription } from "./info.jsx";
 import { fill } from "./labels.js";
 import { groupingName, valueLabel } from "./names.js";
 import { Option, Section } from "./popover.jsx";
@@ -125,8 +126,9 @@ function RemoveFoot({ labels, onRemove, close }) {
 }
 
 /** The menu of a chip on Rows or Columns. */
-export function AxisMenu({ view, zone, index, field, types, labels, commit, close, openFilter, chipRef, onRemove, defaultsOf, rangeOf, locale }) {
+export function AxisMenu({ view, zone, index, field, types, labels, commit, close, openFilter, chipRef, onRemove, defaultsOf, rangeOf, locale, info }) {
     const source = sourceOf(view, field);
+    const name = fieldLabel(field, labels.core);
     const sourceType = types.get(source.toLowerCase());
     const grouping = groupingOf(view, field);
     const sort = sortOf(view, field);
@@ -144,12 +146,13 @@ export function AxisMenu({ view, zone, index, field, types, labels, commit, clos
         const spec = by === "value" ? { by, order, value: firstRef } : by === "custom" ? { by, order, items: [...customItems] } : { by, order };
         // A to Z is the default without an entry; a field with the host's order keeps it as an entry, or
         // the host's order would come back (withHostOrders)
-        commit(setSort(view, field, by === "label" && order === "asc" && !(Array.isArray(hostOrder) && hostOrder.length > 0) ? null : spec), { step: "sort", field });
+        commit(setSort(view, field, by === "label" && order === "asc" && !(Array.isArray(hostOrder) && hostOrder.length > 0) ? null : spec), { step: "sort", field: name });
     };
     const regroup = (unit, size, origin) => {
         close();
-        const name = unit ? groupingName(source, unit, labels, size) : null;
-        commit(groupField(view, field, unit, { size, origin, name: name ?? undefined }).view, { step: "group", field: source });
+        const sourceName = fieldLabel(source, labels.core);
+        const grouped = unit ? groupingName(sourceName, unit, labels, size) : null;
+        commit(groupField(view, field, unit, { size, origin, name: grouped ?? undefined }).view, { step: "group", field: sourceName });
     };
     const unitOption = (u) => (
         <Option key={u} checked={grouping?.by === u} onSelect={() => regroup(u)} testId={`group-${u}`} hint={labels.unitHints[u] || undefined}>
@@ -159,6 +162,7 @@ export function AxisMenu({ view, zone, index, field, types, labels, commit, clos
     return (
         <>
             <div className="pk-menu-body">
+                {info ? <FieldDescription info={info} labels={labels} className="pk-field-desc pk-menu-desc" /> : null}
                 <Section title={labels.sort}>
                     <Option checked={isSort("label", "asc")} icon="sortAsc" onSelect={() => doSort("label", "asc")}>{sourceType === "date" ? labels.sortOldest : labels.sortLabelAsc}</Option>
                     <Option checked={isSort("label", "desc")} icon="sortDesc" onSelect={() => doSort("label", "desc")}>{sourceType === "date" ? labels.sortNewest : labels.sortLabelDesc}</Option>
@@ -182,14 +186,14 @@ export function AxisMenu({ view, zone, index, field, types, labels, commit, clos
                     </Section>
                 ) : null}
                 <Section title={labels.topN}>
-                    <TopForm top={top} labels={labels} firstName={firstName} onApply={(t) => { close(); commit(setTopFilter(view, field, t ? { ...t, by: firstRef } : null), { step: "top", field }); }} />
+                    <TopForm top={top} labels={labels} firstName={firstName} onApply={(t) => { close(); commit(setTopFilter(view, field, t ? { ...t, by: firstRef } : null), { step: "top", field: name }); }} />
                 </Section>
                 <Section title={labels.zones.filters}>
                     <Option icon="filter" onSelect={() => { close(); openFilter(field, chipRef.current); }} checked={isFiltered(view, field) ? true : undefined} testId="open-filter">
                         {labels.filter}
                     </Option>
                 </Section>
-                <MoveSection view={view} zone={zone} index={index} count={view[zone].length} labels={labels} commit={commit} close={close} text={field} type={sourceType} />
+                <MoveSection view={view} zone={zone} index={index} count={view[zone].length} labels={labels} commit={commit} close={close} text={name} type={sourceType} />
             </div>
             <RemoveFoot labels={labels} onRemove={onRemove} close={close} />
         </>
@@ -197,7 +201,7 @@ export function AxisMenu({ view, zone, index, field, types, labels, commit, clos
 }
 
 /** The menu of a value chip. */
-export function ValueMenu({ view, index, types, labels, commit, close, onRemove, defaultsOf }) {
+export function ValueMenu({ view, index, types, labels, commit, close, onRemove, defaultsOf, info }) {
     const spec = view.values[index];
     const type = spec.field ? types.get(spec.field.toLowerCase()) ?? "string" : "number";
     const aggs = spec.field ? aggregatorsFor(type) : ["count"];
@@ -224,6 +228,7 @@ export function ValueMenu({ view, index, types, labels, commit, close, onRemove,
     return (
         <>
             <div className="pk-menu-body">
+                {info ? <FieldDescription info={info} labels={labels} className="pk-field-desc pk-menu-desc" /> : null}
                 <Section title={labels.aggregation}>
                     <div className="pk-choice-grid">{common.map(aggOption)}</div>
                     {rare.length ? (
