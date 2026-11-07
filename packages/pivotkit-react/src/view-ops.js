@@ -447,6 +447,35 @@ function replaceFilters(view, field, types, entries) {
 }
 
 /**
+ * Replaces one filter of a field, `previous` (a filter of the view, matched by its content), with
+ * `entry`, or removes it when `entry` is null; without `previous` the entry is added after the field's
+ * other filters. The field's other filters, also others of the same type, stay as they are.
+ */
+function replaceFilter(view, field, previous, entry) {
+    const next = clone(view);
+    const key = previous ? JSON.stringify(previous) : null;
+    const at = key === null ? -1 : next.filters.findIndex((f) => same(f.field, field) && JSON.stringify(f) === key);
+    if (at === -1) {
+        if (!entry) {
+            return next;
+        }
+        const last = next.filters.map((f) => same(f.field, field)).lastIndexOf(true);
+        next.filters.splice(last + 1, 0, entry);
+        return next;
+    }
+    if (entry) {
+        next.filters[at] = entry;
+    } else {
+        next.filters.splice(at, 1);
+        // a field in the Filters zone stays there with an empty filter when its last filter goes
+        if (!axisOf(next, field) && filterZoneFields(view).some((f) => same(f, field)) && !next.filters.some((f) => same(f.field, field))) {
+            next.filters.splice(at, 0, { field, type: "exclude", items: [] });
+        }
+    }
+    return next;
+}
+
+/**
  * The item filter of a field from the selected values: everything selected removes it; otherwise the
  * values not selected are excluded, so values that appear in newer data are shown, as in Excel.
  * @param {any} view
@@ -475,9 +504,87 @@ export function setLabelFilter(view, field, condition) {
     return replaceFilters(view, field, ["label"], condition && condition.value !== "" ? [{ field, type: "label", op: condition.op, value: condition.value }] : []);
 }
 
-/** Top or bottom N items of a field by a value ({ count, bottom, by }), or null to remove it. */
-export function setTopFilter(view, field, top) {
-    return replaceFilters(view, field, ["top"], top ? [{ field, type: "top", count: top.count, bottom: Boolean(top.bottom), ...(top.by ? { by: top.by } : {}) }] : []);
+/**
+ * Top or bottom N items of a field by a value ({ count, bottom, by }), or null to remove it. `previous`
+ * is the top filter being edited (the view's own entry); without it the field's top filters are
+ * replaced. Another top filter of the field (a view may hold two) stays.
+ */
+export function setTopFilter(view, field, top, previous) {
+    const entry = top ? { field, type: "top", count: top.count, bottom: Boolean(top.bottom), ...(top.by ? { by: top.by } : {}) } : null;
+    if (previous) {
+        return replaceFilter(view, field, previous, entry);
+    }
+    return replaceFilters(view, field, ["top"], entry ? [entry] : []);
+}
+
+/**
+ * A value condition on a field ({ by, op, value, value2 }, pivotkit-core's `value` filter: "Sum of
+ * Revenue greater than 1000"), or null to remove it. `previous` is the condition being edited (the
+ * view's own entry): only that one is replaced or removed; without it every value condition of the
+ * field is. The field keeps its other filters.
+ * @param {any} view
+ * @param {string} field
+ * @param {{ by: { field: string | null, agg: string }, op: string, value: number, value2?: number } | null} condition
+ * @param {object} [previous]
+ */
+export function setValueFilter(view, field, condition, previous) {
+    /** @type {object | null} */
+    let entry = null;
+    if (condition) {
+        const { by, op, value, value2 } = condition;
+        const between = op === "between" || op === "notBetween";
+        entry = { field, type: "value", by: { field: by.field, agg: by.agg }, op, value, ...(between ? { value2 } : {}) };
+    }
+    if (previous) {
+        return replaceFilter(view, field, previous, entry);
+    }
+    return replaceFilters(view, field, ["value"], entry ? [entry] : []);
+}
+
+/**
+ * True when a value gives a number for each cell, so it can be shown as a share, formatted, highlighted,
+ * sorted by and filtered by: not a list of distinct values, not the first or last entry of a text,
+ * not an average, median, minimum or maximum of dates.
+ * @param {{ agg: string }} spec
+ * @param {string} type  the column type of the value's field ("number" for a row count)
+ */
+export function numericResult(spec, type) {
+    return spec.agg !== "listUnique" && !(["first", "last"].includes(spec.agg) && type !== "number") && !(type === "date" && ["average", "median", "min", "max"].includes(spec.agg));
+}
+
+/**
+ * The measures to choose from with `ref` among them: a sort, a top N or a condition may go by a
+ * measure the view no longer shows (its value was removed); it stays a choice, so applying the form
+ * again keeps it.
+ * @param {Array<{ field: string | null, agg: string }>} choices
+ * @param {{ field: string | null, agg: string } | null | undefined} ref
+ */
+export function withMeasure(choices, ref) {
+    return ref && !choices.some((c) => sameRef(c, ref)) ? [...choices, { field: ref.field ?? null, agg: ref.agg }] : choices;
+}
+
+/** True when two value references ({ field, agg }) name the same measure. */
+export function sameRef(a, b) {
+    return Boolean(a && b) && a.agg === b.agg && (a.field === null || b.field === null ? a.field === b.field : same(a.field, b.field));
+}
+
+/**
+ * The measures a field on an axis can be sorted, ranked and filtered by: each value of the view that
+ * gives a number, once per field and aggregator, in the view's order; the row count without one. The
+ * first one is the default, as pivotkit-core's.
+ * @param {any} view
+ * @param {(field: string) => string | undefined} typeOf  the column type of a field
+ * @returns {Array<{ field: string | null, agg: string }>}
+ */
+export function measureChoices(view, typeOf) {
+    const out = [];
+    for (const v of view.values) {
+        const ref = { field: v.field ?? null, agg: v.agg };
+        if (numericResult(v, v.field ? typeOf(v.field) ?? "string" : "number") && !out.some((r) => sameRef(r, ref))) {
+            out.push(ref);
+        }
+    }
+    return out.length ? out : [{ field: null, agg: "count" }];
 }
 
 /**
