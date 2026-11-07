@@ -1,6 +1,6 @@
 /*
- * The toolbar: Table | Chart, the chart type, Undo, Redo, Reset, the table options (totals, expand
- * and collapse), templates and export. (Swap rows and columns sits with the zones.) Every button keeps its text. When the
+ * The toolbar: Table | Chart, the chart type, Undo, Redo, Reset, Layout (the zones folded into one
+ * line or open), the table options (totals, expand and collapse), templates and export. (Swap rows and columns sits with the zones.) Every button keeps its text. When the
  * report is too narrow for all of them, the less used ones move, one by one, into a "More" menu
  * (OVERFLOW_ORDER); Table | Chart, Undo and Export always stay, with their text.
  */
@@ -13,7 +13,7 @@ import { fill } from "./labels.js";
 import { MenuButton, Option, Popover, Section } from "./popover.jsx";
 
 /** The buttons that move into "More" when the toolbar is too narrow, first to go first. */
-export const OVERFLOW_ORDER = Object.freeze(["reset", "redo", "templates", "options", "chartType"]);
+export const OVERFLOW_ORDER = Object.freeze(["reset", "redo", "layout", "templates", "options", "chartType"]);
 
 /** @param {{ icon: any, label: string, onClick: () => void, disabled?: boolean, testId?: string, shortcut?: string }} props */
 function TextButton({ icon, label, onClick, disabled, testId, shortcut }) {
@@ -87,18 +87,20 @@ function SaveTemplate({ labels, onSave, close }) {
 
 /**
  * The templates: load one, save the view, delete one the host marked `deletable`. A delete asks
- * first, in place, and the entry goes only when the host's callback has finished.
+ * first, in place, and the entry goes only when the host's callback has finished. Names need not be
+ * unique (a saved template may have a preset's name): every entry is shown, keyed and confirmed by its
+ * place in the list.
  */
 function TemplatesPanel({ templates, labels, onLoad, onSave, onDelete, close }) {
-    const [confirming, setConfirming] = useState(/** @type {string | null} */ (null));
+    const [confirming, setConfirming] = useState(/** @type {number | null} */ (null));
     const [busy, setBusy] = useState(false);
     return (
         <>
             <Section title={labels.templates}>
                 {templates.length === 0 ? <p className="pk-hint">{labels.noTemplates}</p> : null}
-                {templates.map((t) =>
-                    confirming === t.name ? (
-                        <div key={t.name} className="pk-template pk-confirm" role="group" aria-label={fill(labels.deleteConfirm, { name: t.name })}>
+                {templates.map((t, i) =>
+                    confirming === i ? (
+                        <div key={`${i}:${t.name}`} className="pk-template pk-confirm" role="group" aria-label={fill(labels.deleteConfirm, { name: t.name })}>
                             <span className="pk-confirm-text">{fill(labels.deleteConfirm, { name: t.name })}</span>
                             <button
                                 type="button"
@@ -122,12 +124,12 @@ function TemplatesPanel({ templates, labels, onLoad, onSave, onDelete, close }) 
                             </button>
                         </div>
                     ) : (
-                        <div key={t.name} className="pk-template">
+                        <div key={`${i}:${t.name}`} className="pk-template">
                             <Option icon="bookmark" onSelect={() => { close(); onLoad(t); }} testId={`template-${t.name}`}>
                                 {t.name}
                             </Option>
                             {onDelete && t.deletable === true ? (
-                                <button type="button" className="pk-icon-btn" onClick={() => setConfirming(t.name)} aria-label={fill(labels.deleteTemplate, { name: t.name })} title={fill(labels.deleteTemplate, { name: t.name })}>
+                                <button type="button" className="pk-icon-btn" onClick={() => setConfirming(i)} aria-label={fill(labels.deleteTemplate, { name: t.name })} title={fill(labels.deleteTemplate, { name: t.name })}>
                                     <Icon name="trash" />
                                 </button>
                             ) : null}
@@ -148,12 +150,19 @@ function TemplatesPanel({ templates, labels, onLoad, onSave, onDelete, close }) 
  * How many entries of OVERFLOW_ORDER are in "More": raised until the toolbar fits in one line,
  * measured again from none when the toolbar gets wider.
  * @param {React.RefObject<HTMLElement | null>} ref
- * @param {string} key  changes when the texts change (another language)
+ * @param {string} key  changes when the buttons change (another language, the zones folded or open):
+ *   then it is measured again from none
+ * @param {number} max  how many entries can move
  */
-function useOverflow(ref, key) {
+function useOverflow(ref, key, max) {
     const [level, setLevel] = useState(0);
     const width = useRef(0);
     const [measure, setMeasure] = useState(0);
+    const [lastKey, setLastKey] = useState(key);
+    if (key !== lastKey) {
+        setLastKey(key);
+        setLevel(0);
+    }
     useIsoLayoutEffect(() => {
         const el = ref.current;
         if (!el || typeof ResizeObserver !== "function") {
@@ -173,10 +182,10 @@ function useOverflow(ref, key) {
     }, [ref]);
     useIsoLayoutEffect(() => {
         const el = ref.current;
-        if (el && el.scrollWidth > el.clientWidth + 1 && level < OVERFLOW_ORDER.length) {
+        if (el && el.scrollWidth > el.clientWidth + 1 && level < max) {
             setLevel(level + 1);
         }
-    }, [ref, level, measure, key]);
+    }, [ref, level, measure, key, max]);
     return level;
 }
 
@@ -184,12 +193,14 @@ function useOverflow(ref, key) {
  * @param {any} props  see PivotReport for what each one does
  */
 export function Toolbar(props) {
-    const { view, labels, size, canUndo, canRedo, canReset, onUndo, onRedo, onReset, onDisplay, onChart, onTotal, onExpand, onCollapse, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onExport, chartReady, onShowFields } = props;
+    const { view, labels, size, canUndo, canRedo, canReset, onUndo, onRedo, onReset, onDisplay, onChart, onTotal, onExpand, onCollapse, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onExport, chartReady, onShowFields, layoutFolded, onLayout, zonesId } = props;
     const bar = useRef(/** @type {HTMLDivElement | null} */ (null));
     const more = useRef(/** @type {HTMLButtonElement | null} */ (null));
     const [panel, setPanel] = useState(/** @type {"options" | "templates" | null} */ (null));
-    const level = useOverflow(bar, `${labels.lang}:${labels.undo}:${size}`);
-    const hidden = new Set(OVERFLOW_ORDER.slice(0, level));
+    // while the zones are folded, Layout stays in the toolbar: it is the way back to them
+    const order = layoutFolded ? OVERFLOW_ORDER.filter((id) => id !== "layout") : OVERFLOW_ORDER;
+    const level = useOverflow(bar, `${labels.lang}:${labels.undo}:${size}:${layoutFolded}`, order.length);
+    const hidden = new Set(order.slice(0, level));
     // a panel opened from "More" closes when its own button is back in the toolbar
     if (panel && !hidden.has(panel)) {
         setPanel(null);
@@ -231,6 +242,17 @@ export function Toolbar(props) {
             button: () => <TextButton key="reset" icon="reset" label={labels.reset} onClick={onReset} disabled={!canReset} testId="reset" />,
             entry: (close) => <Option key="reset" inMenu icon="reset" disabled={!canReset} onSelect={() => { close(); onReset(); }} testId="more-reset">{labels.reset}</Option>
         },
+        layout: {
+            place: "end",
+            // a disclosure of the zones: the same text, open or not; aria-expanded says which
+            button: () => (
+                <button key="layout" type="button" className="pk-btn" onClick={onLayout} aria-expanded={!layoutFolded} aria-controls={zonesId} title={layoutFolded ? labels.showLayout : labels.hideLayout} data-testid="layout">
+                    <Icon name="layout" />
+                    <span className="pk-btn-text">{labels.layout}</span>
+                </button>
+            ),
+            entry: (close) => <Option key="layout" inMenu icon="layout" onSelect={() => { close(); onLayout(); }} testId="more-layout">{layoutFolded ? labels.showLayout : labels.hideLayout}</Option>
+        },
         options: {
             place: "end",
             button: () => (
@@ -254,7 +276,7 @@ export function Toolbar(props) {
     const ORDER = Object.keys(actions);
     const buttons = (place) => ORDER.filter((id) => actions[id].place === place && !hidden.has(id)).map((id) => actions[id].button());
     return (
-        <div className={`pk-toolbar${level >= OVERFLOW_ORDER.length ? " pk-wrap" : ""}`} role="toolbar" aria-label={labels.toolbar} ref={bar} data-overflow={level}>
+        <div className={`pk-toolbar${level >= order.length ? " pk-wrap" : ""}`} role="toolbar" aria-label={labels.toolbar} ref={bar} data-overflow={level}>
             {size === "narrow" ? (
                 <button type="button" className="pk-btn" onClick={onShowFields} data-testid="show-fields" data-pk-opener="fields">
                     <Icon name="panel" />

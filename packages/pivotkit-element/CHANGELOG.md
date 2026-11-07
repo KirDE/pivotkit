@@ -31,3 +31,16 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
   the DOM; `pivotkit-element/jsx` declares the element in React's JSX.
 - `dist/THIRD_PARTY_LICENSES.txt` with the license texts of the bundled packages; a size budget per
   load group (`npm run size`).
+- `fieldDefaults[field].drillFormat` as in pivotkit-react: the format of a field's values in the
+  drill-down.
+- Attribute and property `label`: the name of the report's region landmark, one per report on a
+  page.
+
+### Fixed
+
+- The chart chunk takes the ECharts parts from pivotkit-react's `echarts.js` instead of a list of
+  its own; it is one file of 200 KiB gzip (budget 221 KiB).
+- pivotkit-react's fixes ship in the bundle: the report is a named region instead of a `<main>`,
+  zones stack by their own width, a compact layout below 540 px of height, charts inside their box,
+  formatted drill-down rows, plural forms, and a note for a template save the page rejects without a
+  message. The first load is 123.5 KiB gzip.

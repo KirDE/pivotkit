@@ -23,11 +23,12 @@ one copy of the core only when the ranges overlap.
 | Peer | Range | Why a peer |
 | --- | --- | --- |
 | `react`, `react-dom` | `>=18.2 <20` | Hooks break with two copies of React in one page. CI runs every browser test on React 18 and on React 19. |
-| `echarts` | `>=6.1.0 <7` | About 1 MB; a host that draws its own charts already has it, and its security updates stay with the host. It is loaded on the first chart (`import("echarts/core")` with bar, line, pie and heatmap only), so a report that never shows a chart does not load it. |
+| `echarts` | `>=6.1.0 <7` | About 1 MB; a host that draws its own charts already has it, and its security updates stay with the host. It is loaded on the first chart (`dist/echarts.js`: bar, line, pie and heatmap, the components they use and the canvas renderer, imported by name so a bundler keeps only these), so a report that never shows a chart does not load it. |
 
-`dist/index.js` is one ES module whose imports stay bare: `react`, `react-dom`, `pivotkit-core`,
-`pivotkit-core/export`, `@dnd-kit/core`, `@dnd-kit/sortable` and `echarts/core`, `echarts/charts`,
-`echarts/components`, `echarts/renderers`. A host's bundler resolves them; a page without a bundler
+`dist/index.js` is an ES module whose imports stay bare: `react`, `react-dom`, `pivotkit-core`,
+`pivotkit-core/export`, `@dnd-kit/core` and `@dnd-kit/sortable`. On the first chart it loads
+`./echarts.js` next to it, whose imports `echarts/core`, `echarts/charts`, `echarts/components` and
+`echarts/renderers` stay bare too (named imports only). A host's bundler resolves them; a page without a bundler
 maps each to a file with an import map (`tests/browser/pages/build.js` builds such a page, and the
 browser tests load the package that way).
 
@@ -77,10 +78,10 @@ undo step at once. It is user input and is normalized against the data; it canno
 | `view` | view | | Controlled: the view to show. Pass back what `onViewChange` gives; the undo history stays in the report however often the host renders. A view the host changes on its own becomes one undo step. |
 | `defaultView` | view | empty | Uncontrolled: the start view. |
 | `onViewChange` | `(view) => void` | | Every change, as a normalized view. |
-| `templates` | `{ name, view, deletable? }[]` | `[]` | The Templates menu; the first three are also offered in the empty state. `deletable: true` shows a delete button for that template. |
-| `onSaveTemplate` | `(name, view) => unknown` | | Shows "Save current view". "Saved" is shown when it returns or the promise it returns resolves; an error when it throws or rejects. |
-| `onDeleteTemplate` | `(name) => unknown` | | Deletes a template marked `deletable`, after the user confirmed in the menu; the entry goes when it returns or its promise resolves. |
-| `fieldDefaults` | `{ [field]: { agg?, format? } }` | | The aggregator and the format a field gets when it is added to Values (an average for a duration, say). An aggregator that does not fit the field's type is ignored. |
+| `templates` | `{ name, view, deletable? }[]` | `[]` | The Templates menu; the first three are also offered in the empty state. `deletable: true` shows a delete button for that template. Names need not be unique: every entry is shown in order (a saved template may have a preset's name), and `onDeleteTemplate` gets the name. |
+| `onSaveTemplate` | `(name, view) => unknown` | | Shows "Save current view". "Saved" is shown when it returns or the promise it returns resolves; an error when it throws or rejects: with the host's message when it gives one (an `Error`, a text), else "The server could not save the template." (`labels.toastSaveRejected`). |
+| `onDeleteTemplate` | `(name) => unknown` | | Deletes a template marked `deletable`, after the user confirmed in the menu; the entry goes when it returns or its promise resolves; a failure is shown as for `onSaveTemplate` (`labels.toastDeleteRejected` without a message). |
+| `fieldDefaults` | `{ [field]: { agg?, format?, drillFormat? } }` | | The aggregator and the format a field gets when it is added to Values (an average for a duration, say). An aggregator that does not fit the field's type is ignored. In the drill-down, `drillFormat` (else `format`) formats the field's own values: `"text"` shows a numeric identifier as it is (40072, not 40,072), `"date"` a date without its time. |
 | `onCellClick` | `({ row, col, value, valueIndex, text, count, rows }) => void` | | A click (or Enter) on a value or a chart point: key paths of its row and column, the value, the number of source rows and the first `drillDownLimit` of them. |
 | `drillDown` | `boolean` | `true` | The panel with the rows behind a clicked value. |
 | `drillDownLimit` | `number` | `1000` | Rows passed to the panel and to `onCellClick`. |
@@ -90,6 +91,7 @@ undo step at once. It is user input and is normalized against the data; it canno
 | `theme` | `"auto" \| "light" \| "dark"` | `"auto"` | `auto` follows the nearest `data-theme="light\|dark"` above the report (`<html>`, or a shadow root's host), then `prefers-color-scheme`, and changes with them. |
 | `height` | `number \| string` | `640` | The report's height; the table and the field list scroll inside it. |
 | `limits` | `Partial<Limits>` | | pivotkit-core's limits. A layout over `limits.cells` shows a message instead of the table. |
+| `label` | `string` | `labels.report` | The name of the report's region landmark ("Pivot report"). Several reports on one page need one name each (`label="Tickets per team"`), so a screen reader can tell them apart. |
 | `className` | `string` | | Added to the root element `.pk-root`. |
 | `fileName` | `string` | `"pivot"` | Name of exported files, without the extension; path separators and characters a file system refuses are replaced. |
 | `onExport` | `({ kind, fileName, blob }) => unknown` | | Every exported file (`"xlsx"`, `"csv"` or `"png"`, the name with its extension, the file) before it is downloaded; returning `false` skips the download, so the host can keep the file (upload it, say). |
@@ -102,7 +104,8 @@ Exports: `PivotReport`, `LABELS` (`{ en, de }`), and the types `PivotReportProps
 
 - Fields: search the list; drag a field into a zone (the lists and the page scroll while dragging, the
   dragged field is drawn above everything); click a field to add it (numbers to Values, the rest to
-  Rows); or use its menu "Add to Rows / Columns / Values / Filters". A date is grouped as soon as it
+  Rows; a field in Columns or Filters moves to Rows, one in Rows stays and the status line says
+  so, and the field's description says which); or use its menu "Add to Rows / Columns / Values / Filters". A date is grouped as soon as it
   is placed, by the span of its values: up to 62 days by day, up to two years by month ("Jan 2025"),
   up to six years by quarter, longer by year; the chip says so ("Created (Month)").
 - Chips: drag to reorder or to another zone, drag back to the field list or press x to remove (a note
@@ -117,6 +120,9 @@ Exports: `PivotReport`, `LABELS` (`{ en, de }`), and the types `PivotReportProps
   (contains, begins with, ...). A field in the Filters zone filters the whole report.
 - Notes above the result say what a top N does to totals and percentages ("Country shows the top 5
   only: ..."), what to do next when nothing is in Values, and how to open a value.
+- Drill-down: a click on a value opens a panel with the rows behind it, formatted as the table
+  formats them: dates as dates (with the time when the column has times), numbers in the locale,
+  yes/no fields as "Yes" and "No" (`labels.core.true`, `false`), and a field's `fieldDefaults` format.
 - Table: sticky header and row labels, groups expand and collapse, subtotals and grand totals on and
   off (Options), a click on a value opens its rows. Field names and value names in the header can be
   dragged into a zone with the mouse; the chips' menus do the same from the keyboard. From 300 body
@@ -126,9 +132,10 @@ Exports: `PivotReport`, `LABELS` (`{ en, de }`), and the types `PivotReportProps
   drawn, with a note; more than 8 series, or lines with the dates on Columns, get a hint with "Swap
   rows and columns" (also above the Columns zone).
 - Toolbar: Table or Chart, the chart type, Undo (Ctrl/Cmd+Z), Redo (Ctrl/Cmd+Shift+Z or Ctrl+Y),
-  Reset to the start view, Options, Templates, Export (XLSX and CSV of the table, PNG of the chart).
-  Every button has its text; when the report is too narrow, Reset, Redo, Templates, Options and the
-  chart type move one by one into a "More" menu.
+  Reset to the start view, Layout (the zones folded into one line or open), Options, Templates,
+  Export (XLSX and CSV of the table, PNG of the chart). Every button has its text; when the report is
+  too narrow, Reset, Redo, Layout, Templates, Options and the chart type move one by one into a
+  "More" menu.
 - Notes ("Undone: Region removed", "Exported pivot.xlsx") appear in the status line under the table,
   stay while the pointer or the focus is on them, and errors stay until closed. Adding a field shows
   none: the chip is the feedback.
@@ -139,7 +146,9 @@ Exports: `PivotReport`, `LABELS` (`{ en, de }`), and the types `PivotReportProps
   above or below, with its position announced ("Region is over Rows, position 2 of 3"); Space drops,
   Escape cancels. The table's values move with the arrow keys and open with Enter; the table has a
   name and a described hint. The chart canvas has a text alternative (type, values, counts, highest
-  and lowest value). The report's `lang` follows its labels.
+  and lowest value). The report's `lang` follows its labels. The report is a region landmark named
+  by `labels.report` ("Pivot report"), not a `<main>`, so it fits inside the host page's own main
+  landmark.
 
 For hosts: while a popover, the drill-down or the narrow field drawer of the report is open, the
 report listens for Escape on the whole document and closes its newest layer, also when the focus is
@@ -150,8 +159,21 @@ to the report first; close the report's layer before, or open the dialog when no
 
 The report adapts to its own width, not the window's: wide (1024 px and more) has the field list on
 the left and the zones in a 2 x 2 grid; medium narrows the field list; narrow (below 640 px) opens the
-field list as a drawer from the toolbar, stacks the zones, and shows menus as bottom sheets. Only the
-table scrolls sideways. In the narrow layout the zones sit above the table, so a report of a fixed
+field list as a drawer from the toolbar and shows menus as bottom sheets. The zones stack, one line
+each, whenever the area next to the field list is narrower than 640 px (a container query on that
+area: the narrow layout, and a medium one such as a half-width card of 650 px). "Swap rows and
+columns" shows its icon only, with its name for screen readers and as a tooltip, when the head of the
+Columns zone is too narrow for the text. Only the table scrolls sideways.
+
+Below 540 px of height (`COMPACT_HEIGHT` in `PivotReport.jsx`, the border box, measured before the
+first paint) the report starts in the compact layout: the zones fold into one line that says what is in them ("Rows: Team · Columns: Priority ·
+Values: Count of Ticket"), so the table keeps its room. A click on that line, or Layout in the
+toolbar, opens them; Layout folds them again, and stays in the toolbar (not in "More") while they
+are folded. The line only shows what is placed: to change a chip, open the zones first. A drag from
+the field list or the table opens them while it lasts, so a field can still be dropped. When the
+report gets lower while a menu or popover is open, the fold waits until it closes; a focus in the
+zones moves to the folded line. The user's choice is state of the mounted report: it
+survives the host's renders, and it is not part of the view, so a template does not carry it. In the narrow layout the zones sit above the table, so a report of a fixed
 640 px leaves little room for it on a phone: give it more height there, for example
 `height="calc(100svh - 24px)"` (the page scrolls to the report, the table scrolls inside it).
 
@@ -211,7 +233,11 @@ attribute), passed as `labels`; there is no registry of languages.
 <PivotReport data={rows} locale="de-DE" labels={{ zones: { values: "Kennzahlen" }, core: { grandTotal: "Summe" } }} />
 ```
 
-All keys are in `LABELS.en` (`src/labels.js`); `{name}` placeholders are filled in.
+All keys are in `LABELS.en` (`src/labels.js`); `{name}` placeholders are filled in. A count (`rowsCount`,
+`drillCount`, `chartCategories`, `chartSeries`) is an object with one text per plural category of
+the language, picked with `Intl.PluralRules` for the labels' `lang`:
+`{ one: "{count} row", other: "{count} rows" }`; a language with more forms adds them (`few`,
+`many`), a missing form falls back to `other`.
 
 ## Performance
 

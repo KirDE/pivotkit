@@ -1,7 +1,7 @@
 /*
  * The chart: pivotkit-core's ECharts option on an ECharts instance of the host's echarts package (a
- * peer dependency). ECharts is loaded on first use with only the chart types and components the core
- * builds, so a report that never shows a chart does not load it. Colours come from the --pk-* tokens.
+ * peer dependency). ECharts is loaded on first use (echarts.js: only the chart types and components the
+ * core builds), so a report that never shows a chart does not load it. Colours come from the --pk-* tokens.
  * At most MAX_CATEGORIES categories are drawn. The canvas has a text alternative (chart-summary.js),
  * and hints say when the chart is hard to read, with "Swap rows and columns" where that helps.
  */
@@ -9,34 +9,27 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { toEChartsOption, toSeries } from "pivotkit-core";
 import { chartHints, chartSummary } from "./chart-summary.js";
-import { MAX_CATEGORIES, chartTypeOf } from "./chart-types.js";
+import { MAX_CATEGORIES, chartTypeOf, pieLabelRoom } from "./chart-types.js";
 import { Icon } from "./icons.jsx";
 import { chartThemeFrom } from "./theme.js";
 
 /** @type {Promise<any> | null} */
 let loading = null;
 
-/** echarts/core with bar, line, pie and heatmap, the components they use and the canvas renderer. */
+/** ECharts with the parts the chart draws with (echarts.js), loaded once on the first chart. */
 export function loadECharts() {
-    loading ??= Promise.all([import("echarts/core"), import("echarts/charts"), import("echarts/components"), import("echarts/renderers")]).then(([core, charts, components, renderers]) => {
-        core.use([
-            charts.BarChart,
-            charts.LineChart,
-            charts.PieChart,
-            charts.HeatmapChart,
-            components.GridComponent,
-            components.TooltipComponent,
-            components.LegendComponent,
-            components.VisualMapComponent,
-            renderers.CanvasRenderer
-        ]);
-        return core;
-    });
+    // a file of its own in dist/ (build.js), so the host's bundler splits it off
+    loading ??= import("./echarts.js");
     return loading;
 }
 
-/** Mark styles on top of the core's option: rounded bar ends, 2 px lines, tooltips in the theme. */
-export function decorate(option, style) {
+/**
+ * Mark styles on top of the core's option: rounded bar ends, 2 px lines, tooltips in the theme.
+ * @param {any} option
+ * @param {CSSStyleDeclaration} style  the report's computed style (the --pk-* tokens)
+ * @param {number} [height]  the chart's height in px, for the room around a pie
+ */
+export function decorate(option, style, height = 480) {
     const v = (name) => style.getPropertyValue(name).trim();
     // without the stylesheet the tokens are empty and ECharts keeps its own colours
     const surface = v("--pk-surface") || undefined;
@@ -57,7 +50,10 @@ export function decorate(option, style) {
             return { ...s, lineStyle: { width: 2 }, symbolSize: 7, smooth: false, areaStyle: s.areaStyle ? { opacity: 0.18 } : undefined, emphasis: { focus: "series" } };
         }
         if (s.type === "pie") {
-            return { ...s, itemStyle: { borderColor: surface, borderWidth: 2, borderRadius: 4 }, label: { ...s.label, color: v("--pk-text") || undefined } };
+            // the pie's box: below the legend (the core's top), with room for the labels above and below
+            const room = pieLabelRoom(height);
+            const top = (typeof s.top === "number" ? s.top : 0) + room;
+            return { ...s, top, bottom: room, itemStyle: { borderColor: surface, borderWidth: 2, borderRadius: 4 }, label: { ...s.label, color: v("--pk-text") || undefined } };
         }
         if (s.type === "heatmap") {
             return { ...s, itemStyle: { borderColor: surface, borderWidth: 2, borderRadius: 3 }, label: { ...s.label, color: v("--pk-text") || undefined } };
@@ -80,6 +76,8 @@ export function PivotChart({ result, labels, locale, themeName, root, onInstance
     const chart = useRef(/** @type {any} */ (null));
     const [ready, setReady] = useState(false);
     const [failed, setFailed] = useState(/** @type {string | null} */ (null));
+    // the canvas height a pie's label room follows (pieLabelRoom); other types do not need it
+    const [pieHeight, setPieHeight] = useState(0);
     const summaryId = useId();
     // the series as drawn: the core's chart data with the category cap
     const series = useMemo(() => {
@@ -89,11 +87,11 @@ export function PivotChart({ result, labels, locale, themeName, root, onInstance
             return null;
         }
     }, [result, labels]);
-    const latest = useRef({ series, onPoint, onInstance });
-    useEffect(() => {
-        latest.current = { series, onPoint, onInstance };
-    });
     const type = chartTypeOf(result.view.chart);
+    const latest = useRef({ series, onPoint, onInstance, type });
+    useEffect(() => {
+        latest.current = { series, onPoint, onInstance, type };
+    });
 
     useEffect(() => {
         let disposed = false;
@@ -119,7 +117,15 @@ export function PivotChart({ result, labels, locale, themeName, root, onInstance
                         cb({ rowPath: s.categoryPaths[row], colPath: seriesEntry.colPath, valueIndex: seriesEntry.valueIndex, value: kind === "heatmap" ? p.value[2] : p.value });
                     }
                 });
-                ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => instance.resize()) : null;
+                ro =
+                    typeof ResizeObserver === "function"
+                        ? new ResizeObserver(() => {
+                              instance.resize();
+                              if (latest.current.type === "pie") {
+                                  setPieHeight(instance.getHeight());
+                              }
+                          })
+                        : null;
                 ro?.observe(el.current);
                 setReady(true);
             },
@@ -142,8 +148,9 @@ export function PivotChart({ result, labels, locale, themeName, root, onInstance
         const style = getComputedStyle(root.current);
         // the series of the summary and the hints, not computed a second time
         const option = toEChartsOption(result, { theme: chartThemeFrom(style), locale, labels: labels.core, maxCategories: MAX_CATEGORIES, ...(series ? { series } : {}) });
-        chart.current.setOption(decorate(option, style), { notMerge: true });
-    }, [ready, result, series, labels, locale, themeName, root]);
+        chart.current.setOption(decorate(option, style, chart.current.getHeight()), { notMerge: true });
+        // pieHeight: a pie is drawn again when its height changes
+    }, [ready, result, series, labels, locale, themeName, root, pieHeight]);
 
     const empty = result.view.values.length === 0;
     const summary = series && !empty ? chartSummary(series, { type, rows: result.view.rows, valueNames, labels, locale }) : labels.noChartData;

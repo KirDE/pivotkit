@@ -13,8 +13,13 @@ import { DEFAULT_LABELS } from "pivotkit-core";
 export const en = {
     /** the language of the texts, for the report's lang attribute */
     lang: "en",
+    /** the name of the report's region landmark */
+    report: "Pivot report",
     core: /** @type {import("pivotkit-core").Labels} */ ({
         ...DEFAULT_LABELS,
+        // a yes/no field in the table, the filter list and the drill-down: words, not true/false
+        true: "Yes",
+        false: "No",
         aggregators: {
             count: "Count",
             countUnique: "Distinct count",
@@ -45,6 +50,8 @@ export const en = {
     noFieldMatch: "No field matches “{query}”.",
     fieldMenu: "Options for {field}",
     addTo: "Add to {zone}",
+    // a click on a field that is in its zone already: said in the status line
+    alreadyIn: "{field} is already in {zone}",
     move: "Move",
     moveTo: "Move to {zone}",
     dragHandle: "Drag {field}",
@@ -69,6 +76,11 @@ export const en = {
     reset: "Reset",
     resetHint: "Back to the start view",
     swap: "Swap rows and columns",
+    // the zones folded into one line (compact layout), and the toolbar button that does it
+    layout: "Layout",
+    showLayout: "Show field layout",
+    hideLayout: "Hide field layout",
+    layoutEmpty: "No fields placed yet",
     more: "More",
     templates: "Templates",
     noTemplates: "No templates yet.",
@@ -199,12 +211,15 @@ export const en = {
     issues: "Some parts of the view were not used:",
     loadingChart: "Loading chart…",
     noChartData: "Add a value to see a chart.",
-    rowsCount: "{count} rows",
+    // a count in words: one form per Intl.PluralRules category of the language ("one", "other", ...)
+    rowsCount: { one: "{count} row", other: "{count} rows" },
     tableName: "Pivot table",
     cellHint: "Click a value, or press Enter on it, to see the rows behind it. The arrow keys move between values.",
     // chart
     chartSummary: "{type}: {values} by {categories}.",
-    chartCounts: "{categories} categories, {series} series.",
+    chartCounts: "{categories}, {series}.",
+    chartCategories: { one: "{count} category", other: "{count} categories" },
+    chartSeries: { one: "{count} series", other: "{count} series" },
     chartExtremes: "Highest {max} at {maxAt}; lowest {min} at {minAt}.",
     chartTableHint: "Switch to Table to read every value.",
     chartManySeries: "{count} series are hard to tell apart. Swap rows and columns, or filter Columns to fewer items.",
@@ -213,7 +228,7 @@ export const en = {
     categories: "categories",
     // drill-down
     drillTitle: "Rows behind this value",
-    drillCount: "{count} rows",
+    drillCount: { one: "{count} row", other: "{count} rows" },
     drillShown: "Showing the first {shown} of {count} rows",
     close: "Close",
     // toasts and live region
@@ -228,6 +243,9 @@ export const en = {
     toastExportFailed: "Export failed: {message}",
     toastSaveFailed: "The template could not be saved: {message}",
     toastDeleteFailed: "The template could not be deleted: {message}",
+    // the host refused without saying why (a rejected promise without a message)
+    toastSaveRejected: "The server could not save the template.",
+    toastDeleteRejected: "The server could not delete the template.",
     // what an undo step was, for "Undone: ..."
     steps: {
         added: "{field} added to {zone}",
@@ -266,6 +284,7 @@ export const en = {
 
 export const de = {
     lang: "de",
+    report: "Pivot-Bericht",
     core: /** @type {import("pivotkit-core").Labels} */ ({
         ...DEFAULT_LABELS,
         blank: "(Leer)",
@@ -274,8 +293,8 @@ export const de = {
         values: "Werte",
         valueName: "{agg} von {field}",
         countRows: "Anzahl",
-        true: "wahr",
-        false: "falsch",
+        true: "Ja",
+        false: "Nein",
         aggregators: {
             count: "Anzahl",
             countUnique: "Anzahl verschiedener Werte",
@@ -320,6 +339,7 @@ export const de = {
     noFieldMatch: "Kein Feld passt zu „{query}“.",
     fieldMenu: "Optionen für {field}",
     addTo: "Zu {zone} hinzufügen",
+    alreadyIn: "{field} ist bereits in {zone}",
     move: "Verschieben",
     moveTo: "Nach {zone} verschieben",
     dragHandle: "{field} ziehen",
@@ -343,6 +363,10 @@ export const de = {
     reset: "Zurücksetzen",
     resetHint: "Zurück zur Startansicht",
     swap: "Zeilen und Spalten tauschen",
+    layout: "Anordnung",
+    showLayout: "Feldanordnung zeigen",
+    hideLayout: "Feldanordnung ausblenden",
+    layoutEmpty: "Noch keine Felder angeordnet",
     more: "Mehr",
     templates: "Vorlagen",
     noTemplates: "Noch keine Vorlagen.",
@@ -471,11 +495,13 @@ export const de = {
     issues: "Einige Teile der Ansicht wurden nicht verwendet:",
     loadingChart: "Diagramm wird geladen…",
     noChartData: "Einen Wert hinzufügen, um ein Diagramm zu sehen.",
-    rowsCount: "{count} Zeilen",
+    rowsCount: { one: "{count} Zeile", other: "{count} Zeilen" },
     tableName: "Pivot-Tabelle",
     cellHint: "Auf einen Wert klicken oder darauf Eingabe drücken, um die Zeilen dahinter zu sehen. Die Pfeiltasten wechseln zwischen den Werten.",
     chartSummary: "{type}: {values} nach {categories}.",
-    chartCounts: "{categories} Kategorien, {series} Reihen.",
+    chartCounts: "{categories}, {series}.",
+    chartCategories: { one: "{count} Kategorie", other: "{count} Kategorien" },
+    chartSeries: { one: "{count} Reihe", other: "{count} Reihen" },
     chartExtremes: "Höchster Wert {max} bei {maxAt}; niedrigster {min} bei {minAt}.",
     chartTableHint: "Zur Tabelle wechseln, um jeden Wert zu lesen.",
     chartManySeries: "{count} Reihen sind schwer zu unterscheiden. Zeilen und Spalten tauschen oder Spalten auf weniger Einträge filtern.",
@@ -483,7 +509,7 @@ export const de = {
     chartCapped: "Die ersten {shown} von {total} Kategorien. Mit einem Filter oder „Nur die obersten Einträge“ auswählen.",
     categories: "Kategorien",
     drillTitle: "Zeilen hinter diesem Wert",
-    drillCount: "{count} Zeilen",
+    drillCount: { one: "{count} Zeile", other: "{count} Zeilen" },
     drillShown: "Die ersten {shown} von {count} Zeilen",
     close: "Schließen",
     toastRemoved: "{field} entfernt",
@@ -497,6 +523,8 @@ export const de = {
     toastExportFailed: "Export fehlgeschlagen: {message}",
     toastSaveFailed: "Die Vorlage konnte nicht gespeichert werden: {message}",
     toastDeleteFailed: "Die Vorlage konnte nicht gelöscht werden: {message}",
+    toastSaveRejected: "Der Server konnte die Vorlage nicht speichern.",
+    toastDeleteRejected: "Der Server konnte die Vorlage nicht löschen.",
     steps: {
         added: "{field} zu {zone} hinzugefügt",
         removed: "{field} entfernt",
@@ -545,9 +573,46 @@ export function messageOf(error) {
     return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * The note for a host's callback that threw or rejected: `withMessage` with the host's own message
+ * when it gave one (an Error, a text, an object with a `message` text), else `withoutMessage`.
+ * @param {string} withMessage  with {message}
+ * @param {string} withoutMessage
+ * @param {unknown} error
+ */
+export function hostFailure(withMessage, withoutMessage, error) {
+    const raw = typeof error === "string" ? error : error !== null && typeof error === "object" && typeof (/** @type {any} */ (error).message) === "string" ? /** @type {any} */ (error).message : "";
+    const message = raw.trim();
+    return message ? fill(withMessage, { message }) : withoutMessage;
+}
+
 /** Replaces {name} placeholders; unknown names stay as they are. */
 export function fill(template, values) {
     return String(template).replace(/\{(\w+)\}/g, (all, name) => (Object.hasOwn(values, name) ? String(values[name]) : all));
+}
+
+/** The categories of Intl.PluralRules: the keys a count label may have. */
+const PLURAL_CATEGORIES = Object.freeze(["zero", "one", "two", "few", "many", "other"]);
+
+/** True for a count label: an object of plural forms with at least `other`. */
+const isPluralForms = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.hasOwn(v, "other") && Object.keys(v).every((k) => PLURAL_CATEGORIES.includes(k));
+
+/**
+ * A count in words: the form of `forms` for the plural category of `count` in the labels' language
+ * (Intl.PluralRules), `other` when that form is missing, with {count} filled in the locale's digits.
+ * @param {Partial<Record<string, string>>} forms  e.g. { one: "{count} row", other: "{count} rows" }
+ * @param {number} count
+ * @param {{ lang: string, locale: string }} options
+ */
+export function plural(forms, count, { lang, locale }) {
+    let category = "other";
+    try {
+        category = new Intl.PluralRules(lang).select(count);
+    } catch {
+        // a language tag Intl does not take: the "other" form
+    }
+    const form = typeof forms[category] === "string" ? forms[category] : forms.other;
+    return fill(form ?? "", { count: count.toLocaleString(locale) });
 }
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -563,13 +628,18 @@ function merge(base, over) {
         return base;
     }
     const out = { ...base };
-    for (const key of Object.keys(base)) {
+    // a count label takes every plural form a language has, also those English lacks ("few", "many")
+    const keys = isPluralForms(base) ? PLURAL_CATEGORIES : Object.keys(base);
+    for (const key of keys) {
         if (!Object.hasOwn(over, key)) {
             continue;
         }
-        const was = base[key];
+        const was = base[key] ?? "";
         const now = over[key];
-        if (isObject(was)) {
+        if (isPluralForms(was) && typeof now === "string") {
+            // a count written as one text (the form before plural forms): that text for every count
+            out[key] = { other: now };
+        } else if (isObject(was)) {
             out[key] = merge(was, now);
         } else if (Array.isArray(was)) {
             out[key] = isTextList(now) && now.length > 0 ? now : was;

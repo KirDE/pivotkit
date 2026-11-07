@@ -57,3 +57,34 @@ test("a view that makes too many cells shows the limit message instead of throwi
     assert.match(html, /role="alert"/);
     assert.match(html, /more than the limit of 100/);
 });
+
+test("ECharts is a file of its own with named imports, loaded on the first chart only", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const index = await readFile(new URL("../dist/index.js", import.meta.url), "utf8");
+    const parts = await readFile(new URL("../dist/echarts.js", import.meta.url), "utf8");
+    // no static import of echarts in the entry: a report without a chart does not load it
+    assert.doesNotMatch(index, /^import[^;]*from\s*"echarts/m);
+    assert.match(index, /import\("\.\/echarts\.js"\)/);
+    // a namespace import (import("echarts/charts"), import * as) would keep every chart type in a bundle
+    assert.doesNotMatch(parts, /import\s*\*|import\("echarts/);
+    assert.match(parts, /import \{[^}]*\bBarChart\b[^}]*\} from "echarts\/charts"/);
+    const mod = await import("../dist/echarts.js");
+    assert.equal(typeof mod.init, "function");
+});
+
+test("the report is a named region, never a main landmark inside the host's page", () => {
+    const { html } = render({ data: rows, view: { rows: ["Region"] } });
+    assert.doesNotMatch(html, /<main[\s>]/);
+    assert.match(html, /class="pk-root"[^>]*role="region"[^>]*aria-label="Pivot report"|role="region"[^>]*aria-label="Pivot report"[^>]*class="pk-root"/);
+    const de = render({ data: rows, view: { rows: ["Region"] }, locale: "de-DE" }).html;
+    assert.match(de, /aria-label="Pivot-Bericht"/);
+});
+
+test("a report takes its own region name; yes/no fields read Yes and No", () => {
+    const { html } = render({ data: [{ Done: true, N: 1 }, { Done: false, N: 2 }], view: { rows: ["Done"], values: [{ field: "N", agg: "sum" }] }, label: "Tickets per team" });
+    assert.match(html, /role="region"[^>]*aria-label="Tickets per team"/);
+    assert.match(html, />Yes</);
+    assert.match(html, />No</);
+    const de = render({ data: [{ Done: true, N: 1 }], view: { rows: ["Done"], values: [{ field: "N", agg: "sum" }] }, locale: "de-DE" }).html;
+    assert.match(de, />Ja</);
+});

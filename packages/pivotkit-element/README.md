@@ -62,7 +62,7 @@ a console warning with both versions (`PivotReportElement.version`). Without `cu
 | `defaultView` | `default-view` (JSON) | view | empty | Uncontrolled: the start view, see below. |
 | `templates` | | `{ name, view, deletable? }[]` | `[]` | The Templates menu; the first three are also offered in the empty state. |
 | `saveTemplates` | `save-templates` (boolean) | `boolean` | `false` | Offers "Save current view"; a save is a `pivot-template-save` event. |
-| `fieldDefaults` | | `{ [field]: { agg?, format? } }` | | The aggregator and format a field gets in Values. |
+| `fieldDefaults` | | `{ [field]: { agg?, format?, drillFormat? } }` | | The aggregator and format a field gets in Values; `drillFormat` (else `format`) for its values in the drill-down (`"text"`: an identifier as it is). |
 | `labels` | | partial labels | | Texts merged over the language's labels (the keys are in pivotkit-react's `LABELS.en`). |
 | `limits` | | `Partial<Limits>` | | pivotkit-core's limits. |
 | `locale` | `locale` | `string` | `"en-US"` | Numbers, dates, sorting and the language of the labels (`de-*` is German). Without it the element's own `lang` attribute is used; the page's language is not. |
@@ -70,6 +70,7 @@ a console warning with both versions (`PivotReportElement.version`). Without `cu
 | `height` | `height` | `number \| string` | `640` | Pixels (`height="480"`) or a CSS length; `"100%"` fills the element, which then needs a height from the page (`pivot-report { height: 70vh }`). |
 | `timeZone` | `time-zone` | `string` | `"UTC"` | The zone `data` is encoded in; see pivotkit-core. |
 | `fileName` | `file-name` | `string` | `"pivot"` | Name of exported files, without the extension; made safe. |
+| `label` | `label` | `string` | `labels.report` | The name of the report's region landmark; give each report on a page its own (`label="Tickets"`). |
 | `drillDown` | `drill-down` | `boolean` | `true` | The panel with the rows behind a clicked value; `drill-down="false"` turns it off. |
 | `drillDownLimit` | `drill-down-limit` | `number` | `1000` | Rows passed to the panel and to `pivot-cell-click`. |
 
@@ -130,7 +131,8 @@ or on the document gets it, with `event.target` the element.
 
 The template events wait for the page's answer: call `event.detail.respondWith(promise)` in the
 listener itself (later throws `InvalidStateError`). The report shows "Saved" (or removes the entry)
-when the promise resolves, and an error with its message when it rejects. Without `respondWith` (no
+when the promise resolves, and an error with its message when it rejects (a rejection without a
+message shows "The server could not save the template.", `labels.toastSaveRejected`). Without `respondWith` (no
 listener, or `respondWith` after an `await`) the action counts as done at once and the element logs a
 console warning, since the user is told "saved" or "deleted" either way. The page then sets
 `templates` to the new list.
@@ -217,14 +219,14 @@ update). CI runs the same command; it fails when a group is over `SIZE_BUDGET_KI
 
 | Loaded | Files | Size | gzip |
 | --- | ---: | ---: | ---: |
-| First (`index.js` and its static imports: React, ReactDOM, pivotkit-react, pivotkit-core, @dnd-kit, styles) | 4 | 378 KiB | 121 KiB |
-| On the first chart (ECharts with bar, line, pie, heatmap, the components they use and the canvas renderer) | 10 | 615 KiB | 215 KiB |
+| First (`index.js` and its static imports: React, ReactDOM, pivotkit-react, pivotkit-core, @dnd-kit, styles) | 4 | 386 KiB | 124 KiB |
+| On the first chart (ECharts with bar, line, pie, heatmap, the components they use and the canvas renderer) | 1 | 592 KiB | 200 KiB |
 | On the first XLSX or CSV export (pivotkit-core's export with fflate) | 1 | 17 KiB | 8 KiB |
 
 ECharts is bundled, not left to the page: a page without a bundler or an import map would have no
 way to provide it, and loading it on first use keeps it out of the first load. Only the four chart
-types the report draws are in the chunks (`ECHARTS_PARTS` in `build.js`, checked against
-pivotkit-react's `chart.jsx`). A page that already has ECharts loads it twice; one that needs a single
+types the report draws are in the chunk: pivotkit-react's `echarts.js` imports them by name
+(`test/build.test.js` checks the chunk against it). A page that already has ECharts loads it twice; one that needs a single
 copy uses [pivotkit-react](../pivotkit-react/) with its own React instead.
 
 ## React on the page

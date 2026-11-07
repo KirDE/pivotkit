@@ -4,11 +4,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { computePivot, encode, toSeries } from "pivotkit-core";
 import { chartHints, chartSummary } from "../src/chart-summary.js";
-import { MANY_SERIES, MAX_CATEGORIES } from "../src/chart-types.js";
+import { MANY_SERIES, MAX_CATEGORIES, pieLabelRoom } from "../src/chart-types.js";
 import { announcementsOf, nextTarget } from "../src/dnd-moves.js";
 import { dataUrlToBlob, safeFileName } from "../src/files.js";
-import { LABELS, resolveLabels } from "../src/labels.js";
-import { valueLabel } from "../src/names.js";
+import { LABELS, plural, resolveLabels } from "../src/labels.js";
+import { fieldAction, layoutSummary, valueLabel } from "../src/names.js";
 import { HISTORY_LIMIT, createState, record, redo, reset, settle, undo } from "../src/view-history.js";
 
 const en = LABELS.en;
@@ -89,6 +89,24 @@ test("the chart's text alternative names type, values, counts and extremes", () 
     assert.match(de, /^Linien: Summe von V nach R\. 2 Kategorien, 2 Reihen\./);
 });
 
+test("counts in words take the plural form of the language: 1 series, 1 Reihe", () => {
+    const r = computePivot(encode([{ R: "North", V: 5 }]), { rows: ["R"], values: [{ field: "V", agg: "sum" }] });
+    const s = toSeries(r);
+    assert.match(chartSummary(s, { type: "bar", rows: ["R"], valueNames: ["Sum of V"], labels: en, locale: "en-US" }), /\. 1 category, 1 series\./);
+    assert.match(chartSummary(s, { type: "bar", rows: ["R"], valueNames: ["Summe von V"], labels: LABELS.de, locale: "de-DE" }), /\. 1 Kategorie, 1 Reihe\./);
+    assert.equal(plural(en.rowsCount, 1, { lang: "en", locale: "en-US" }), "1 row");
+    assert.equal(plural(en.rowsCount, 1234, { lang: "en", locale: "en-US" }), "1,234 rows");
+    assert.equal(plural(LABELS.de.drillCount, 1, { lang: "de", locale: "de-DE" }), "1 Zeile");
+    assert.equal(plural(LABELS.de.drillCount, 0, { lang: "de", locale: "de-DE" }), "0 Zeilen");
+    // a language with more forms: a host's labels keep "few" and "many", which English does not have
+    const pl = resolveLabels("en", { lang: "pl", rowsCount: { one: "{count} wiersz", few: "{count} wiersze", many: "{count} wierszy", other: "{count} wiersza" } });
+    assert.equal(plural(pl.rowsCount, 3, { lang: pl.lang, locale: "pl-PL" }), "3 wiersze");
+    assert.equal(plural(pl.rowsCount, 5, { lang: pl.lang, locale: "pl-PL" }), "5 wierszy");
+    // a form of the wrong type is ignored; a missing form falls back to "other"
+    assert.equal(resolveLabels("en", { rowsCount: { one: 1 } }).rowsCount.one, "{count} row");
+    assert.equal(plural({ other: "{count} things" }, 1, { lang: "en", locale: "en-US" }), "1 things");
+});
+
 test("chart hints: many series, dates on columns for lines, the category cap", () => {
     const rows = [];
     for (let c = 0; c < MANY_SERIES + 2; c++) rows.push({ R: "r", C: `c${c}`, V: c });
@@ -140,4 +158,47 @@ test("labels from a host: wrong types are ignored, not merged", () => {
     assert.equal(/** @type {any} */ (l).unknownKey, undefined);
     assert.deepEqual(resolveLabels("en", { emptySteps: ["One", "Two"] }).emptySteps, ["One", "Two"]);
     assert.deepEqual(resolveLabels("en", { emptySteps: [1, 2] }).emptySteps, en.emptySteps);
+});
+
+test("a field of the field list says where it is and what a click on it does", () => {
+    const at = (type, zones, labels = en) => {
+        const a = fieldAction("Priority", type, zones, labels);
+        return [a.kind, a.zone, a.name, a.description];
+    };
+    assert.deepEqual(at("string", []), ["add", "rows", "Priority", "Add to Rows"]);
+    // in Columns: a click moves it to Rows, it is not added a second time
+    assert.deepEqual(at("string", ["cols"]), ["move", "rows", "Priority, in Columns", "Move to Rows"]);
+    assert.deepEqual(at("date", ["filters"]), ["move", "rows", "Priority, in Filters", "Move to Rows"]);
+    // in Rows already: a click does nothing, so there is nothing to describe
+    assert.deepEqual(at("string", ["rows"]), [null, "rows", "Priority, in Rows", ""]);
+    // counted in Values, not on an axis: a click adds it to Rows
+    assert.deepEqual(at("string", ["values"]), ["add", "rows", "Priority, in Values", "Add to Rows"]);
+    // a number is added to Values once more
+    assert.deepEqual(at("number", ["values", "rows"]), ["add", "values", "Priority, in Values, Rows", "Add to Values"]);
+    assert.deepEqual(at("string", ["cols"], LABELS.de), ["move", "rows", "Priority, in Spalten", "Nach Zeilen verschieben"]);
+});
+
+test("the compact layout's one line names every zone with fields, rows first", () => {
+    const entries = { filters: [{ text: "Status" }], cols: [{ text: "Priority" }], rows: [{ text: "Team" }, { text: "Channel" }], values: [] };
+    assert.deepEqual(layoutSummary(entries, en), [
+        { zone: "rows", title: "Rows", fields: "Team, Channel" },
+        { zone: "cols", title: "Columns", fields: "Priority" },
+        { zone: "filters", title: "Filters", fields: "Status" }
+    ]);
+    assert.deepEqual(layoutSummary({ filters: [], cols: [], rows: [], values: [] }, LABELS.de), []);
+});
+
+test("a pie's room for its labels follows the chart's height, at most 24 px", () => {
+    assert.equal(pieLabelRoom(200), 10);
+    assert.equal(pieLabelRoom(480), 24);
+    assert.equal(pieLabelRoom(900), 24);
+    assert.equal(pieLabelRoom(-5), 0);
+});
+
+test("count labels written the old way keep working: one text for every count, nouns not doubled", () => {
+    const l = resolveLabels("de", { rowsCount: "{count} Datensätze", chartCounts: "{categories} Kategorien, {series} Reihen." });
+    assert.deepEqual(l.rowsCount, { other: "{count} Datensätze" });
+    assert.equal(plural(l.rowsCount, 1, { lang: "de", locale: "de-DE" }), "1 Datensätze");
+    const r = computePivot(encode([{ R: "A", V: 1 }, { R: "B", V: 2 }]), { rows: ["R"], values: [{ field: "V", agg: "sum" }] });
+    assert.match(chartSummary(toSeries(r), { type: "bar", rows: ["R"], valueNames: ["Summe von V"], labels: l, locale: "de-DE" }), /\. 2 Kategorien, 1 Reihen\./);
 });

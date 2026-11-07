@@ -10,12 +10,13 @@ import { PivotkitError, computePivot, encode, findNode, suggestDateUnit, toGrid,
 import { PivotChart } from "./chart.jsx";
 import { groupingName, valueLabel } from "./names.js";
 import { PivotDnd } from "./dnd.jsx";
-import { DRILL_LIMIT, drillRows } from "./drill.js";
+import { DRILL_LIMIT, drillRows, drillTable } from "./drill.js";
 import { DrillPanel } from "./drill-panel.jsx";
 import { FieldPanel } from "./fields.jsx";
 import { FilterPopover } from "./filter.jsx";
 import { Icon, TYPE_ICON } from "./icons.jsx";
-import { fill, messageOf, resolveLabels } from "./labels.js";
+import { fill, hostFailure, messageOf, plural, resolveLabels } from "./labels.js";
+import { useIsoLayoutEffect } from "./iso.js";
 import { LayerContext } from "./popover.jsx";
 import { PivotTable } from "./table.jsx";
 import { Toasts, useToasts } from "./toasts.jsx";
@@ -32,6 +33,12 @@ import { Zones } from "./zones.jsx";
 export function sizeOf(width) {
     return width < 640 ? "narrow" : width < 1024 ? "medium" : "wide";
 }
+
+/** Below this height (px, border box) the report starts with its zones folded into one line, the compact layout. */
+export const COMPACT_HEIGHT = 540;
+
+/** True while a popover or menu of the report is open in its layer (the layer also holds a probe). */
+const layerOpen = (layer) => Boolean(layer && [...layer.children].some((c) => !c.classList.contains("pk-origin")));
 
 /** A performance measure for the browser's performance timeline ("pivotkit:computePivot"). */
 function measured(name, fn) {
@@ -107,8 +114,8 @@ function EmptyState({ labels, templates, onTemplate }) {
             </ol>
             {templates.length ? (
                 <div className="pk-empty-actions">
-                    {templates.slice(0, 3).map((t) => (
-                        <button key={t.name} type="button" className="pk-btn" onClick={() => onTemplate(t)}>
+                    {templates.slice(0, 3).map((t, i) => (
+                        <button key={`${i}:${t.name}`} type="button" className="pk-btn" onClick={() => onTemplate(t)}>
                             <Icon name="sparkle" />
                             <span className="pk-btn-text">{fill(labels.tryTemplate, { name: t.name })}</span>
                         </button>
@@ -147,7 +154,8 @@ export function PivotReport(props) {
         className,
         fileName = "pivot",
         fieldDefaults,
-        onExport
+        onExport,
+        label
     } = props;
 
     // props a host may rebuild on every render, compared by value
@@ -159,9 +167,17 @@ export function PivotReport(props) {
     const themeName = useResolvedTheme(theme, root);
     const [layer, setLayer] = useState(/** @type {HTMLElement | null} */ (null));
     const [size, setSize] = useState("wide");
+    // the measured height class, and the one the layout follows: a change waits while a popover is
+    // open, so a resize never pulls the zones (and a chip menu's anchor) from under the user
+    const [measuredShort, setMeasuredShort] = useState(false);
+    const [short, setShort] = useState(false);
+    // the user's choice of the compact layout (Layout in the toolbar, the folded line); null: by height
+    const [folded, setFolded] = useState(/** @type {boolean | null} */ (null));
+    const layoutFolded = folded ?? short;
+    const zonesId = useId();
     const [drawer, setDrawer] = useState(false);
     const [filterTarget, setFilterTarget] = useState(/** @type {{ field: string, anchor: HTMLElement } | null} */ (null));
-    const [drill, setDrill] = useState(/** @type {{ title: string, count: number, rows: object[], columns: string[] } | null} */ (null));
+    const [drill, setDrill] = useState(/** @type {{ title: string, count: number, columns: Array<{ name: string, numeric: boolean }>, rows: string[][] } | null} */ (null));
     const [hinted, setHinted] = useState(false);
     const chartRef = useRef(null);
     const [chartReady, setChartReady] = useState(false);
@@ -285,16 +301,45 @@ export function PivotReport(props) {
         return map;
     }, [view]);
 
-    // size class from the report's own width
-    useEffect(() => {
+    // size class from the report's own width; the height class from its border box, measured before
+    // the first paint, so a low report never shows its zones open for a frame
+    useIsoLayoutEffect(() => {
         const el = root.current;
-        if (!el || typeof ResizeObserver !== "function") {
+        if (!el) {
             return undefined;
         }
-        const ro = new ResizeObserver(([entry]) => setSize(sizeOf(entry.contentRect.width)));
+        const first = el.getBoundingClientRect().height < COMPACT_HEIGHT;
+        setMeasuredShort(first);
+        setShort(first);
+        if (typeof ResizeObserver !== "function") {
+            return undefined;
+        }
+        const ro = new ResizeObserver(([entry]) => {
+            setSize(sizeOf(entry.contentRect.width));
+            const height = entry.borderBoxSize?.[0]?.blockSize ?? el.getBoundingClientRect().height;
+            setMeasuredShort(height < COMPACT_HEIGHT);
+        });
         ro.observe(el);
         return () => ro.disconnect();
     }, []);
+    useEffect(() => {
+        if (measuredShort === short) {
+            return undefined;
+        }
+        const apply = () => {
+            if (!layerOpen(layer)) {
+                setShort(measuredShort);
+            }
+        };
+        apply();
+        if (!layer || typeof MutationObserver !== "function") {
+            return undefined;
+        }
+        // a popover is open: apply when it closes
+        const mo = new MutationObserver(apply);
+        mo.observe(layer, { childList: true });
+        return () => mo.disconnect();
+    }, [measuredShort, short, layer]);
     const drawerOpen = drawer && size === "narrow";
     const panelRef = useRef(/** @type {HTMLDivElement | null} */ (null));
     useEffect(() => {
@@ -347,13 +392,18 @@ export function PivotReport(props) {
                 return;
             }
             setHinted(true);
-            const { count, rows } = drillRows(result, { rowPath, colPath, data: encodedProp ? null : data, limit: drillDownLimit });
+            const { count, rows, indices } = drillRows(result, { rowPath, colPath, data: encodedProp ? null : data, limit: drillDownLimit });
             onCellClick?.({ row: rowPath, col: colPath, value, valueIndex, text, count, rows });
             if (drillDown) {
-                setDrill({ title: pathTitle(result, rowPath, colPath, labels), count, rows, columns: encoded.columns.map((c) => c.name) });
+                // the values as the table shows them; a host's format for a field (fieldDefaults) applies
+                const formatOf = (name) => {
+                    const d = defaultsFor(fieldDefaults, name);
+                    return d ? (d.drillFormat ?? d.format) : undefined;
+                };
+                setDrill({ title: pathTitle(result, rowPath, colPath, labels), count, ...drillTable(encoded, indices, { locale: result.locale, labels: labels.core, formatOf }) });
             }
         },
-        [result, encodedProp, data, drillDownLimit, onCellClick, drillDown, labels, encoded]
+        [result, encodedProp, data, drillDownLimit, onCellClick, drillDown, labels, encoded, fieldDefaults]
     );
 
     const doExport = useExport({ fileName, result, locale, labels, limits, root, chartRef, announce, onExport });
@@ -372,7 +422,7 @@ export function PivotReport(props) {
                   await onSaveTemplate(name, view);
                   announce(fill(labels.toastSaved, { name }));
               } catch (e) {
-                  announce(fill(labels.toastSaveFailed, { message: messageOf(e) }), { tone: "error" });
+                  announce(hostFailure(labels.toastSaveFailed, labels.toastSaveRejected, e), { tone: "error" });
               }
           }
         : null;
@@ -383,7 +433,7 @@ export function PivotReport(props) {
                   announce(fill(labels.toastDeleted, { name }));
                   return true;
               } catch (e) {
-                  announce(fill(labels.toastDeleteFailed, { message: messageOf(e) }), { tone: "error" });
+                  announce(hostFailure(labels.toastDeleteFailed, labels.toastDeleteRejected, e), { tone: "error" });
                   return false;
               }
           }
@@ -442,7 +492,11 @@ export function PivotReport(props) {
             className={`pk-root${className ? ` ${className}` : ""}`}
             data-pk-theme={themeName}
             data-pk-size={size}
+            data-pk-layout={layoutFolded ? "compact" : undefined}
             lang={labels.lang}
+            // a named region, not <main>: the host's page has its own main landmark around the report
+            role="region"
+            aria-label={label || labels.report}
             style={{ height }}
             // a click anywhere in the report focuses it, so the undo and redo shortcuts work
             tabIndex={-1}
@@ -471,13 +525,14 @@ export function PivotReport(props) {
                                         setDrawer(false);
                                     }
                                 }}
+                                onNote={(text) => announce(text)}
                                 drawer={size === "narrow"}
                                 open={drawerOpen}
                                 onClose={() => setDrawer(false)}
                             />
                         </div>
                         {drawerOpen ? <div className="pk-scrim pk-drawer-scrim" onClick={() => setDrawer(false)} aria-hidden="true" /> : null}
-                        <main className="pk-main">
+                        <div className="pk-main">
                             <Toolbar
                                 view={view}
                                 labels={labels}
@@ -500,8 +555,23 @@ export function PivotReport(props) {
                                 onExport={doExport}
                                 chartReady={view.display === "chart" && chartReady}
                                 onShowFields={() => setDrawer(true)}
+                                layoutFolded={layoutFolded}
+                                onLayout={() => setFolded(!layoutFolded)}
+                                zonesId={zonesId}
                             />
-                            <Zones view={view} types={types} labels={labels} commit={commit} openFilter={(field, anchor) => setFilterTarget({ field, anchor })} encoded={encoded} locale={locale} onSwap={() => commit(swapAxes(view), { step: "swap" })} />
+                            <Zones
+                                view={view}
+                                types={types}
+                                labels={labels}
+                                commit={commit}
+                                openFilter={(field, anchor) => setFilterTarget({ field, anchor })}
+                                encoded={encoded}
+                                locale={locale}
+                                onSwap={() => commit(swapAxes(view), { step: "swap" })}
+                                id={zonesId}
+                                folded={layoutFolded}
+                                onShow={() => setFolded(false)}
+                            />
                             {result && result.issues.length > 0 && !empty ? (
                                 <details className="pk-issues">
                                     <summary>
@@ -557,14 +627,14 @@ export function PivotReport(props) {
                                 ) : null}
                             </section>
                             <div className="pk-status">
-                                <span data-testid="row-count">{result ? fill(labels.rowsCount, { count: result.rows.length.toLocaleString(locale) }) : ""}</span>
+                                <span data-testid="row-count">{result ? plural(labels.rowsCount, result.rows.length, { lang: labels.lang, locale }) : ""}</span>
                                 <Toasts toasts={toasts} dismiss={dismiss} pause={pause} closeLabel={labels.close} />
                             </div>
-                        </main>
+                        </div>
                     </div>
                     <FilterPopover target={filterTarget} onClose={closeFilter} view={view} encoded={encoded} locale={locale} labels={labels} commit={commit} />
                 </PivotDnd>
-                <DrillPanel drill={drill} onClose={() => setDrill(null)} labels={labels} locale={locale} timeZone={encoded.timeZone} />
+                <DrillPanel drill={drill} onClose={() => setDrill(null)} labels={labels} locale={locale} />
                 <div className="pk-layer" ref={setLayer}>
                     {/* a fixed probe at 0, 0: where fixed popovers start (popover.jsx) */}
                     <span className="pk-origin" aria-hidden="true" />

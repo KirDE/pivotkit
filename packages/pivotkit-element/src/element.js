@@ -31,9 +31,11 @@ import { adoptStyles } from "./styles.js";
  */
 
 /**
- * @typedef {object} FieldDefaults  the host's settings for a new value of a field
- * @property {string} [agg]  aggregator, when it fits the field's type ("average" for durations)
- * @property {string} [format]  a format of pivotkit-core ("duration:h", "currency:EUR")
+ * @typedef {object} FieldDefaults  the host's settings for a field, as pivotkit-react's
+ * @property {string} [agg]  aggregator of a new value, when it fits the field's type ("average" for durations)
+ * @property {string} [format]  a format of pivotkit-core ("duration:h", "currency:EUR") for a new value,
+ *   and for the field's own numbers in the drill-down unless `drillFormat` is set
+ * @property {string} [drillFormat]  the format of the field's values in the drill-down ("text": an identifier as it is)
  */
 
 /**
@@ -199,6 +201,14 @@ export class PivotReportElement extends Base {
     }
     set fileName(value) {
         this.#write("file-name", value);
+    }
+
+    /** The name of the report's region landmark (default the labels' `report`, "Pivot report"). */
+    get label() {
+        return /** @type {string | undefined} */ (this.#read("label"));
+    }
+    set label(value) {
+        this.#write("label", value);
     }
 
     /** The panel with the rows behind a clicked value (default true; attribute drill-down="false"). */
@@ -409,7 +419,8 @@ export class PivotReportElement extends Base {
             theme: this.theme,
             height: this.height,
             limits: v.limits,
-            fileName: this.fileName
+            fileName: this.fileName,
+            label: this.label
         };
     }
 
