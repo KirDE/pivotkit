@@ -8,6 +8,19 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Added
 
+- Sorting with a click on a table header
+  ([#55](https://github.com/eizedev/pivotkit/issues/55)). A value's name sorts the innermost row
+  field by that value: largest first, smallest first, then the field's own order again; a row
+  field's name toggles A to Z and Z to A. It writes the same sort entry as the chip menu, as one step
+  Undo takes back. Only the name is the button (the cell's edges stay free), reached with Tab and
+  pressed with Enter or Space; with column fields only the grand total column's value names sort.
+  The header whose sort was chosen carries `aria-sort` (one at a time; `other` for a custom order;
+  the default A to Z none); an
+  arrow marks the chosen order and, on hover and focus, the next one, and a faint arrow every name
+  that sorts on a touch screen, where the name is a 44 px target; a screen reader hears the new
+  order. The table's tip ("Click a value, ...") and `shortcuts.open` say that a header sorts. New
+  labels: `headerSort`, `headerSortDesc` and `headerSortAsc` (the tooltip of a row field's and a
+  value's name) and `headerSorted` (what is read out).
 - Save, Save as and New for views
   ([#60](https://github.com/eizedev/pivotkit/issues/60)). The toolbar shows the name of the view
   loaded (a saved view, a view file, a link) next to Views, with a dot while it has unsaved changes
@@ -47,7 +60,9 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
   for everyone?") has the focus on Cancel, so Enter replaces nothing.
 - The view loaded has a check mark (and `aria-current="true"`) in Shared views or My views; while
   Views is in "More", More shows the dot for unsaved changes too.
-
+- The texts of the keyboard shortcuts (`labels.shortcuts`) load with the menus, where Options, Help
+  shows them (`menu-labels.js`): a host's texts for them apply as before. This made room in the first
+  load for sorting by a header.
 - The forms of a row or column field's menu (number ranges, Top N, value condition) remove what
   they set with **Remove** (was "Clear"; label key `removeSetting`, was `clear`), and Apply with an
   empty number removes it too instead of asking for a number. One undo step, as before.
