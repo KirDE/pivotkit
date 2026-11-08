@@ -22,7 +22,7 @@ whole report. A field in a zone is a **chip**; its menu changes how it is shown.
 
 | To put a field into a zone | How |
 | --- | --- |
-| Drag | Drag the field into a zone. The lists and the page scroll while you drag. |
+| Drag | Drag the field into a zone. The lists and the page scroll while you drag, and the field you drag is drawn above everything. |
 | Click | Click the field, or press Enter on it: numbers go to Values, everything else to Rows. |
 | Menu | Open the field's menu (the three dots, or a click on the grip left of the field, which says "Drag into a zone") and choose **Add to Rows**, **Columns**, **Values** or **Filters**. |
 
@@ -91,7 +91,7 @@ The menu of a value is on [Values and formats](values.md#the-menu-of-a-value).
 
 ## The table
 
-- The header and the row labels stay in place while you scroll.
+- The header and the row labels stay in place (sticky) while you scroll.
 - Groups expand and collapse with the arrow next to them. **Options** has **Expand all** and
   **Collapse all** for the groups of Rows (groups of Columns open and close with their arrows only).
   Each is offered only when it changes something; otherwise a line under it says why ("Nothing is

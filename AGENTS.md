@@ -69,8 +69,16 @@ builds depend on it.
   `scripts/docs-screenshots.js` from the playground. `docs/playground/` (the live demo, copied by
   `scripts/docs-demo.js`) and `docs/assets/site.css` (the design) are build output, not committed. The theme's
   repository link in the header asks api.github.com for the repository's stars, forks and latest
-  release (cached by the theme in the reader's browser), as on the other eizedev sites. The
-  package READMEs ship to npm: links from them to the site are absolute (`https://pivotkit.eize.dev/...`).
+  release (cached by the theme in the reader's browser), as on the other eizedev sites.
+- `packages/*/README.md` - the npm package pages: short landing pages (what the package is, one
+  screenshot, install with its peers, one example, a table of links into the site, the license).
+  The install facts (command, peer ranges, the 0.x caret-range note, supported browsers and Node,
+  serving the whole `dist/`) and the one example are repeated there on purpose and must match
+  `package.json` and the site; everything else lives only on the site, so a fact added to a README
+  belongs on its docs page instead. Links and images in them are absolute
+  (`https://pivotkit.eize.dev/...`), since npm shows them outside the repository. The page paths and
+  heading anchors they link to are a contract, since a published npm README cannot be changed:
+  `scripts/check-readme-links.js` checks them against the built site in the docs workflow.
 - `assets/` - icon, README header and social preview, generated in eizedev/brand (`pivotkit/`); changed
   there, never here.
 
@@ -94,6 +102,7 @@ npm run docs:demo                   # build the playground and copy it into docs
 npm run docs:screenshots            # build the playground and take docs/assets/screenshots/ again
 curl -fsSo docs/assets/site.css https://raw.githubusercontent.com/eizedev/brand/main/docs-site/site.css
 uvx zensical@<version from eizedev/brand docs-site/requirements.txt> serve   # the site on http://localhost:8000 (build --strict as CI)
+node scripts/check-readme-links.js site   # after `zensical build`: the READMEs' links to the site resolve (as CI)
 ```
 
 ## Rules that matter here
@@ -107,7 +116,7 @@ uvx zensical@<version from eizedev/brand docs-site/requirements.txt> serve   # t
   (column fields + 1) x measures, an aggregator with `keepsValues` counted `KEEPS_VALUES_WEIGHT` times),
   the nodes of both key trees (`groups`) and the aggregated cells (`pivotCells`), `toGrid` and
   `toSeries` the dense rows x columns (`cells`). A new structure that
-  grows with the data or the view gets a limit too; the core README ("Limits") says what each one
+  grows with the data or the view gets a limit too; `docs/concepts/limits.md` says what each one
   counts and why its default is what it is.
 - Error model: a bad view never throws (normalize reports issues); a programmer error or a limit
   throws `PivotkitError` with a code.
@@ -132,7 +141,8 @@ uvx zensical@<version from eizedev/brand docs-site/requirements.txt> serve   # t
   characters, or `+` `-` unless the text is a number as a locale writes it or a number range; the same guard for the clipboard copies); XLSX writes text as
   inline strings, never as formulas.
 - Designed for up to about 100,000 rows: typed arrays, no per-row objects in hot loops. Run the
-  benchmark before and after engine changes and compare with the baseline in the package README.
+  benchmark before and after engine changes and compare with the baseline in `docs/reference/core.md`
+  (Performance).
 - The engine sources use only globals browsers and Node share (ESLint enforces it for `src/`).
 - UI: text at least 14 px (`--pk-font-size`, `--pk-small`), controls at least 24 x 24 px
   (`--pk-target`), buttons with visible text (an icon alone only where the text is next to it), every
@@ -174,7 +184,9 @@ uvx zensical@<version from eizedev/brand docs-site/requirements.txt> serve   # t
   `docs/concepts/` and `docs/reference/` are for developers (a props table keeps one short line per
   prop; the full text goes into its section under "Props in detail"). `docs/features.md` is the
   feature list: one row per area that links to the pages, never a second copy of the behaviour; the
-  start page `docs/index.md` keeps the short version for both audiences.
+  start page `docs/index.md` keeps the short version for both audiences. The package READMEs are
+  short npm landing pages that link into the site and hold no details; a heading or anchor of the
+  site that a README links to keeps its address (or gets a redirect), as for any page that moves.
 - Screenshots come in pairs, `<name>-light.png` and `<name>-dark.png` (`scripts/docs-screenshots.js`
   takes both), shown with `#only-light` and `#only-dark`. A page that moves keeps its address: a
   redirect in `zensical.toml` (`[project.plugins.redirects.redirect_maps]`, one entry per old section
@@ -192,13 +204,3 @@ uvx zensical@<version from eizedev/brand docs-site/requirements.txt> serve   # t
 - Add a UI framework or an animation library to `pivotkit-react`; it has its own CSS.
 - Put secrets, host names or real data into code, examples or tests; the one exception is the public
   data of `examples/playground/data/`, with its licence and attribution in `SOURCES.md`.
-
-## Exceptions to the repository standards
-
-Confirmed by the owner on 2026-11-06, each temporary:
-
-- Docs website (pivotkit.eize.dev): built on every pull request, published only once the repository is
-  public (GitHub Pages needs that on GitHub Free) and the repository variable `PAGES_ENABLED` is
-  `true`.
-- Secret scanning, push protection, private vulnerability reporting and rulesets: not available while
-  the repository is private on GitHub Free; switched on when it becomes public.

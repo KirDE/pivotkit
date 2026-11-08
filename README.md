@@ -16,9 +16,8 @@ JSON files, native Excel export; as a JavaScript core, a React component and a w
 | --- | --- |
 | Build | [![CI](https://github.com/eizedev/pivotkit/actions/workflows/ci.yml/badge.svg)](https://github.com/eizedev/pivotkit/actions/workflows/ci.yml) [![Docs site](https://github.com/eizedev/pivotkit/actions/workflows/docs.yml/badge.svg)](https://github.com/eizedev/pivotkit/actions/workflows/docs.yml) |
 | Documentation | [pivotkit.eize.dev](https://pivotkit.eize.dev/): [Use a report](https://pivotkit.eize.dev/use/) for the people who build reports, [Embed pivotkit](https://pivotkit.eize.dev/embed/) and the API reference for developers, a [live demo](https://pivotkit.eize.dev/demo/) and [Learn with real data](https://pivotkit.eize.dev/learn/) (weather, countries, earthquakes, Nobel laureates, software end of life) |
+| npm | [![pivotkit-core](https://img.shields.io/npm/v/pivotkit-core?label=pivotkit-core)](https://www.npmjs.com/package/pivotkit-core) [![pivotkit-react](https://img.shields.io/npm/v/pivotkit-react?label=pivotkit-react)](https://www.npmjs.com/package/pivotkit-react) [![pivotkit-element](https://img.shields.io/npm/v/pivotkit-element?label=pivotkit-element)](https://www.npmjs.com/package/pivotkit-element) |
 | License | [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) |
-
-Version 0.1.0 of each package, on npm.
 
 ## Packages
 
@@ -69,11 +68,16 @@ const xlsx = toXlsx(grid);                       // Uint8Array
 
 The view passed to `computePivot` is plain JSON: the same object is the saved template, the undo
 step and what the UI edits. It is treated as user input: it cannot run code, and the limits in
-`LIMITS` keep its memory use bounded. See [pivotkit-core](packages/pivotkit-core/) for the API, the
-view, the limits and the export, and [pivotkit-react](packages/pivotkit-react/) for the component's
-props, theming tokens and labels, and [pivotkit-element](packages/pivotkit-element/) for the
-element's properties, events, theming, CSP and bundle size. The [documentation site](https://pivotkit.eize.dev/) has it on one page for users and developers; the
-[feature list](https://pivotkit.eize.dev/features/) every feature at a glance, with links to the details.
+`LIMITS` keep its memory use bounded. The [documentation site](https://pivotkit.eize.dev/) has the
+details for users and developers: the [engine's API](https://pivotkit.eize.dev/reference/core/), the
+[view](https://pivotkit.eize.dev/concepts/views/) and its
+[limits](https://pivotkit.eize.dev/concepts/limits/), the
+[component's props](https://pivotkit.eize.dev/reference/react/), the
+[element's properties and events](https://pivotkit.eize.dev/reference/element/),
+[theming](https://pivotkit.eize.dev/reference/theming/),
+[security](https://pivotkit.eize.dev/security/) and the
+[feature list](https://pivotkit.eize.dev/features/), every feature at a glance with links to the
+details. The package READMEs are short npm pages that link there.
 
 ## Development
 
