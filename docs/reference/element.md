@@ -322,16 +322,17 @@ above.
 What a page loads, measured with `npm run size -w pivotkit-element` on one Mac (esbuild 0.28.2,
 gzip level 9 per file, sizes add up per group; approximate, they change with every dependency
 update). CI runs the same command; it fails when a group is over `SIZE_BUDGET_KIB` in `build.js`
-(a few per cent above these numbers):
+(about 1 KiB above what CI measures for the first load, 3 to 5 per cent for the groups loaded later;
+CI reads about 0.3 KiB more than these numbers):
 
 | Loaded | Files | Size | gzip |
 | --- | ---: | ---: | ---: |
-| First (`index.js` and its static imports: React, ReactDOM, pivotkit-react, pivotkit-core, @dnd-kit, styles) | 7 | 467 KiB | 152 KiB |
-| On the first chart (ECharts with bar, line, pie (also the donut), heatmap, the components they use, the title among them, and the canvas renderer) | 1 | 602 KiB | 204 KiB |
+| First (`index.js` and its static imports: React, ReactDOM, pivotkit-react, pivotkit-core, @dnd-kit, styles) | 6 | 455 KiB | 148 KiB |
+| On the first chart (ECharts with bar, line, pie (also the donut), heatmap, the components they use, the title among them, the canvas renderer, and the layout of the chart's labels) | 1 | 604 KiB | 204 KiB |
 | On the first export or copy (pivotkit-core's export, and fflate as a chunk it shares with the link; the Export menu and the drill-down's start loading it when they open) | 2 | 24 KiB | 11 KiB |
 | On the first shared link, Copy link or loaded link (pivotkit-core's link with fflate) | 2 | 14 KiB | 7 KiB |
-| Right after the first render (the menus' panels, the Export menu, the drill-down's panel and the English texts only they show) | 1 | 64 KiB | 19 KiB |
-| With the menus, for a German report only (the menus' German texts) | 1 | 10 KiB | 4 KiB |
+| Right after the first render (the menus' panels, the Export menu, the drill-down's panel and its table, sharing's copy, download and load, and the English texts only they show) | 1 | 74 KiB | 23 KiB |
+| With the menus, for a German report only (the menus' German texts) | 1 | 12 KiB | 4 KiB |
 
 ECharts is bundled, not left to the page: a page without a bundler or an import map would have no
 way to provide it, and loading it on first use keeps it out of the first load. Only the four chart
