@@ -11,7 +11,7 @@
  */
 
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { computePivot, encode, normalize, fieldLabel, findNode, suggestDateUnit, toGrid, toSeries, toViewFile, viewFields, viewFileName, viewFileText } from "pivotkit-core";
+import { computePivot, emptyView, encode, fieldLabel, findNode, suggestDateUnit, toGrid, toSeries, toViewFile, viewFields, viewFileName, viewFileText } from "pivotkit-core";
 import { PivotChart } from "./chart.jsx";
 import { MAX_CATEGORIES, chartPlan } from "./chart-types.js";
 import { groupingName, layoutSummary, valueLabel } from "./names.js";
@@ -38,12 +38,16 @@ import { Toolbar } from "./toolbar.jsx";
 import { prepareExporters, useExport } from "./use-export.js";
 import { useResolvedTheme } from "./use-theme.js";
 import { useViewHistory } from "./use-view-history.js";
+import { tagFor } from "./view-history.js";
 import { useBigResult, useFitHeight } from "./use-big-result.js";
 import { VERSION } from "./version.js";
 import {
     addField, filterZoneFields, groupField, isEmptyView, moveField, removeAt, rowFolding, setChart, setChartDisplay, setCollapsed, setDisplay, setTotal, sourceOf, swapAxes, toggleCollapsed, zoneOverLimit
 } from "./view-ops.js";
 import { Zones, zoneEntries } from "./zones.jsx";
+
+/** A saved view's identity (view-save.js: LoadedView), for the keys of the views as saved. */
+const savedKeyOf = (t) => JSON.stringify([t.scope, t.store, t.storeSource ?? null, t.sourceId ?? null, t.name]);
 
 /** Width classes of the report (its own width, not the window's). */
 export function sizeOf(width) {
@@ -332,8 +336,13 @@ function Report(props) {
     // stays until it is dismissed or another view is loaded
     const [leftOut, setLeftOut] = useState(/** @type {string[]} */ ([]));
     const [issuesDismissed, setIssuesDismissed] = useState(/** @type {string | null} */ (null));
-    // the name of the view shown: the saved view or file it came from, for the files it is shared as
-    const [viewName, setViewName] = useState(/** @type {string | null} */ (null));
+    // the view loaded: the saved view or file it came from (its name names the files it is shared as),
+    // its group ("user", "shared"; null for a file or a link), whether the browser store keeps it, and
+    // its view as saved (`key`, history.keyOf), so the toolbar shows when it has unsaved changes
+    // the saved view each step of the history shows travels with it (history.tag, view-save.js's
+    // LoadedView); `savedKeys` holds each saved view as it was loaded or saved (history.keyOf, by
+    // savedKeyOf), so the toolbar shows when the view shown has unsaved changes
+    const [savedKeys, setSavedKeys] = useState(/** @type {Record<string, string>} */ ({}));
     // the whole label of the row in use while the table is virtual (table.jsx: onRowLabel)
     const [rowLabel, setRowLabel] = useState(/** @type {string | null} */ (null));
     const chartRef = useRef(null);
@@ -384,6 +393,11 @@ function Report(props) {
     }, [ordersKey]);
     const history = useViewHistory({ encoded, view: viewProp, defaultView, onViewChange, limits, outsideNote: labels.steps.outside, orderOf });
     const view = history.view;
+    // the saved view shown: the history step's, when it was loaded for the data shown now (another
+    // source with the same columns keeps the history, not the name)
+    const loadedView = tagFor(history.tag, sourceId);
+    const viewName = loadedView?.name ?? null;
+    const unsaved = Boolean(loadedView) && savedKeys[savedKeyOf(loadedView)] !== history.viewKey;
 
     // the host's chartOptions, compared by value (a function or another value JSON cannot hold counts
     // as its kind); the chart checks them (chart-options.js, loaded with ECharts) before it draws
@@ -421,6 +435,7 @@ function Report(props) {
     useEffect(() => {
         undoLater.current = undo;
     });
+    // Reset shows the start view, no saved view: the history's step has no tag (Undo brings it back)
     const reset = useCallback(() => {
         history.reset(labels.steps.reset);
         announce(labels.toastReset);
@@ -539,15 +554,15 @@ function Report(props) {
      * screen (the chip appears); a removal offers Undo.
      */
     const commit = useCallback(
-        /** @param {object} next @param {{ step: string, removed?: boolean, field?: string, zone?: string, name?: string, display?: string, type?: string }} [note] */
-        (next, note = { step: "change" }) => {
+        /** @param {object} next @param {{ step: string, removed?: boolean, field?: string, zone?: string, name?: string, display?: string, type?: string }} [note] @param {any} [tag] the saved view it is (history.tag) */
+        (next, note = { step: "change" }, tag = undefined) => {
             // a field beyond the limit of its zone would vanish in normalize(): refuse the step and say so
             const over = note.step === "template" ? null : zoneOverLimit(next, limits);
             if (over) {
                 announce(fill(labels.zoneFull, { zone: labels.zones[over.zone], max: over.max.toLocaleString(locale) }), { tone: "error" });
                 return;
             }
-            const changed = history.commit(next, stepText(note));
+            const changed = history.commit(next, stepText(note), tag);
             if (changed) {
                 changesRef.current += 1;
                 setChanges(changesRef.current);
@@ -560,6 +575,9 @@ function Report(props) {
         [history, stepText, labels, announce, limits, locale]
     );
 
+    /** A saved view as it is kept now (loaded or saved): the view shown differs from it, or not. */
+    const remember = useCallback((tag, key) => setSavedKeys((all) => ({ ...all, [savedKeyOf(tag)]: key })), []);
+
     /**
      * A view loaded from outside (a file, pasted JSON, a link) is shown: a step Undo takes back (a link
      * read at the start is where the report starts, `restored`), a note that it was loaded (with Undo)
@@ -571,17 +589,23 @@ function Report(props) {
             if (!loaded.view) {
                 return;
             }
-            if (!restored) {
-                commit(loaded.view, { step: "viewLoaded" });
+            // a file or a link names its view, which is not among the saved ones (Save is off for it)
+            const tag = loaded.file?.name ? { name: loaded.file.name, scope: null, store: false, sourceId: latest.current.sourceId } : null;
+            if (tag) {
+                remember(tag, latest.current.history.keyOf(loaded.view));
+            }
+            if (restored) {
+                latest.current.history.setTag(tag);
+            } else {
+                commit(loaded.view, { step: "viewLoaded" }, tag);
             }
             const lines = issueLines(loaded.issues, labels);
             setLeftOut(lines);
             setIssuesDismissed(null);
-            setViewName(loaded.file?.name || null);
             const text = link ? (lines.length ? labels.toastLinkOpenedPartly : labels.toastLinkOpened) : lines.length ? labels.toastViewLoadedPartly : labels.toastViewLoaded;
             announce(text, restored ? undefined : { action: { label: labels.undo, run: () => undoLater.current() } });
         },
-        [commit, labels, announce]
+        [commit, labels, announce, remember]
     );
 
     useEffect(() => {
@@ -895,8 +919,11 @@ function Report(props) {
 
     const loadTemplate = useCallback(
         (t) => {
-            commit(t.view, { step: "template", name: t.name });
-            setViewName(typeof t.name === "string" ? t.name : null);
+            // which saved view this is: its group, the browser store's entry (by its name and the data
+            // it names), and the data it was loaded for
+            const tag = { name: t.name, scope: t.scope === "user" ? "user" : "shared", store: t.at !== undefined, storeSource: t.sourceId ?? null, sourceId };
+            remember(tag, history.keyOf(t.view));
+            commit(t.view, { step: "template", name: t.name }, tag);
             // a saved view made with other limits loads with the fields that fit: what was left out
             // goes into the area above the result, the note says it was loaded
             const over = zoneOverLimit(t.view, limits);
@@ -904,8 +931,17 @@ function Report(props) {
             setIssuesDismissed(null);
             announce(fill(labels.toastLoaded, { name: t.name }));
         },
-        [commit, labels, announce, limits, locale]
+        [commit, labels, announce, limits, locale, history, remember, sourceId]
     );
+    /** New: an empty report (the start screen), one step Undo takes back; the loaded view's name goes. */
+    const newReport = () => {
+        if (empty) {
+            return;
+        }
+        commit(emptyView(), { step: "new" }, null);
+        setLeftOut([]);
+        announce(labels.newEmpty, { action: { label: labels.undo, run: () => undoLater.current() } });
+    };
     // the browser store (templateStore="browser"): the user's own views in localStorage under the
     // storageKey; read after hydration, as the tips. Its views are read with the menus' module
     // (view-store.js), loaded right after the first render
@@ -927,9 +963,29 @@ function Report(props) {
         onSave: onSaveTemplate,
         onDelete: onDeleteTemplate,
         onPublish: canPublish ? onPublishTemplate : undefined,
-        // a view leaves the report checked against the data, never as it was stored
-        normalized: (v) => normalize(v, encoded, { limits }).view,
-        onSaved: () => setSavedAt(changesRef.current)
+        // a view leaves the report checked against the data, never as it was stored, and in the form a
+        // save hands over (the view as shown: normalized, with the host's orders), so Publish and
+        // Save send the same view
+        normalized: (v) => JSON.parse(history.keyOf(v)),
+        loaded: loadedView,
+        empty,
+        /**
+         * A save kept: the view as it was when the save was clicked (`key`) is that saved view now. The
+         * view shown takes its name only while it is still that view: a slow host may answer after
+         * New, another view loaded or a change, and none of those may become the saved view.
+         */
+        onSaved: (/** @type {any} */ saved, /** @type {string} */ key) => {
+            setSavedAt(changesRef.current);
+            const tag = { ...saved, sourceId };
+            remember(tag, key);
+            const now = latest.current.history;
+            if (now.viewKey === key) {
+                now.setTag(tag);
+            }
+        },
+        viewKey: history.viewKey,
+        onNew: newReport,
+        canNew: !empty
     };
 
     const onKeyDown = (e) => {
@@ -1168,6 +1224,9 @@ function Report(props) {
                                 onUndo={undo}
                                 onRedo={redo}
                                 onReset={reset}
+                                onNew={newReport}
+                                canNew={!empty}
+                                loadedView={loadedView ? { name: loadedView.name, changed: unsaved } : null}
                                 onDisplay={(d) => commit(setDisplay(view, d), { step: "display", display: d })}
                                 onChart={(p) => commit(setChart(view, p), { step: "chart", type: p })}
                                 onChartDisplay={(patch) => commit(setChartDisplay(view, patch), { step: "chartDisplay" })}
@@ -1182,6 +1241,7 @@ function Report(props) {
                                 onExport={doExport}
                                 prepareExport={prepareExporters}
                                 chartReady={view.display === "chart" && chartReady}
+                                empty={empty}
                                 onShowFields={() => setDrawer(true)}
                                 layoutFolded={layoutFolded}
                                 onLayout={() => setFolded(!layoutFolded)}

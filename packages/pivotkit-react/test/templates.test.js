@@ -4,6 +4,7 @@ import { toViewFile } from "pivotkit-core";
 import { templateEntries, viewsName } from "../src/templates.js";
 import { VIEW_STORE_LIMITS, changedViews, storeViews, storedViews } from "../src/view-store.js";
 import { MENU_LABELS } from "../src/menu-labels.js";
+import { saveAsTarget, saveTarget } from "../src/view-save.js";
 
 const VIEW = { rows: ["Region"], values: [{ field: "Units", agg: "sum" }] };
 const tooMuch = (kind, max) => `${kind} ${max}`;
@@ -186,4 +187,59 @@ test("the browser store: a write the browser refuses says so; a kept one hands o
         storedViews(kept, undefined).map((t) => t.name),
         ["A"]
     );
+});
+
+test("the browser store: Save writes over the view at its place, keeping its data and its place; a changed store throws", () => {
+    let text = changedViews(null, { name: "A", view: VIEW }, tooMuch);
+    text = changedViews(text, { name: "B", view: VIEW, sourceId: "sales" }, tooMuch);
+    // "A" was saved for no named data: Save in a report for "sales" keeps it so, in its place
+    text = changedViews(text, { name: "A", view: { rows: ["Product"] }, sourceId: "sales", replace: 0 }, tooMuch);
+    const all = storedViews(text, "sales");
+    assert.deepEqual(all.map((t) => [t.name, t.at]), [["A", 0], ["B", 1]]);
+    assert.deepEqual(all[0].view.rows, ["Product"]);
+    assert.equal(JSON.parse(/** @type {string} */ (text))[0].source, undefined);
+    // another tab put another view there: nothing is overwritten
+    assert.throws(() => changedViews(text, { name: "A", view: VIEW, replace: 1 }, tooMuch), /changed/);
+});
+
+test("Save: where the loaded view is written, or why not; Save as: where it writes and what it would replace", () => {
+    // the store keeps "Stored" twice: once saved without named data, once for "sales"
+    const entries = [
+        { name: "Team", scope: "shared" },
+        { name: "Host mine", scope: "user" },
+        { name: "Stored", scope: "user", at: 0 },
+        { name: "Other", scope: "user", at: 1 },
+        { name: "Stored", scope: "user", at: 2, sourceId: "sales" }
+    ];
+    const store = { host: false, store: true, publish: false, sourceId: "sales" };
+    const host = { host: true, store: false, publish: false };
+    const none = { host: false, store: false, publish: false };
+    assert.equal(saveTarget(null, entries, store), null, "nothing loaded: no Save");
+    // a view of the store: the one of its name and its data, wherever it is now
+    assert.deepEqual(saveTarget({ name: "Stored", scope: "user", store: true, storeSource: "sales" }, entries, store), { kind: "store", at: 2, storeSource: "sales" });
+    assert.deepEqual(saveTarget({ name: "Stored", scope: "user", store: true, storeSource: null }, entries, store), { kind: "store", at: 0, storeSource: null });
+    // gone (deleted in another tab): added again for the data shown
+    assert.deepEqual(saveTarget({ name: "Gone", scope: "user", store: true, storeSource: null }, entries, store), { kind: "store", storeSource: "sales" });
+    // the host's own view: through onSaveTemplate; without it no Save
+    assert.deepEqual(saveTarget({ name: "Host mine", scope: "user", store: false }, entries, host), { kind: "host" });
+    assert.equal(saveTarget({ name: "Host mine", scope: "user", store: false }, entries, store), null);
+    // a shared view: a publish for a user who may, else off with the reason (none without any save)
+    assert.deepEqual(saveTarget({ name: "Team", scope: "shared", store: false }, entries, { ...store, publish: true }), { kind: "publish" });
+    assert.deepEqual(saveTarget({ name: "Team", scope: "shared", store: false }, entries, store), { kind: null, why: "saveSharedLocked" });
+    assert.equal(saveTarget({ name: "Team", scope: "shared", store: false }, entries, none), null);
+    // a file or a link: not among the saved views
+    assert.deepEqual(saveTarget({ name: "From a file", scope: null, store: false }, entries, host), { kind: null, why: "saveNotInViews" });
+    // an empty report is never written over a saved view
+    assert.deepEqual(saveTarget({ name: "Host mine", scope: "user", store: false }, entries, host, true), { kind: null, why: "exportNeedsField" });
+    assert.deepEqual(saveTarget({ name: "Team", scope: "shared", store: false }, entries, store, true), { kind: null, why: "saveSharedLocked" }, "a locked view says why it is locked");
+    assert.equal(MENU_LABELS.en.saveSharedLocked, "Shared view: you cannot change it. Use Save as.");
+
+    // Save as: the store's view of that name for this data first, else the one without named data
+    assert.deepEqual(saveAsTarget("Stored", entries, store), { kind: "store", at: 2, storeSource: "sales", replaces: entries[4] });
+    assert.deepEqual(saveAsTarget("Stored", entries, { ...store, sourceId: "tickets" }), { kind: "store", at: 0, storeSource: null, replaces: entries[2] });
+    assert.deepEqual(saveAsTarget("New one", entries, store), { kind: "store", storeSource: "sales", replaces: null });
+    // the host takes the saves: its own view of that name; a shared view of that name stays
+    assert.deepEqual(saveAsTarget("Host mine", entries, host), { kind: "host", replaces: entries[1] });
+    assert.deepEqual(saveAsTarget("Team", entries, host), { kind: "host", replaces: null });
+    assert.deepEqual(saveAsTarget("Stored", entries, host), { kind: "host", replaces: null }, "the store's views are not the host's");
 });

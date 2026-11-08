@@ -6,6 +6,34 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+
+- Save, Save as and New for views
+  ([#60](https://github.com/eizedev/pivotkit/issues/60)). The toolbar shows the name of the view
+  loaded (a saved view, a view file, a link) next to Views, with a dot while it has unsaved changes
+  (`labels.unsavedChanges`); the name is a button that opens Views. The Views menu starts with
+  "This view": **Save “…”** writes the loaded view under its name in one click (a view of the
+  browser store in its place, a user's view of the host through `onSaveTemplate`, a shared view
+  through `onPublishTemplate` with `canPublish`, after "Replace the shared view “…” for everyone?").
+  It is off with the reason for a shared view the user may not change, for a view from a file or a
+  link and while the report is empty. **Save as…** is the name field (its button "Save as"): a
+  name that exists among the user's views asks "“…” exists. Replace it?" first. **New** (in the
+  menu, and "New" next to Reset in the toolbar, German "Neuer Bericht") empties the report to the
+  start screen in one step. The name belongs to the history's steps: New and Reset take it away
+  (the report no longer shows that view), Undo and Redo move it with the view. A view of the browser
+  store is known by its name and the data it names, so two views of one name (one saved without
+  named data) stay apart; another source with the same columns keeps the view but not its name. A
+  reload with `persistView` keeps the view, not its name. A save that answers after New, another
+  view loaded or a change names nothing it did not save. New labels: `newReport`, `newEmpty`,
+  `unsavedChanges`, `steps.new`, and in the menus `thisView`, `saveNamed`, `saveAs`,
+  `saveSharedLocked`, `saveNotInViews`, `replaceConfirm`, `replaceSharedConfirm`, `replaceAction`,
+  `newAlready`, `settingInfo.newReport`.
+- Publish as shared view hands over the view in the same form as Save: normalized against the data,
+  with the host's custom orders (`fieldDefaults.order`) the report shows.
+- Host notes: Save and Save as call `onSaveTemplate(name, view, { scope: "user" })` and
+  `onPublishTemplate(name, view)` with a name that exists: the host replaces the view of that name
+  (an upsert by name), it does not add a second one.
+
 ### Changed
 
 - The forms of a row or column field's menu (number ranges, Top N, value condition) remove what
@@ -16,6 +44,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Fixed
 
+- Copy table, Copy data as JSON, Excel, CSV and PNG are off for an empty report (no field placed),
+  with the reason "Add a field first." (`labels.exportNeedsField`); they produced empty output
+  before, and no `onExport` call happens for them now
+  ([#61](https://github.com/eizedev/pivotkit/issues/61)).
 - A click or Enter on a field of the field list that is in Values already no longer adds it again
   ("Count of Ticket 2", "3", ... on a repeated Enter): it stays, and the status line says "Ticket is
   already in Values", as for a field in Rows. A second value of the same field is "Add to Values

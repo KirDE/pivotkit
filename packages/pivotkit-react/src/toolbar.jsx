@@ -1,6 +1,7 @@
 /*
  * The toolbar: Table | Chart, the chart type with how the chart is drawn (value labels, legend, title,
- * smooth lines), Undo, Redo, Reset, Layout (the zones folded into one line or open), the table options
+ * smooth lines), Undo, Redo, Reset, New (an empty report), the name of the view loaded (with a mark
+ * while it has unsaved changes, next to Views), Layout (the zones folded into one line or open), the table options
  * (totals, expand and collapse, help), Views (the saved views and sharing: link, JSON, file) and
  * export. (Swap rows and columns sits with the zones.) Every button keeps its text. When the report
  * is too narrow for all of them, the less used ones move, one by one, into a "More" menu
@@ -152,7 +153,7 @@ function useOverflow(ref, key, narrow, max, texts) {
  * @param {any} props  see PivotReport for what each one does
  */
 export function Toolbar(props) {
-    const { view, labels, size, canUndo, canRedo, canReset, onUndo, onRedo, onReset, onDisplay, onChart, onChartDisplay, onTotal, onExpand, onCollapse, folding, templates, onLoadTemplate, templateActions, onExport, chartReady, onShowFields, layoutFolded, onLayout, zonesId, share } = props;
+    const { view, labels, size, canUndo, canRedo, canReset, onUndo, onRedo, onReset, onNew, canNew, loadedView, empty, onDisplay, onChart, onChartDisplay, onTotal, onExpand, onCollapse, folding, templates, onLoadTemplate, templateActions, onExport, chartReady, onShowFields, layoutFolded, onLayout, zonesId, share } = props;
     const tips = { controls: props.tipsControls, on: props.tipsOn, onOn: props.onTipsOn, canReset: props.canResetTips, onReset: props.onResetTips };
     const bar = useRef(/** @type {HTMLDivElement | null} */ (null));
     const more = useRef(/** @type {HTMLButtonElement | null} */ (null));
@@ -220,6 +221,11 @@ export function Toolbar(props) {
             button: () => <TextButton key="reset" icon="reset" label={labels.reset} onClick={onReset} disabled={!canReset} testId="reset" />,
             entry: (close) => <Option key="reset" inMenu icon="reset" disabled={!canReset} onSelect={() => { close(); onReset(); }} testId="more-reset">{labels.reset}</Option>
         },
+        new: {
+            place: "history",
+            button: () => <TextButton key="new" icon="newFile" label={labels.newReport} onClick={onNew} disabled={!canNew} testId="new" />,
+            entry: (close) => <Option key="new" inMenu icon="newFile" disabled={!canNew} onSelect={() => { close(); onNew(); }} testId="more-new">{labels.newReport}</Option>
+        },
         layout: {
             place: "end",
             // a toggle of the zones: the same text, open or folded; aria-pressed says which
@@ -253,8 +259,32 @@ export function Toolbar(props) {
     // the order of the table is the order in the toolbar and in the menu
     const ORDER = Object.keys(actions);
     const buttons = (place) => ORDER.filter((id) => actions[id].place === place && !hidden.has(id)).map((id) => actions[id].button());
+    // the name of the view loaded, next to Views (before Export while Views is in "More"); it takes the
+    // room left and is cut with "…"; a click opens Views (Save is one click more, also on a phone,
+    // where Views is in "More")
+    const name = loadedView ? (
+        <button
+            key="name"
+            type="button"
+            className="pk-view-name"
+            aria-haspopup="dialog"
+            title={loadedView.changed ? `${loadedView.name} (${labels.unsavedChanges})` : loadedView.name}
+            onClick={() => (hidden.has("views") ? setPanel("views") : viewsButton.current?.click())}
+            data-testid="view-name"
+        >
+            <span className="pk-view-name-text">{loadedView.name}</span>
+            {loadedView.changed ? (
+                <span className="pk-view-changed" data-testid="view-changed">
+                    <span className="pk-sr">{labels.unsavedChanges}</span>
+                </span>
+            ) : null}
+        </button>
+    ) : null;
+    const end = buttons("end");
+    const at = hidden.has("views") ? end.length : end.length - 1;
+    const wrap = level >= order.length;
     return (
-        <div className={`pk-toolbar${level >= order.length ? " pk-wrap" : ""}`} role="toolbar" aria-label={labels.toolbar} ref={bar} data-overflow={level}>
+        <div className={`pk-toolbar${wrap ? " pk-wrap" : ""}`} role="toolbar" aria-label={labels.toolbar} ref={bar} data-overflow={level}>
             {size === "narrow" ? (
                 <button type="button" className="pk-btn" onClick={onShowFields} data-testid="show-fields" data-pk-opener="fields">
                     <Icon name="panel" />
@@ -280,16 +310,20 @@ export function Toolbar(props) {
             </span>
             {buttons("history")}
             <span className="pk-grow" />
-            {buttons("end")}
+            {end.slice(0, at)}
+            {wrap ? null : name}
+            {end.slice(at)}
             {/* a dialog, not a menu: Tab reaches the "i" of each format; it loads with the menus */}
             <MenuButton label={labels.exportLabel} icon="download" text={labels.exportLabel} role="dialog" align="end" testId="export">
-                {(close) => <MenuPanel name="ExportPanel" loadingText={labels.loadingMenu} props={{ labels, onExport, chartReady, display: view.display, prepare: props.prepareExport, close }} />}
+                {(close) => <MenuPanel name="ExportPanel" loadingText={labels.loadingMenu} props={{ labels, onExport, chartReady, display: view.display, empty, prepare: props.prepareExport, close }} />}
             </MenuButton>
             {level > 0 ? (
                 <MenuButton label={labels.more} icon="more" text={labels.more} align="end" testId="more" buttonRef={more}>
                     {(close) => ORDER.filter((id) => hidden.has(id)).map((id) => actions[id].entry(close))}
                 </MenuButton>
             ) : null}
+            {/* a toolbar in two lines (a phone): the name last, in the room left on its line */}
+            {wrap ? name : null}
             {panel ? (
                 <Popover open anchor={more} onClose={closePanel} label={panel === "chartType" ? chartTypeText : panel === "views" ? labels.views : labels.options} role="dialog" align="end" className={panel === "chartType" ? "pk-chart-menu" : undefined}>
                     {panels[panel](closePanel)}

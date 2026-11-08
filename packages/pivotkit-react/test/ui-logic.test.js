@@ -12,7 +12,7 @@ import { dataUrlToBlob, safeFileName } from "../src/files.js";
 import { LABELS, errorText, fill, plural, resolveLabels } from "../src/labels.js";
 import { MENU_LABELS } from "../src/menu-labels.js";
 import { fieldAction, layoutSummary, valueLabel } from "../src/names.js";
-import { HISTORY_LIMIT, createState, record, redo, reset, settle, undo } from "../src/view-history.js";
+import { HISTORY_LIMIT, createState, record, redo, reset, settle, tagFor, undo } from "../src/view-history.js";
 
 const en = LABELS.en;
 
@@ -374,15 +374,58 @@ test("auto group labels need room: a phone-sized chart writes the whole names in
     assert.equal(groupLabelsFit(21, 3, { width: 900, height: 600, horizontal: true }), true);
 });
 
+test("history: each step carries the saved view it shows; Undo and Redo move it with the view", () => {
+    const x = { name: "X" };
+    let s = createState("schema", "start");
+    assert.equal(s.tag, null);
+    s = record(s, "x", "view “X”", x);
+    s = record(s, "x2", "Region added", undefined);
+    assert.equal(s.tag, x, "a change keeps the tag of the view before");
+    s = record(s, "empty", "new, empty report", null);
+    assert.equal(s.tag, null);
+    const back = undo(s).state;
+    assert.equal(back.tag, x, "Undo after New: the name is back");
+    assert.equal(redo(back).state.tag, null, "Redo after it: the empty view has none");
+    assert.equal(reset(back, "back").tag, null, "Reset: the start view is no saved view");
+    assert.equal(undo(reset(back, "back")).state.tag, x);
+    // the same view with another tag (a save, the same view loaded): no step
+    const saved = record(back, "x2", "saved", { name: "Y" });
+    assert.deepEqual([saved.past.length, saved.tag.name], [back.past.length, "Y"]);
+});
+
+test("history tags: a new schema starts without one, a change from outside keeps it, another source's is no name, a save keeps the redo steps", () => {
+    const x = { name: "X", sourceId: "sales" };
+    const s = record(createState("schema", "start"), "x", "view “X”", x);
+    // another schema: a new history from the view shown, no saved view
+    const fresh = settle(s, { schema: "other", start: "start", shown: "x", outside: "change from outside" });
+    assert.equal(fresh.tag, null);
+    // the host passed another view: a step from outside, the tag stays with the view before it
+    const outside = settle(s, { schema: "schema", start: "start", shown: "y", outside: "change from outside" });
+    assert.deepEqual([outside.present, outside.tag, undo(outside).state.tag], ["y", x, x]);
+    // Undo into a step loaded for another source: the step keeps its tag, the report shows no name
+    const tickets = record(record(createState("schema", "start"), "t", "view “T”", { name: "T", sourceId: "tickets" }), "t2", "Team added");
+    const back = undo(tickets).state;
+    assert.equal(back.tag.name, "T");
+    assert.equal(tagFor(back.tag, "sales"), null);
+    assert.equal(tagFor(back.tag, "tickets"), back.tag);
+    assert.equal(tagFor(null, undefined), null);
+    // a save while Redo has steps: the view and the redo steps stay, only the tag of the view shown
+    const undone = undo(record(s, "x2", "Region added")).state;
+    const saved = record(undone, "x", "saved", { name: "Y", sourceId: "sales" });
+    assert.deepEqual([saved.future.length, saved.tag.name], [1, "Y"]);
+    assert.deepEqual([redo(saved).state.present, redo(saved).state.tag], ["x2", x], "the step redone keeps its own tag");
+    assert.equal(undo(redo(saved).state).state.tag.name, "Y");
+});
+
 test("toolbar: which buttons go into More follows the width and a fixed priority, never the texts", async () => {
     const { OVERFLOW_ORDER, TOOLBAR_ROOM, overflowLevel } = await import("../src/overflow.js");
-    // Redo stays with Undo: it never moves
-    assert.deepEqual(OVERFLOW_ORDER, ["reset", "layout", "views", "options", "chartType"]);
+    // Redo stays with Undo: it never moves; Reset goes first (it makes room for "More", New would not)
+    assert.deepEqual(OVERFLOW_ORDER, ["reset", "new", "layout", "views", "options", "chartType"]);
     const all = TOOLBAR_ROOM.display + TOOLBAR_ROOM.sep + TOOLBAR_ROOM.undo + TOOLBAR_ROOM.redo + TOOLBAR_ROOM.export + OVERFLOW_ORDER.reduce((n, id) => n + TOOLBAR_ROOM[id], 0);
     assert.equal(overflowLevel(all, false), 0, "room for every button");
     assert.equal(overflowLevel(all - 0.1, false), 1, "a little less: Reset goes first");
     assert.equal(overflowLevel(0, false), OVERFLOW_ORDER.length, "no room: all of them");
-    // a narrow report has the Fields button too: Reset and Layout make room for it and for "More"
+    // a narrow report has the Fields button too: Reset and New make room for it and for "More"
     assert.equal(overflowLevel(all, true), 2);
     // the level only grows as the toolbar gets narrower
     let last = 0;
