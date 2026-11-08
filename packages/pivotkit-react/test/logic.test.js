@@ -3,10 +3,14 @@ import assert from "node:assert/strict";
 import { computePivot, encode, toGrid } from "pivotkit-core";
 import { decodeRow, drillRows, drillTable } from "../src/drill.js";
 import { LABELS, fill, hostFailure, resolveLabels } from "../src/labels.js";
-import { MENU_LABELS, menuLabels } from "../src/menu-labels.js";
+import { de as menuDe } from "../src/menu-labels-de.js";
+import { addMenuTexts, en as menuEn, menuLabels } from "../src/menu-labels.js";
 import { fromOrigin, placePopover } from "../src/place.js";
 import { chartThemeFrom, resolveTheme } from "../src/theme.js";
 import { rowLabelOf, sliceRows, windowOf } from "../src/virtual.js";
+
+/** The menus' texts of both languages (German is a chunk of its own in the package). */
+const MENU_LABELS = { en: menuEn, de: menuDe };
 
 test("theme: an explicit theme wins, then <html data-theme>, then the system", () => {
     assert.equal(resolveTheme("dark", "light", false), "dark");
@@ -39,6 +43,7 @@ test("labels: the locale picks the language, partial labels merge deeply, en and
 });
 
 test("labels: the menus' texts come under the report's labels, and a host's text for one of them wins", () => {
+    addMenuTexts("de", menuDe);
     const plain = menuLabels(resolveLabels("de-DE"));
     assert.deepEqual([plain.cancel, plain.zones.rows, plain.drillCount.other], ["Abbrechen", "Zeilen", "{count} Zeilen"]);
     const custom = menuLabels(resolveLabels("de-DE", { cancel: "Doch nicht", apply: 42, showAsNames: { runningTotal: "Kumuliert" }, core: { grandTotal: "Summe" } }));
