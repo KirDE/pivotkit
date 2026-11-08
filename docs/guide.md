@@ -76,11 +76,11 @@ year, quarter, month, week, day; or across years: quarter, month, week of the ye
 number ranges (their size and where they start, "Starting at"; a new size keeps the start, an empty
 start is 0, and a start so far from the field's numbers that every row would be blank is refused
 with a note under it), top or bottom N by a value you choose, the filter with a value condition
-("Value filter…"), and move. Remove is always at the foot.
+("Value filter…"), and move. Remove field is always at the foot.
 
 ## Values
 
-![The menu of a value: Summarize by, Show as, Number format and Remove](assets/screenshots/value-menu.png)
+![The menu of a value: Summarize by, Show as, Number format and Remove field](assets/screenshots/value-menu.png)
 
 The menu of a **value** has these sections; Summarize by and Show as are open, the others folded
 until you open them ([long menus](#menus-that-are-long)):
@@ -136,7 +136,7 @@ pick the value (when there are several), an operator such as "greater than" or "
 number, written as in your language ("1.000,5" in German); a field that holds no number says so under
 it. The number is compared with the sum (or count, or average) itself, not with a percentage the
 value is shown as. The chip then shows it, "Sum of Revenue > 1,000", and so does the menu ("Filter: Sum of
-Revenue > 1,000"); open the form again to change it, **Clear** to remove it.
+Revenue > 1,000"); open the form again to change it, **Remove** (or Apply with no number) to remove it.
 
 ![The menu of Region with its value condition: Sum of Revenue greater than 2,000,000](assets/screenshots/value-filter.png)
 
