@@ -16,17 +16,24 @@ async function onlyValue(page, value) {
 }
 
 test.describe("filters say what they keep", () => {
-    test("the chip menu shows the filter in words, with Remove filter right below; the popover has it on top", async ({ page }) => {
+    test("the chip menu shows the filter in words with Remove, above the two ways to filter; the popover has it on top", async ({ page }) => {
         await page.goto("?data=sales");
         await page.getByTestId("chip-menu-Region").click();
-        await expect(page.getByTestId("open-filter")).toHaveText("Filter…");
+        // nothing set: the two ways to filter, as equals
+        await expect(page.getByTestId("open-filter")).toHaveText("Choose values…");
+        await expect(page.getByTestId("value-filter-open")).toHaveText("Value condition…");
+        await expect(page.getByTestId("filter-state")).toHaveCount(0);
         await expect(page.getByTestId("remove-filter")).toHaveCount(0);
         await page.getByTestId("open-filter").click();
         await expect(page.getByTestId("filter-remove")).toHaveCount(0);
         await onlyValue(page, "West");
         await page.getByTestId("chip-menu-Region").click();
-        await expect(page.getByTestId("open-filter")).toHaveText(/^Filter: 1 of \d+$/);
-        await expect(page.getByTestId("open-filter")).toHaveClass(/pk-accent/);
+        // set: what it keeps first, in the accent colour, with Remove; the two ways stay below it
+        await expect(page.getByTestId("filter-state").locator(".pk-state-text")).toHaveText(/^Filter: 1 of \d+$/);
+        // the setting reads as text, Remove as a control (the accent of links)
+        const [text, link] = await page.getByTestId("filter-state").evaluate((el) => [getComputedStyle(el.querySelector(".pk-state-text")).color, getComputedStyle(el.querySelector(".pk-link")).color]);
+        expect(text).not.toBe(link);
+        await expect(page.getByTestId("open-filter")).toHaveText("Choose values…");
         await page.getByTestId("remove-filter").click();
         await expect(page.locator('[data-zone="rows"] .pk-chip[data-chip="Region"] .pk-badge-text')).toHaveCount(0);
         // and from the filter itself
@@ -37,7 +44,7 @@ test.describe("filters say what they keep", () => {
         await page.getByTestId("open-filter").click();
         await page.getByTestId("filter-remove").click();
         await page.getByTestId("chip-menu-Region").click();
-        await expect(page.getByTestId("open-filter")).toHaveText("Filter…");
+        await expect(page.getByTestId("filter-state")).toHaveCount(0);
     });
 
     test("the × of the text condition removes it at once, and Undo brings it back", async ({ page }) => {
@@ -48,7 +55,7 @@ test.describe("filters say what they keep", () => {
         await page.getByTestId("filter-condition-text").fill("an");
         await page.getByTestId("filter-apply").click();
         await page.getByTestId("chip-menu-Country").click();
-        await expect(page.getByTestId("open-filter")).toHaveText("Filter: contains “an”");
+        await expect(page.getByTestId("filter-state").locator(".pk-state-text")).toHaveText("Filter: contains “an”");
         await page.getByTestId("open-filter").click();
         const before = (await tableRows(page)).length;
         await page.locator(".pk-condition .pk-clear-x").click();
@@ -59,7 +66,7 @@ test.describe("filters say what they keep", () => {
         await page.keyboard.press("Escape");
         await page.getByTestId("undo").click();
         await page.getByTestId("chip-menu-Country").click();
-        await expect(page.getByTestId("open-filter")).toHaveText("Filter: contains “an”");
+        await expect(page.getByTestId("filter-state").locator(".pk-state-text")).toHaveText("Filter: contains “an”");
     });
 });
 
@@ -67,8 +74,8 @@ test.describe("clearing text fields", () => {
     test("a value's name: × gives the default name back at once, as one undo step", async ({ page }) => {
         await page.goto("?data=sales");
         await page.getByTestId("chip-menu-Sum of Revenue").click();
-        // Name is a folded section of the menu (remembered open from here on)
-        await page.getByTestId("section-name").click();
+        // Name is open: a field alone folds no more
+        await expect(page.getByTestId("section-name")).toHaveCount(0);
         await page.getByTestId("value-name").fill("Money");
         await page.getByTestId("value-name").press("Enter");
         await expect.poll(() => chips(page, "values")).toEqual(["Money"]);
@@ -138,7 +145,7 @@ test.describe("a field that is not placed", () => {
         await page.locator('.pk-field[data-field="Product"] .pk-field-name').click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Region", "Country", "Product"]);
         await page.getByTestId("chip-menu-Product").click();
-        await expect(page.getByTestId("open-filter")).toHaveText(/^Filter: 1 of \d+$/);
+        await expect(page.getByTestId("filter-state").locator(".pk-state-text")).toHaveText(/^Filter: 1 of \d+$/);
     });
 
     test("the grip says it is dragged, and a click on it opens the field's menu", async ({ page }) => {
@@ -152,10 +159,27 @@ test.describe("a field that is not placed", () => {
 });
 
 test.describe("menus explain themselves", () => {
-    test("the Values menu says where filtering happens", async ({ page }) => {
+    test("the Values menu says where filtering happens, behind its i", async ({ page }) => {
         await page.goto("?data=sales");
         await page.getByTestId("chip-menu-Sum of Revenue").click();
-        await expect(page.getByTestId("values-filter-hint")).toContainText("move a field to Filters");
+        // a head row of its own: the value's name and its i
+        await expect(page.locator(".pk-chip-menu").getByTestId("menu-head")).toHaveText("Sum of Revenue");
+        const info = page.locator(".pk-chip-menu").getByTestId("menu-info");
+        await expect(info).toHaveAccessibleName("About Sum of Revenue");
+        await expect(info).toHaveAccessibleDescription(/move a field to Filters/);
+        await info.click();
+        await expect(page.locator(".pk-info-pop")).toContainText("move a field to Filters");
+        // without a description and with the explanations off, no head and no i
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Escape");
+        await toolbar(page, "options");
+        await page.getByTestId("show-explanations").focus();
+        await page.getByTestId("show-explanations").press("Space");
+        await expect(page.getByTestId("show-explanations")).not.toBeChecked();
+        await page.keyboard.press("Escape");
+        await page.getByTestId("chip-menu-Sum of Revenue").click();
+        await expect(page.getByTestId("agg-sum")).toBeVisible();
+        await expect(page.locator(".pk-chip-menu").getByTestId("menu-head")).toHaveCount(0);
     });
 
     test("Expand all and Collapse all: enabled only when they change something, with why not, and a status", async ({ page }) => {
@@ -207,6 +231,7 @@ test.describe("sort, top N and value conditions by a chosen value", () => {
         await expect(page.getByTestId("sort-value-asc-1")).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByTestId("sort-value-asc-0")).toHaveAttribute("aria-pressed", "false");
         // bottom 1 by revenue keeps the region with the least revenue
+        await page.getByTestId("top-open").click();
         await expect(page.getByTestId("top-by")).toHaveValue("0");
         await page.getByRole("button", { name: "Bottom", exact: true }).click();
         await page.getByTestId("top-count").fill("1");
@@ -214,6 +239,8 @@ test.describe("sort, top N and value conditions by a chosen value", () => {
         await page.getByRole("button", { name: "Apply" }).first().click();
         await expect.poll(async () => (await regionRows(page)).map((r) => r[0])).toEqual([rows[0][0]]);
         await page.getByTestId("chip-menu-Region").click();
+        await expect(page.getByTestId("top-state").locator(".pk-state-text")).toHaveText("Bottom 1 by Sum of Revenue");
+        await page.getByTestId("top-change").click();
         await expect(page.getByTestId("top-by")).toHaveValue("1");
     });
 
@@ -224,7 +251,7 @@ test.describe("sort, top N and value conditions by a chosen value", () => {
         const limit = Math.floor(least[2]) + 1;
         const shown = limit.toLocaleString("en-US");
         await page.getByTestId("chip-menu-Region").click();
-        await page.getByText("Value filter…").click();
+        await page.getByText("Value condition…").click();
         await page.getByTestId("value-filter-by").selectOption({ label: "Sum of Revenue" });
         await expect(page.getByTestId("value-filter-op")).toHaveValue(">");
         // Apply without a number, or with text that is none, says what is missing
@@ -241,9 +268,11 @@ test.describe("sort, top N and value conditions by a chosen value", () => {
         await expect(badge).toHaveText(`Sum of Revenue > ${shown}`);
         await expect.poll(async () => (await regionRows(page)).map((r) => r[0]).sort()).toEqual(rows.map((r) => r[0]).filter((r) => r !== least[0]).sort());
         await expect(page.getByTestId("chip-menu-Region")).toHaveAccessibleName(`Region, Sum of Revenue > ${shown}`);
-        // the menu says it in words and opens the form with it
+        // the menu says it in a line of its own with Change and Remove; Change opens the form with it
         await page.getByTestId("chip-menu-Region").click();
-        await expect(page.getByTestId("open-filter")).toHaveText(`Filter: Sum of Revenue > ${shown}`);
+        await expect(page.getByTestId("value-filter-state").locator(".pk-state-text")).toHaveText(`Sum of Revenue > ${shown}`);
+        await expect(page.getByTestId("filter-state")).toHaveCount(0);
+        await page.getByTestId("value-filter-change").click();
         await expect(page.getByTestId("value-filter-number")).toHaveValue(String(limit));
         await page.getByTestId("value-filter-op").selectOption("<");
         await page.getByTestId("value-filter-apply").click();
@@ -251,6 +280,7 @@ test.describe("sort, top N and value conditions by a chosen value", () => {
         await expect(badge).toHaveText(`Sum of Revenue < ${shown}`);
         // between takes two numbers
         await page.getByTestId("chip-menu-Region").click();
+        await page.getByTestId("value-filter-change").click();
         await page.getByTestId("value-filter-op").selectOption("between");
         await page.getByTestId("value-filter-apply").click();
         await expect(page.getByTestId("value-filter-number2-problem")).toBeVisible();
@@ -258,29 +288,47 @@ test.describe("sort, top N and value conditions by a chosen value", () => {
         await page.getByTestId("value-filter-apply").click();
         // the smaller number first, as the engine compares
         await expect(badge).toHaveText(`Sum of Revenue between 0 and ${shown}`);
-        // Remove takes it away; Undo brings it back
+        // Cancel closes the form without a change, the focus back on its line
         await page.getByTestId("chip-menu-Region").click();
+        await page.getByTestId("value-filter-change").click();
+        await expect(page.getByTestId("value-filter-by")).toBeFocused();
+        await page.getByTestId("value-filter-cancel").click();
+        await expect(page.getByTestId("value-filter-change")).toBeFocused();
+        await expect(badge).toHaveText(`Sum of Revenue between 0 and ${shown}`);
+        // with values chosen too: the two have a line each, and each Remove takes only its own
+        await page.keyboard.press("Escape");
+        await page.getByTestId("chip-menu-Region").click();
+        await page.getByTestId("open-filter").click();
+        await onlyValue(page, least[0]);
+        await page.getByTestId("chip-menu-Region").click();
+        await expect(page.getByTestId("filter-state").locator(".pk-state-text")).toHaveText(/^Filter: 1 of \d+$/);
         await page.getByTestId("value-filter-remove").click();
         await expect(badge).toHaveCount(0);
-        await expect.poll(async () => (await regionRows(page)).length).toBe(rows.length);
+        await expect(page.getByTestId("chip-menu-Region")).toBeFocused();
+        await expect(page.locator('[data-zone="rows"] .pk-chip[data-chip="Region"] .pk-badge-text')).toHaveText(/^1 of \d+$/);
         await page.getByTestId("undo").click();
         await expect(badge).toHaveText(`Sum of Revenue between 0 and ${shown}`);
-        // Remove filter takes it too
         await page.getByTestId("chip-menu-Region").click();
         await page.getByTestId("remove-filter").click();
-        await expect(badge).toHaveCount(0);
+        await expect(badge).toHaveText(`Sum of Revenue between 0 and ${shown}`);
+        await expect(page.locator('[data-zone="rows"] .pk-chip[data-chip="Region"] .pk-badge-text:not([data-testid])')).toHaveCount(0);
+        // folded, the Filters title says it without "Filter:"
+        await page.getByTestId("chip-menu-Region").click();
+        await page.getByTestId("section-filters").click();
+        await expect(page.getByTestId("section-state-filters")).toHaveText(`● Sum of Revenue between 0 and ${shown}`);
+        await page.getByTestId("section-filters").click();
     });
 
     test("the menus follow a change of the language at runtime", async ({ page }) => {
         await page.goto("?data=sales");
         await page.getByTestId("chip-menu-Region").click();
-        await expect(page.getByText("Value filter…")).toBeVisible();
+        await expect(page.getByText("Value condition…")).toBeVisible();
         await page.keyboard.press("Escape");
         await page.getByTestId("pg-lang").selectOption("de");
         await expect(page.locator(".pk-root")).toHaveAttribute("lang", "de");
         await page.getByTestId("chip-menu-Region").click();
-        await expect(page.getByText("Wertfilter…")).toBeVisible();
-        await expect(page.getByText("Value filter…")).toHaveCount(0);
+        await expect(page.getByText("Wertbedingung…")).toBeVisible();
+        await expect(page.getByText("Value condition…")).toHaveCount(0);
     });
 
     test("the value condition in German", async ({ page }) => {
@@ -289,7 +337,7 @@ test.describe("sort, top N and value conditions by a chosen value", () => {
             await page.locator(`.pk-field[data-field="${field}"] .pk-field-name`).click();
         }
         await page.getByTestId("chip-menu-Region").click();
-        await page.getByText("Wertfilter…").click();
+        await page.getByText("Wertbedingung…").click();
         await page.getByTestId("value-filter-op").selectOption({ label: "größer oder gleich" });
         // typed as Germans write it, key by key
         await page.getByTestId("value-filter-number").pressSequentially("1.000,5");
@@ -298,6 +346,7 @@ test.describe("sort, top N and value conditions by a chosen value", () => {
         await expect(badge).toHaveText("Summe von Revenue ≥ 1.000,5");
         // the form shows it back in German; a plain point number reads too, an English grouping does not
         await page.getByTestId("chip-menu-Region").click();
+        await page.getByTestId("value-filter-change").click();
         await expect(page.getByTestId("value-filter-number")).toHaveValue("1000,5");
         await page.getByTestId("value-filter-number").fill("1,000.5");
         await expect(page.getByTestId("value-filter-number-problem")).toHaveText("Eine Zahl eingeben, etwa 1.234,5.");
@@ -306,6 +355,7 @@ test.describe("sort, top N and value conditions by a chosen value", () => {
         await expect(badge).toHaveText("Summe von Revenue ≥ 2.500,25");
         // Top N says what a count must be
         await page.getByTestId("chip-menu-Region").click();
+        await page.getByTestId("top-open").click();
         await page.getByTestId("top-count").fill("0");
         await expect(page.getByTestId("top-count-problem")).toHaveText("Eine ganze Zahl ab 1 eingeben.");
     });
@@ -321,6 +371,7 @@ test.describe("sort, top N and value conditions by a chosen value", () => {
         };
         await page.goto(`?data=sales&empty#pivot-playground=${encodeViewLink(view)}`);
         await page.getByTestId("chip-menu-Region").click();
+        await page.getByTestId("value-filter-change").click();
         // Revenue is no value of the view any more: it is still the chosen measure
         await expect(page.getByTestId("value-filter-by")).toHaveValue("1");
         await expect(page.getByTestId("value-filter-by").locator("option:checked")).toHaveText("Sum of Revenue");
@@ -355,6 +406,71 @@ test.describe("long menus and explanations", () => {
         await page.reload();
         await page.getByTestId("chip-menu-Sum of Revenue").click();
         await expect(page.getByTestId("section-format")).toHaveAttribute("aria-expanded", "true");
+    });
+
+    test("a folded section says what it holds, marks a setting that is not the default, and reads as a control", async ({ page }) => {
+        await page.goto("?data=sales");
+        await page.getByTestId("chip-menu-Sum of Revenue").click();
+        const highlight = page.getByTestId("section-highlight");
+        // folded: its state at its end, muted; the default has no mark
+        await expect(page.getByTestId("section-state-highlight")).toHaveText("None");
+        await expect(highlight).toHaveAccessibleName("Highlight, None");
+        await expect(page.locator('[data-section="highlight"] .pk-section-mark')).toHaveCount(0);
+        // the start view's format (currency:EUR) reads as its name, marked: it is not Automatic
+        await expect(page.getByTestId("section-state-format")).toHaveText("● Currency");
+        // the dot is said in words: "changed"
+        await expect(page.getByTestId("section-format")).toHaveAccessibleName("Number format, Currency, changed");
+        await expect(page.locator('[data-section="format"] .pk-section-mark')).toHaveCount(1);
+        // the title in the text's colour, not muted like the state
+        const colours = await highlight.evaluate((el) => [getComputedStyle(el).color, getComputedStyle(el.querySelector(".pk-section-state")).color]);
+        expect(colours[0]).not.toBe(colours[1]);
+        // a setting that is not the default: named, with a mark
+        await highlight.click();
+        await page.getByTestId("cond-dataBar").click();
+        await page.getByTestId("chip-menu-Sum of Revenue").click();
+        await page.getByTestId("section-highlight").click();
+        await expect(page.getByTestId("section-state-highlight")).toContainText("Data bars");
+        await expect(page.locator('[data-section="highlight"] .pk-section-mark')).toHaveCount(1);
+        // open: no state in the title (the options say it)
+        await page.getByTestId("section-highlight").click();
+        await expect(page.getByTestId("section-state-highlight")).toHaveCount(0);
+    });
+
+    test("Reset menu sections brings every section back to its start; the folding survives a reload", async ({ page }) => {
+        await page.goto("?data=sales");
+        await toolbar(page, "options");
+        await expect(page.getByTestId("reset-sections")).toBeDisabled();
+        await page.getByTestId("section-totals").click();
+        await expect(page.getByTestId("section-totals")).toHaveAttribute("aria-expanded", "false");
+        await expect(page.getByTestId("reset-sections")).toBeEnabled();
+        await page.keyboard.press("Escape");
+        await page.reload();
+        await toolbar(page, "options");
+        await expect(page.getByTestId("section-totals")).toHaveAttribute("aria-expanded", "false");
+        await page.getByTestId("reset-sections").click();
+        await expect(page.getByTestId("section-totals")).toHaveAttribute("aria-expanded", "true");
+        await expect(page.getByTestId("reset-sections")).toBeDisabled();
+        // the entry turned off: the focus is on the Help title, and the status says what happened
+        await expect(page.getByTestId("section-help")).toBeFocused();
+        await expect(page.getByTestId("reset-sections-status")).toHaveText("Menu sections reset");
+    });
+
+    test("Options → Rows, the value's Name and its Filters fold no more; Share and the chart's display start folded", async ({ page }) => {
+        await page.goto("?data=sales");
+        await page.getByTestId("chip-menu-Sum of Revenue").click();
+        await expect(page.getByTestId("value-name")).toBeVisible();
+        await expect(page.getByTestId("section-valueFilters")).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await toolbar(page, "options");
+        await expect(page.getByTestId("section-folding")).toHaveCount(0);
+        await expect(page.getByTestId("expand-all")).toBeVisible();
+        await page.keyboard.press("Escape");
+        await toolbar(page, "views");
+        await expect(page.getByTestId("section-share")).toHaveAttribute("aria-expanded", "false");
+        await page.keyboard.press("Escape");
+        await toolbar(page, "chart-type");
+        await expect(page.getByTestId("section-chartDisplay")).toHaveAttribute("aria-expanded", "false");
+        await expect(page.getByTestId("section-state-chartDisplay")).toHaveText("Automatic");
     });
 
     test("the wheel over a menu never scrolls the table or the page behind it", async ({ page }) => {

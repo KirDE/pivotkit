@@ -5,7 +5,7 @@
 // without its change.
 import { toViewFile } from "pivotkit-core";
 import { encodeViewLink } from "pivotkit-core/link";
-import { chips, expect, test, toolbar } from "./fixtures.js";
+import { chips, expect, test, toolbar, openShare } from "./fixtures.js";
 
 /** The playground's address of a view (its link parameter). */
 const withView = (query, view) => `?${query}#pivot-playground=${encodeViewLink(toViewFile(view, {}, { link: true }))}`;
@@ -72,6 +72,17 @@ test("the toolbar shows the same buttons at the same width in English and German
 test.describe("phone", () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
+    test("Change in a field's menu shows the whole form: Apply and Cancel in view", async ({ page }) => {
+        await page.goto("?data=countries&preset=0");
+        await page.locator('[data-testid="pivot-table"]').waitFor();
+        if (await page.getByTestId("layout-summary").isVisible()) await page.getByTestId("layout-summary").click();
+        await page.getByTestId("chip-menu-Country").click();
+        await page.getByTestId("top-change").click();
+        await expect(page.getByTestId("top-count")).toBeFocused();
+        await expect(page.getByRole("button", { name: "Apply" })).toBeInViewport();
+        await expect(page.getByTestId("top-cancel")).toBeInViewport();
+    });
+
     test("More is a sheet at the bottom of the window: every entry is reachable", async ({ page }) => {
         await page.goto("?data=sales");
         await page.getByTestId("more").click();
@@ -84,6 +95,7 @@ test.describe("phone", () => {
         const v = await views.boundingBox();
         expect(v.y + v.height).toBeLessThanOrEqual(844 + 1);
         await views.click();
+        await openShare(page);
         await expect(page.getByTestId("copy-json")).toBeVisible();
     });
 
@@ -200,6 +212,7 @@ test("a save closes the Views menu, the focus back on Views; the saved view is m
     await expect(page.getByTestId("views")).toBeFocused();
     await toolbar(page, "views");
     await expect(page.getByTestId("saved-view-Mine")).toHaveAttribute("aria-current", "true");
+    await openShare(page);
     await expect(page.getByTestId("copy-link")).toBeVisible();
     await expect(page.getByTestId("saved-view-name")).toHaveValue("");
     await page.keyboard.press("Escape");
