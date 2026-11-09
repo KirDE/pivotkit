@@ -61,6 +61,12 @@ export function wheelScrollsInside(path, popover, dx, dy) {
 export function Popover({ open, anchor, onClose, label, role = "dialog", align = "start", className, id, passive = false, fill = false, onPointerEnter, onPointerLeave, children }) {
     const { layer, size } = useContext(LayerContext);
     const ref = useRef(/** @type {HTMLDivElement | null} */ (null));
+    // its own id, and the id of the popover its button stands in (a rule's item picker in a menu):
+    // a press or the focus inside a popover opened from this one keeps this one open
+    const ownId = useId();
+    const elId = id ?? ownId;
+    const parentId = anchor.current?.closest?.(".pk-popover")?.id;
+    const within = (/** @type {Element} */ n) => n === ref.current || n.getAttribute("data-pk-parent") === elId;
     const [pos, setPos] = useState(/** @type {null | { top: number, left: number, maxHeight: number, side: string }} */ (null));
     const sheet = size === "narrow" && !passive;
 
@@ -127,8 +133,9 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
             (el?.querySelector("[data-pk-option]") ? el : null);
         // after the placement, so the page does not scroll to a popover still at 0,0
         const t = requestAnimationFrame(() => /** @type {HTMLElement | null} */ (first)?.focus({ preventScroll: true }));
+        // a press inside a popover opened from this one (a rule's item picker) is inside
         const onDown = (e) => {
-            if (!eventWithin(e, [el, anchor.current])) {
+            if (!eventWithin(e, [el, anchor.current]) && !e.composedPath().some((n) => n instanceof Element && n !== el && n.getAttribute("data-pk-parent") === elId)) {
                 closeRef.current();
             }
         };
@@ -152,7 +159,7 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
                 button.focus({ preventScroll: true });
             }
         };
-    }, [open, anchor, passive]);
+    }, [open, anchor, passive, elId]);
 
     if (!open || !layer) {
         return null;
@@ -181,7 +188,8 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
     // Tab out of a popover closes it; a click on its button toggles it instead
     const onBlur = (e) => {
         const to = /** @type {Node | null} */ (e.relatedTarget);
-        if (to && !ref.current?.contains(to) && !anchor.current?.contains(to)) {
+        // the focus moving into a popover opened from this one (a rule's item picker) keeps it open
+        if (to && !ref.current?.contains(to) && !anchor.current?.contains(to) && !(to instanceof Element && [...to.ownerDocument.querySelectorAll(".pk-popover")].some((p) => p.contains(to) && within(p)))) {
             onClose();
         }
     };
@@ -191,7 +199,8 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
             {sheet ? <div className="pk-scrim" onClick={onClose} aria-hidden="true" /> : null}
             <div
                 ref={ref}
-                id={id}
+                id={elId}
+                data-pk-parent={parentId}
                 role={role}
                 aria-label={passive ? undefined : label}
                 aria-modal={sheet && role === "dialog" ? true : undefined}

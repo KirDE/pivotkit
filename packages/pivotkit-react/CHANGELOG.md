@@ -8,6 +8,33 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Added
 
+- The Filter level rebuilt. A summary card that stays in view: what the table shows of the field in
+  bold ("3 of 12 months shown", "Nothing shown" in red), why the rest does not, each reason with its
+  count ("9 left out by your picks", "24 outside last 2 years (2025; 2026 has no data)", "11 left out
+  by the rule"), with nothing shown the one reason and the nearest totals ("No month has a total
+  Average of Mean °C that is greater than 25 – the totals go from 13.4 (Jan) to 22.2 (Jul)."), the
+  rows and the data's dates; **Reset filter**. Three sections that fold, with their state on the
+  header and Clear or Remove beside it: **Quick choices** (a date along the time line only; only the
+  choices that keep a row, each with the data's share of its days and its rows, a line naming the
+  ones not offered, counts that start where the data end, Last [N] days for a date field, and
+  **Counted back from** today or the latest record when the data end before the current period, saved
+  as the filter's `anchor`), **Years combined** instead for a grouping that repeats every year (a
+  toggle per year of the data, written as whole-year comparisons on the dates), **Pick items** (the
+  items a rule leaves out in a folded tail group, their ticks kept) and **Rules** (an "i" per rule
+  with what it compares and an example - the total's names its Grand Total scope -, a line under
+  each with what it keeps, the quick choice among them as a line to read, not a rule; a searchable
+  list instead of a native select for a grouping with more than twelve items). The first rule or
+  quick choice opens Rules and folds Pick items, the last one going does the reverse, a fold by hand
+  wins afterwards; on a phone one of them is open at a time. A quick choice says the data's share on
+  the chip and the menu's first level too ("last 2 years (2025; 2026 has no data)", "last 12 months
+  to Dec 2025"); the chip says Years combined as years ("2024 to 2025"). New labels (`summary*`,
+  `nouns`, `quickRows`, `quickHidden`, `anchor*`, `yearsCombined*`, `pickItems`, `picksState`,
+  `rulesState`, `tailOut`, `ruleKeeps*`, `ruleInfo`, `scope*`, `picker*`, `relativeTo`, `withShare`,
+  `noData`, `summaryQuickOnly` and more); gone: `moreFilters`, `itemsPicked`, `itemsShown*`, `pickedPlus`, `ruleOut`,
+  `quickCustom`, `conditionOnNames`, `removeConditions`. New tokens `--pk-danger-soft` and
+  `--pk-warn`. Text actions in the menus (Reset filter, Clear, Remove, Select all, "change it above")
+  are quiet buttons, disabled while they would change nothing. The data range in the footer and the
+  axis title and the Group level's names come in a separate change.
 - Filter rules ([#89](https://github.com/eizedev/pivotkit/issues/89),
   [#90](https://github.com/eizedev/pivotkit/issues/90)). The Filter level of a date field (or a
   grouping of one) starts with quick choices: All, This year, Last [N] years and, unless it is
@@ -25,6 +52,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Changed
 
+- A quick choice replaces the field's relative ranges only: its comparisons stay as rules, and
+  "Remove" beside Rules keeps the quick choice. "Last [N] years" starts at 2 ("Last 1 year" is This
+  year); a month-of-the-year grouping (and the other groupings that repeat every year) has no quick
+  choices.
 - The text condition and the condition on a value of the Filter level are rules now: each is added
   with its button and taken away with its ×; "is anything" and "No condition" are gone. "Remove the
   conditions" is "Remove the rules" and takes the quick choice of a date too.
@@ -62,6 +93,8 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
   Load view…) and the questions before a delete, a publish or a Save over a shared view open levels of
   their own. An entry's Publish and Delete are items next to it, reached by the arrow keys; after a
   delete the focus goes to the entry that takes its place.
+- The Views menu's **Share** row sits under a group heading of its own, **Share this view** (German
+  "Diese Ansicht teilen"), like This view, Shared views and My views, so it is not lost under the lists.
 - No menu folds any more: the chart type menu (its Display settings shown at once) and the Export
   menus are flat lists in titled groups. The folding (`SECTIONS`, `open:<section>` and
   `closed:<section>` in the tips' list) and **Reset menu sections** are gone; a stored state of a
@@ -80,7 +113,7 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
   its first "i", whose explanation opened over the entries; the menu takes the focus itself.
 - Text fields, searches and selects in the menus have an edge of 3:1 contrast in both themes: the new
   token `--pk-input-border`.
-- Labels of the menus (a host's `labels` for them): new `back`, `backTo`, `levelTitle`, `searchMenu`,
+- Labels of the menus (a host's `labels` for them): new `shareThisView`, `back`, `backTo`, `levelTitle`, `searchMenu`,
   `searchMenuShort`, `searchResults`, `searchNothing`, `sortByValue`, `sortOldestShort`,
   `sortNewestShort`, `filterTopic`, `filterAll`, `groupTopic`, `groupNoneShort`, `off`,
   `moveToTitle`, `topOwn`, `binsOff`, `itemsPicked`, `valueConditionTitle`, `keepWhose`,

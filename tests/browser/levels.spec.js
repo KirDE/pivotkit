@@ -116,8 +116,8 @@ test.describe("screen readers", () => {
         await expect(menu.getByRole("heading", { name: "Region › Filter" })).toBeVisible();
         await expect(menu.getByRole("group", { name: "Region › Filter" })).toBeVisible();
         await expect(menu.getByTestId("level-back")).toHaveAccessibleName("Back to the menu of Region");
-        // the result line is a status: what the list keeps is said as it changes
-        await expect(menu.getByRole("status")).toHaveText("5 of 5 items picked");
+        // the summary is a status: what the list keeps is said as it changes
+        await expect(menu.getByRole("status")).toContainText("All 5 items shown");
     });
 
     test("Options is a menu: the totals and help as switches (menuitemcheckbox), off with the reason, the shortcuts a level", async ({ page }) => {
@@ -189,6 +189,13 @@ test.describe("the search of a menu", () => {
 });
 
 test.describe("the Views menu in levels", () => {
+    test("German: the group heading above Share", async ({ page }) => {
+        await page.goto("?data=tickets&lang=de");
+        await toolbar(page, "views");
+        await expect(page.getByTestId("topic-title-share")).toHaveText("Diese Ansicht teilen");
+        await expect(page.getByRole("menu", { name: "Ansichten" }).getByRole("group", { name: "Diese Ansicht teilen" }).getByRole("menuitem", { name: "Teilen" })).toBeVisible();
+    });
+
     test("a flat list to scan; Save as… and Share open levels; an entry's Delete is reached by the arrow keys and asks in a level", async ({ page }) => {
         await page.goto("?data=tickets");
         await toolbar(page, "views");
@@ -203,8 +210,15 @@ test.describe("the Views menu in levels", () => {
               - menuitem "Median lead time by month"
               - menuitem "Open work per team (chart)"
             - group "My views"
-            - menuitem "Share"
+            - group "Share this view":
+              - menuitem "Share"
         `);
+        // the Share row under a group heading of its own, above it, marked up as the other headings
+        const shareHeading = page.getByTestId("topic-title-share");
+        await expect(shareHeading).toHaveText("Share this view");
+        await expect(shareHeading).toHaveClass(/pk-subtitle/);
+        await expect(page.getByTestId("topic-title-myViews")).toHaveClass(/pk-subtitle/);
+        expect(await shareHeading.evaluate((h) => h.compareDocumentPosition(document.querySelector('[data-testid="topic-share"]')) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
         // no fold anywhere: every group is there at once
         await expect(page.locator(".pk-popover button.pk-section-title")).toHaveCount(0);
         // Save as… by keyboard: its level with the name field, saved with Enter
@@ -260,7 +274,7 @@ test.describe("what the usability review found", () => {
         await outside();
         await expect(page.locator('[data-zone="rows"] .pk-chip[data-chip="Region"] [data-testid="top-badge"]')).toHaveText("Top 2");
         await chipMenu(page, "Region", "filter");
-        await page.getByTestId("filter-more").click();
+        await page.getByTestId("section-rules").click();
         await page.getByTestId("rule-add-total").click();
         await page.getByTestId("value-filter-op").selectOption(">");
         await page.getByTestId("value-filter-number").fill("1");
@@ -300,7 +314,7 @@ test.describe("what the usability review found", () => {
         await search.press("ArrowDown");
         await page.keyboard.press("Enter");
         await expect(menu.getByTestId("level-title")).toHaveText("Region › Filter");
-        await expect(menu.getByTestId("filter-more")).toHaveAttribute("aria-expanded", "true");
+        await expect(menu.getByTestId("section-rules")).toHaveAttribute("aria-expanded", "true");
         // no rule yet: the focus on the first button that adds one
         await expect(menu.getByTestId("rule-add-total")).toBeFocused();
         await page.keyboard.press("Escape");
@@ -322,21 +336,26 @@ test.describe("what the usability review found", () => {
         await settled();
         // the level opens where the menu was, on the same side of the chip
         expect(Math.abs((await menu.boundingBox()).y - before.y)).toBeLessThan(2);
-        await expect(menu.getByTestId("filter-more")).toHaveAttribute("aria-expanded", "false");
-        await menu.getByTestId("filter-more").click();
+        await expect(menu.getByTestId("section-rules")).toHaveAttribute("aria-expanded", "false");
+        await menu.getByTestId("section-rules").click();
         await menu.getByTestId("rule-add-total").click();
         await menu.getByTestId("value-filter-op").selectOption("notBetween");
         const op = menu.getByTestId("value-filter-op");
         expect(await op.evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(200);
         await menu.getByTestId("value-filter-number").fill("0");
         await menu.getByTestId("value-filter-number2").fill("1");
-        await expect(menu.getByTestId("filter-result")).toHaveText(/^\d+ of \d+ items picked, plus Average of Mean °C not between 0 and 1$/);
+        // every city's average is above 1: the rule keeps them all, and the summary says so
+        await expect(menu.getByTestId("filter-summary-head")).toHaveText(/^All \d+ items shown$/);
+        await expect(menu.getByTestId("filter-summary-why")).toHaveText("Every item is picked; the rules keep them all.");
+        await expect(menu.getByTestId("rule-result")).toHaveText(/^Keeps (\d+) of \1 items$/);
         await page.keyboard.press("Escape");
         await openLevel(menu, "filter");
-        await expect(menu.getByTestId("filter-more")).toHaveAttribute("aria-expanded", "false");
-        await expect(menu.getByTestId("filter-more").locator(".pk-section-mark")).toHaveCount(1);
-        // Select all reads as a control: underlined
-        expect(await menu.getByTestId("select-all").evaluate((el) => getComputedStyle(el).textDecorationLine)).toBe("underline");
+        // the level opens on the rules while the field has one, with its dot on the header
+        await expect(menu.getByTestId("section-rules")).toHaveAttribute("aria-expanded", "true");
+        await expect(menu.getByTestId("section-rules").locator(".pk-section-mark")).toHaveCount(1);
+        // Select all reads as a control: a quiet button, padded, not underlined text (the items are folded while the field has a rule)
+        await menu.getByTestId("section-picks").click();
+        expect(await menu.getByTestId("select-all").evaluate((el) => [getComputedStyle(el).textDecorationLine, parseFloat(getComputedStyle(el).paddingLeft) > 2])).toEqual(["none", true]);
     });
 
     test("a format a view brings that is not offered is checked by its name; the levels of choices are one column; the head names the field as the levels do", async ({ page }) => {

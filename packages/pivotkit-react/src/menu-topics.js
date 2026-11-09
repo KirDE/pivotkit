@@ -10,8 +10,8 @@
 
 import { CATALOG, aggregatorsFor, fieldLabel, formatter, isFormat } from "pivotkit-core";
 import { fill, plural } from "./labels.js";
-import { groupingName, rangeText, refLabel, sortText, valueLabel } from "./names.js";
-import { ZONES, filterZoneFields, filtersOf, groupField, groupingOf, moveField, numericResult, reorder, sameRef, setSort, sortEntry, sortOf, sourceOf } from "./view-ops.js";
+import { groupingName, refLabel, relativeText, sortText, valueLabel } from "./names.js";
+import { ZONES, dateSpan, filterZoneFields, filtersOf, groupField, groupingOf, moveField, numericResult, reorder, sameRef, setSort, sortEntry, sortOf, sourceOf } from "./view-ops.js";
 import { TOTALS, filterState, measureChoices, ruleKind, setQuickRange, setRule, setTopFilter, totalNoEffect, updateValue, withMeasure } from "./menu-ops.js";
 
 /**
@@ -32,10 +32,11 @@ import { TOTALS, filterState, measureChoices, ruleKind, setQuickRange, setRule, 
  * "panel" a row that opens a level with a form (the menu's component draws it, by the topic's id).
  * `state` is what is set, in short, on the row's right; `changed` marks a setting that is not the
  * default; `info` the id of an explanation next to the level's title. `hidden`: a level a choice
- * opens, with no row of its own (`levelTitle` its title); `note`: a line under its choices.
+ * opens, with no row of its own (`levelTitle` its title); `note`: a line under its choices;
+ * `heading`: a group heading above a "menu" or "panel" row on the first level, as an inline topic's title.
  * @typedef {{ id: string, title: string, kind: "segmented" | "inline" | "menu" | "panel",
  *   groups?: Array<{ title?: string, choices: Choice[] }>, state?: string | null, changed?: boolean,
- *   icon?: string, titled?: boolean, info?: string, hidden?: boolean, levelTitle?: string, note?: string | null, noteId?: string,
+ *   icon?: string, titled?: boolean, heading?: string, info?: string, hidden?: boolean, levelTitle?: string, note?: string | null, noteId?: string,
  *   keywords?: string, searchExtra?: Array<{ id: string, text: string, focus?: string, choice?: Choice }>,
  *   searchFor?: (query: string) => Array<{ id: string, text: string, focus?: string, choice: Choice }> }} Topic
  * `keywords`: more words the search finds the topic's entries by (a choice's own `keywords` put it
@@ -195,16 +196,20 @@ export function filterTopic({ view, field, labels, locale, state, encoded }) {
     const timeZone = encoded?.timeZone ?? "UTC";
     const capital = (text) => text.charAt(0).toLocaleUpperCase(locale) + text.slice(1);
     /** @type {Topic["searchFor"]} */
-    const searchFor = fk?.dates
+    const searchFor = fk?.quick
         ? (query) => {
               const n = Number(NUMBER_TYPED.exec(query)?.[0]);
               if (!Number.isSafeInteger(n) || n < 1) {
                   return [];
               }
               const units = n > CATALOG.relativeMaxCount ? [] : fk.months ? ["year", "month"] : ["year"];
+              // the range counts back from what the field's range does now (the latest record, or today)
+              const anchor = filtersOf(view, field, ["relative"])[0]?.anchor;
+              // the same words as the chip and the Filter level: "Last 3 years (2024–2025; 2026 has no data)"
+              const span = dateSpan(encoded, sourceOf(view, field));
               const ranges = units.map((unit) => {
-                  const text = `${capital(fill(labels.relative[`${unit}s`], { count: n.toLocaleString(locale) }))} (${rangeText(unit, n, locale, timeZone)})`;
-                  return { id: `quick-${unit}-${n}`, text, choice: { id: `quick-${unit}-${n}`, text, change: () => ({ view: setQuickRange(view, field, { unit, count: n }), note }) } };
+                  const text = capital(relativeText({ unit, count: n, anchor }, labels, locale, timeZone, undefined, span));
+                  return { id: `quick-${unit}-${n}`, text, choice: { id: `quick-${unit}-${n}`, text, change: () => ({ view: setQuickRange(view, field, { unit, count: n, anchor }), note }) } };
               });
               // a year of a grouping by year, written as its chip will say it ("from 2022"); a date
               // field compares days, which the rule editor picks
