@@ -1,5 +1,5 @@
 /*
- * The filter popover of a field: "Remove filter" at the top while it filters, its values with row
+ * The filter popover of a field that is not placed yet (the field list's "Filter…"): its values with row
  * counts (pivotkit-core's fieldItems), a search, select all and none, "only this value", and a
  * condition on the label by the field's type (conditionKind: text, a number's label; none for dates). Changes are a draft until Apply, so one filter is one undo step; the × of the
  * condition's text removes the condition at once. A field that is not placed yet (the field list's
@@ -14,7 +14,7 @@ import { Icon } from "./icons.jsx";
 import { fill } from "./labels.js";
 import { Popover } from "./popover.jsx";
 import { filtersOf, selectedItems } from "./view-ops.js";
-import { conditionKind, hasFilter, removeFilters, setItemFilter, setLabelFilter } from "./menu-ops.js";
+import { conditionKind, setItemFilter, setLabelFilter } from "./menu-ops.js";
 
 /** Values listed at once; the search finds the others. */
 export const FILTER_LIST_MAX = 300;
@@ -27,10 +27,12 @@ export const keyOf = (v) => JSON.stringify(v);
  * shows), and, in a part that scrolls (`children` after them), each value with its row count and
  * "Only". `selected` holds the keys (keyOf) of the values picked; `onChange` gets the next set. The
  * filter popover keeps it as a draft until Apply, the Filter level of a chip menu applies it at once.
- * @param {{ items: Array<{ value: unknown, label: string, count: number }>, selected: Set<string>, onChange: (next: Set<string>) => void,
- *   labels: any, locale: string, autoFocus?: boolean, children?: React.ReactNode }} props
+ * An item the field's rules leave out (`kept` false, pivotkit-core's fieldItems) is muted with
+ * `outText` after its name.
+ * @param {{ items: Array<{ value: unknown, label: string, count: number, kept?: boolean }>, selected: Set<string>, onChange: (next: Set<string>) => void,
+ *   labels: any, locale: string, autoFocus?: boolean, outText?: string, children?: React.ReactNode }} props
  */
-export function ValueList({ items, selected, onChange, labels, locale, autoFocus = false, children }) {
+export function ValueList({ items, selected, onChange, labels, locale, autoFocus = false, outText, children }) {
     const [query, setQuery] = useState("");
     const q = query.trim().toLocaleLowerCase();
     const matching = q ? items.filter((i) => i.label.toLocaleLowerCase().includes(q)) : items;
@@ -77,10 +79,11 @@ export function ValueList({ items, selected, onChange, labels, locale, autoFocus
                     {shown.map((i) => {
                         const k = keyOf(i.value);
                         return (
-                            <li key={k} className="pk-value">
+                            <li key={k} className={`pk-value${outText && i.kept === false ? " pk-value-out" : ""}`}>
                                 <label>
                                     <input type="checkbox" checked={selected.has(k)} onChange={() => toggle(i.value)} />
                                     <span className="pk-value-label">{i.label}</span>
+                                    {outText && i.kept === false ? <span className="pk-value-out-note">{outText}</span> : null}
                                     <span className="pk-count">{i.count.toLocaleString(locale)}</span>
                                 </label>
                                 <button type="button" className="pk-link pk-only" onClick={() => onChange(new Set([k]))} aria-label={`${labels.onlyThis}: ${i.label}`}>
@@ -116,7 +119,6 @@ function FilterBody({ view: current, base, field, encoded, locale, labels, commi
         close();
         commit(next, { step: "filter", field: name });
     };
-    const filtering = !base && hasFilter(view, field);
     // a condition the type has none for (a loaded view's) still shows, so it can be taken off
     const kind = conditionKind(encoded, view, field) ?? (label ? "text" : null);
     return (
@@ -131,20 +133,6 @@ function FilterBody({ view: current, base, field, encoded, locale, labels, commi
                 <h3>{fill(labels.filterTitle, { field: name })}</h3>
                 <span className="pk-muted">{fill(labels.selected, { count: selected.size.toLocaleString(locale) })}</span>
             </div>
-            {filtering ? (
-                <button
-                    type="button"
-                    className="pk-btn pk-remove-filter"
-                    onClick={() => {
-                        close();
-                        commit(removeFilters(view, field), { step: "filter", field: name });
-                    }}
-                    data-testid="filter-remove"
-                >
-                    <Icon name="x" />
-                    <span className="pk-btn-text">{labels.removeFilter}</span>
-                </button>
-            ) : null}
             <ValueList items={info.items} selected={selected} onChange={setSelected} labels={labels} locale={locale} autoFocus>
             {kind ? (
             <fieldset className="pk-condition">

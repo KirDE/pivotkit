@@ -29,8 +29,8 @@ changed. **Options**, **Help**, **Keyboard shortcuts** lists the keys in the rep
   without a number).
 - From 300 rows on a row label is cut to one line; the status line under the table shows the whole
   label of the row the focus is on, or of a label you tap.
-- A chip's name says what is set on it: the filter ("3 of 4"), the top N, the whole value condition,
-  the sort.
+- A chip's name says what is set on it: the filter ("3 of 4"), its rules ("last 5 years
+  (2022–2026)", "from 2022"), the top N, the whole value condition, the sort.
 - In a chip's menu each row says what is set and whether it is the default: "Filter, 3 of 4,
   changed". A level's title names the field ("Month › Group"); a level with fields is a group with
   that heading, a level of choices a menu. The Filter level says how many items it keeps as it
@@ -59,7 +59,10 @@ changed. **Options**, **Help**, **Keyboard shortcuts** lists the keys in the rep
 
 - Text is at least 14 px, and controls at least 24 x 24 px.
 - On a touch screen the small buttons (×, **i**, a field's menu and grip, a tip's x) are at least
-  44 px.
+  44 px. In the field list they keep their desktop size, so the rows stay as compact and the names
+  on one line where they fit; a finger still finds them in an area 44 px high around each (the grip's
+  44 px wide too), and the rows stand a little further apart so that no area reaches into the next
+  row.
 - Contrast is checked in both themes; reduced motion switches the animations and transitions off:
   a menu or popover appears at once, in its place.
 

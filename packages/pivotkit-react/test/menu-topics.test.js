@@ -167,8 +167,8 @@ test("search: every choice of every level with its path, and the panels; all wor
     assert.ok(searchHits(entries, "o", "en-US").length <= SEARCH_HITS);
     // a field's: the Filter panel is an entry that opens it
     const field = searchEntries(axis(view));
-    // the Filter panel's own entries (its conditions) are found by its title too
-    assert.deepEqual(searchHits(field, "filt", "en-US").map((e) => [e.id, Boolean(e.choice)]), [["open-filter", false], ["open-filter-text", false], ["open-filter-value", false], ["move-filters", true]]);
+    // the Filter panel's own entries (its rules) are found by its title too
+    assert.deepEqual(searchHits(field, "filt", "en-US").map((e) => [e.id, Boolean(e.choice)]), [["open-filter", false], ["open-filter-rules", false], ["open-filter-text", false], ["open-filter-value", false], ["move-filters", true]]);
     assert.deepEqual(searchHits(field, "move col", "en-US").map((e) => e.id), ["move-cols"]);
 });
 
@@ -216,8 +216,10 @@ test("search: the shares of Show as come first for percent and %; the conditions
     assert.deepEqual(first("rename"), ["Name"]);
     const field = searchEntries(axis(view));
     const hits = (q) => searchHits(field, q, "en-US");
-    assert.deepEqual(hits("text condition").map((e) => [e.id, e.focus]), [["open-filter-text", "conditions"]]);
-    assert.ok(hits("value condition").some((e) => e.id === "open-filter-value" && e.focus === "conditions"));
+    assert.deepEqual(hits("rule on the name").map((e) => [e.id, e.focus]), [["open-filter-text", "conditions"]]);
+    assert.ok(hits("compare its total").some((e) => e.id === "open-filter-value" && e.focus === "conditions"));
+    // "rule" finds the rules, and opens the level on them
+    assert.deepEqual(hits("rule").map((e) => e.id).slice(0, 2), ["open-filter-rules", "open-filter-text"]);
     const top5 = hits("top 5")[0];
     assert.equal(top5.text, "Top 5");
     assert.deepEqual(top5.choice.change().view.filters.map((f) => [f.type, f.count]), [["top", 5]]);
@@ -232,4 +234,21 @@ test("a format the menu does not offer (number:1) is a checked entry of its own,
     assert.equal(formatLabel("currency:USD", MENU.en, "en-US"), "Currency");
     // an offered one has no such entry
     assert.equal(choice(byId(valueTopics({ view: norm({ rows: ["Region"], values: [units] }), index: 0, types, labels: MENU.en, locale: "en-US" }), "format"), "format-current"), undefined);
+});
+
+test("Highlight: the checked choice changes nothing; None or Data bars and back bring the value's own colours back", () => {
+    const own = { type: "colorScale", colors: ["#2166ac", "#b2182b"] };
+    const view = norm({ rows: ["Region"], values: [{ ...units, conditional: own }] });
+    const highlight = (v, earlier) => byId(valueTopics({ view: v, index: 0, types, labels: MENU.en, locale: "en-US", earlier }), "highlight");
+    // the colour scale again: no change, the view keeps its colours
+    assert.equal(choice(highlight(view), "cond-colorScale").change(), null);
+    // None, then the colour scale: the colours of the earlier step, not the theme's
+    const none = norm(choice(highlight(view), "cond-none").change().view);
+    assert.equal(none.values[0].conditional, null);
+    const back = choice(highlight(none, () => [view]), "cond-colorScale").change().view;
+    assert.deepEqual(back.values[0].conditional, own);
+    // through data bars too; without such a step it is the theme's scale
+    const bars = norm(choice(highlight(view), "cond-dataBar").change().view);
+    assert.deepEqual(choice(highlight(bars, () => [view]), "cond-colorScale").change().view.values[0].conditional, own);
+    assert.deepEqual(choice(highlight(bars), "cond-colorScale").change().view.values[0].conditional, { type: "colorScale" });
 });

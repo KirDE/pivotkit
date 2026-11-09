@@ -64,6 +64,11 @@ test("a chosen time zone reads instants at its wall clock, daylight saving inclu
     assert.notEqual(encode(rows, { timeZone: "local" }).timeZone, "local");
 });
 
+test("the last moment a Date holds is read in a zone without a throw", () => {
+    const data = encode([{ when: new Date(8.64e15) }, { when: new Date(-8.64e15) }], { timeZone: "America/New_York" });
+    assert.deepEqual(computePivot(data, { rows: ["when"], values: [{ agg: "count" }] }).rowRoot.children.length, 2);
+});
+
 test("the view keeps the time zone it was made for and the pivot reports a mismatch", () => {
     const view = { rows: ["d"], formatting: { timeZone: "europe/berlin" } };
     const berlin = computePivot(encode([{ d: "2026-01-01" }], { timeZone: "Europe/Berlin" }), view);
@@ -86,4 +91,21 @@ test("ISO times that do not exist are text; years before 100 are dates", () => {
     assert.equal(encode([{ d: "0050-01-01" }]).column("d").values[0], -60589296000000);
     assert.deepEqual(parseIso("2026-03-04T10:00:00+0530"), { ms: Date.UTC(2026, 2, 4, 10), offsetMinutes: 330 });
     assert.deepEqual(parseIso("2026-03-04 10:00:00.123456789Z"), { ms: Date.UTC(2026, 2, 4, 10, 0, 0, 123), offsetMinutes: 0 });
+});
+
+test("relative date ranges read today in the data's zone, not the machine's", () => {
+    // 03:00 UTC on New Year's Day: still 2025 on a machine in New York, already 2026 in UTC data
+    const relative = `
+const { encode, computePivot, relativeDateRange } = await import(${JSON.stringify(index)});
+const data = encode([{ d: "2025-12-31", v: 1 }, { d: "2026-01-01", v: 2 }]);
+const now = new Date("2026-01-01T03:00:00Z");
+const r = computePivot(data, { values: [{ field: "v", agg: "sum" }], filters: [{ field: "d", type: "relative", unit: "year", count: 1 }] }, { now });
+console.log(JSON.stringify([r.value(r.rowRoot, r.colRoot, 0), relativeDateRange("day", 1, { now })]));
+`;
+    const run = (TZ) => execFileSync(process.execPath, ["--input-type=module", "-e", relative], { env: { ...process.env, TZ }, encoding: "utf8" });
+    const outputs = ["UTC", "America/New_York", "Pacific/Kiritimati"].map(run);
+    assert.deepEqual(JSON.parse(outputs[0]), [2, { from: "2026-01-01", to: "2026-01-01" }]);
+    for (const out of outputs.slice(1)) {
+        assert.equal(out, outputs[0]);
+    }
 });

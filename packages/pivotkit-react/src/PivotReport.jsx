@@ -1229,7 +1229,6 @@ function Report(props) {
                                 types={types}
                                 labels={labels}
                                 commit={commit}
-                                openFilter={(field, anchor) => setFilterTarget({ field, anchor })}
                                 encoded={encoded}
                                 locale={locale}
                                 onSwap={() => commit(swapAxes(view), { step: "swap" })}
@@ -1238,6 +1237,7 @@ function Report(props) {
                                 onShow={() => setFolded(false)}
                                 defaultsOf={defaultsOf}
                                 infoOf={infoOf}
+                                earlier={history.earlier}
                                 explain={zoneSwitch.on}
                                 showInfo={fieldSwitch.on}
                             />

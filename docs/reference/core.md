@@ -41,8 +41,12 @@ Names match case-insensitively; the data's own spelling is kept for display.
 
 The distinct values of a field (a derived field of `options.view` too) with label and row count, in
 the table's label order, blank last: what a filter list shows. Counts are over all rows, before
-filters. Returns `{ field, type, items: { value, label, count }[], truncated }`, or `null` for an
-unknown field. Options: `view`, `locale`, `labels`, `limits`.
+filters. Each item says with `kept` whether the field's own rules on items keep it (a `label`
+condition, a `compare`, a `relative` range, all together; a year of a grouping is kept when a row of
+it is in the range); `true` without such a rule; its picks and the conditions on totals are not
+counted. Returns `{ field, type, items: { value, label, count, kept }[], truncated }`, or `null` for
+an unknown field. Options: `view`, `locale`, `labels`, `limits`, `now` (today for a relative range,
+as `computePivot`'s).
 
 ### `suggestDateUnit(data, field)`
 
@@ -101,9 +105,13 @@ and its JSON Schema are in [View file format](view-file.md).
 ### `computePivot(data, view, options?)`
 
 Builds the row and column key trees with subtotals and totals. The view is normalized first, so raw
-user input is fine. Options: `locale`, `limits` (`work` is computed before the aggregation starts;
+user input is fine. Options: `locale`, `now`, `limits` (`work` is computed before the aggregation starts;
 `groups` and `pivotCells` are counted while the key trees and the cells grow; over one,
-`LIMIT_EXCEEDED`).
+`LIMIT_EXCEEDED`). `now` is today for relative date ranges ("the last 5 years",
+[Filters](../concepts/filters.md#relative-date-ranges)): a `Date`, epoch milliseconds or an ISO
+string, read in the data's time zone like any date (an ISO string without an offset as written);
+default the current time. Anything else, and epoch milliseconds beyond what a `Date` holds, throws
+`INVALID_OPTION`.
 
 The `PivotResult` has, among others:
 
@@ -118,6 +126,16 @@ The `PivotResult` has, among others:
 | `display(row, col, i)` | The same after "show values as". |
 | `hasRows(row, col)` | Whether any source row is behind a cell (a blank cell of a combination without data has none). |
 | `label(axis, node, labels?)` | A node's label as the table shows it. |
+
+### `relativeDateRange(unit, count, options?)`
+
+The days a relative date range keeps, both included: `relativeDateRange("year", 5, { now:
+"2026-11-09" })` is `{ from: "2022-01-01", to: "2026-12-31" }`. `unit` is `"year"`, `"month"` or
+`"day"`, `count` a whole number from 1 to `CATALOG.relativeMaxCount` (500); anything else returns
+`null`, as does a range that leaves what a `Date` holds (the years -271821 to 275760). Options: `now`
+(as `computePivot`'s, default the current time; beyond what a `Date` holds, `INVALID_OPTION`) and
+`timeZone` (the data's, default `"UTC"`, never the machine's). A UI shows the range with it ("last 5
+years (2022–2026)").
 
 ### Drill-down
 
@@ -237,7 +255,7 @@ What the files contain, and where Excel's number formats cannot follow the grid,
 | `createHistory(startView, { limit })` | Undo, redo and reset for views: `current`, `canUndo`, `canRedo`, `push(view)` (an unchanged view is not a step; returns whether it was one), `undo()`, `redo()`, `reset()` (back to the start view as one step that can be undone). `limit` defaults to 100 steps. |
 | `formatter(format, { locale })` | A named [format](../concepts/values.md#formats) as a function from a value to text. |
 | `isFormat(format)` | Whether a name is a known format. |
-| `CATALOG` | Every name a view accepts, for a UI's menus: `aggregators`, `commonAggregators`, `columnTypes`, `deriveUnits`, `timelineUnits`, `cyclicUnits`, `filterTypes`, `labelOps`, `valueOps`, `formats`, `showAs`, `showAsAlongAxis`, `chartTypes`, `chartValueLabels`, `chartLegends`, `chartAxisLabels`, `chartGroupLabels`, `chartLabelPositions`, `displayModes`, `conditionalTypes`. |
+| `CATALOG` | Every name a view accepts, for a UI's menus: `aggregators`, `commonAggregators`, `columnTypes`, `deriveUnits`, `timelineUnits`, `cyclicUnits`, `filterTypes`, `labelOps`, `valueOps`, `relativeUnits`, `relativeMaxCount`, `formats`, `showAs`, `showAsAlongAxis`, `chartTypes`, `chartValueLabels`, `chartLegends`, `chartAxisLabels`, `chartGroupLabels`, `chartLabelPositions`, `displayModes`, `conditionalTypes`. |
 | `aggregatorsFor(type)` | The aggregators that fit a field type. |
 | `DEFAULT_LABELS` | The texts the engine writes (blank, totals, value names, aggregator names, "show as" names), to override per call with `labels`. |
 | `fieldLabel(field, labels)` | A field's display name from `labels.fields` (matched case-insensitively), else the name. With `labels.fields` the grid's corner headers, the value names, the exports and the chart show display names; the view keeps the field names. |

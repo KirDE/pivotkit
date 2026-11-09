@@ -6,8 +6,32 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+
+- Filter rules ([#89](https://github.com/eizedev/pivotkit/issues/89),
+  [#90](https://github.com/eizedev/pivotkit/issues/90)). The Filter level of a date field (or a
+  grouping of one) starts with quick choices: All, This year, Last [N] years and, unless it is
+  grouped by year or quarter, Last [N] months, each with the days it keeps ("2022–2026"), relative to
+  today in the data's time zone; "Custom rules" while the rules hold more. Under "More ways to
+  filter" a rule editor: sentences that all apply together, added and removed one by one, each
+  applied once complete: the item itself compared ("Released by year is from 2022", for dates also
+  "is in the last N years"), its total compared ("Count of Released is greater than 3"; "Count of
+  rows" with nothing in Values) and a rule on its name. The chip, the menu's first level and the
+  level say the same words: "last 5 years (2022–2026)", "from 2022", "Count of rows > 3".
+- A field in Filters opens a menu of its own with the same Filter level (Filter, Move to, Remove
+  field) instead of the filter popover.
+- The menu search finds the rules ("rule"), the quick choices with the count typed ("last 3
+  years") and a year compared ("from 2022"), and applies them at once.
+
 ### Changed
 
+- The text condition and the condition on a value of the Filter level are rules now: each is added
+  with its button and taken away with its ×; "is anything" and "No condition" are gone. "Remove the
+  conditions" is "Remove the rules" and takes the quick choice of a date too.
+- A sort, Top items or a value condition by the row count the view does not show is named "Count
+  of rows" ("Anzahl der Zeilen").
+- The filter popover is only the field list's "Filter…" of a field not placed yet, so its "Remove
+  filter" is gone (with the label `removeFilter`).
 - The menus of a chip and Options are in levels instead of long accordions. The first level is a
   short summary: one row per topic with what is set on its right ("Filter · All", "Top items · Off",
   "Number format · ● Currency"; the dot and ", changed" in its accessible name where it is not the
@@ -69,6 +93,20 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Fixed
 
+- Filter rules after review: a rule on the names shows its words on the chip ("contains “linux”");
+  the pick list marks the items the field's rules leave out and the first line counts what shows
+  ("2 of 36 items shown: last 2 years (2025–2026)"); the quick choices follow Undo; a count above
+  500 says so; a new rule and the opened rules scroll into view; a narrow chip cuts the rule, not the
+  field's name; "is not" says blank items are not kept; counts of one have their own words ("Letztes
+  1 Jahr", "im letzten 1 Monat"); the rule on a total names the items ("Region items whose …"); the
+  search offers "from 2022" for a grouping by year only. The labels `labelOps` load first now (the
+  chip says them).
+- On a touch screen the field list keeps its desktop rows: the grip, the "i" and the menu of a
+  field keep their size and get a hit area 44 px high instead (the grip's 44 px wide), within their
+  own row; they made every row 44 px or more high and broke names such as "Sunshine h" into two lines.
+- Highlight keeps a value's own colours: Colour scale while it is checked changes nothing (it
+  replaced a view's own colours by the theme's), and None or Data bars and back bring the value's
+  colours of an earlier step of the history back.
 - The "i" popover (and every other popover) appears at its final size and place
   ([#91](https://github.com/eizedev/pivotkit/issues/91)). Where the area of fixed elements ends before
   the window's edge (a classic scroll bar, as on Windows; a transformed host element), it narrowed a

@@ -6,8 +6,18 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 
 ## [Unreleased]
 
+### Added
+
+- pivotkit-react's filter rules ([#89](https://github.com/eizedev/pivotkit/issues/89),
+  [#90](https://github.com/eizedev/pivotkit/issues/90)): quick choices for dates (This year, Last N
+  years or months), rules on the item itself, its total and its name, the same Filter level for a
+  field in Filters, and pivotkit-core's `compare` and `relative` filters.
+
 ### Changed
 
+- Size budgets: the first load 153 KiB (151.8 measured on a Mac; the core's new filters and the
+  chips' words for them, the touch hit areas of the field list), the menus 33.5 KiB (31.7 measured), their German texts 5.5 KiB, the texts
+  of a view's unused parts 5 KiB.
 - pivotkit-react's chip menus, Options and Views are in levels, and no menu folds any more (Reset
   menu sections is gone; stored folds are dropped): a first level that says what each topic
   holds, a level of its own per topic with **‹ Back**, every choice applied at once, a search over all
@@ -20,6 +30,10 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 
 ### Fixed
 
+- pivotkit-react's field list on a touch screen keeps its desktop rows, with 44 px high hit areas
+  for a field's grip, "i" and menu.
+- pivotkit-react's Highlight keeps a value's own colours (a checked Colour scale changes nothing;
+  None or Data bars and back bring them back).
 - pivotkit-react's popovers appear at their final size and place
   ([#91](https://github.com/eizedev/pivotkit/issues/91)).
 - With reduced motion pivotkit-react's menus take the focus when they open

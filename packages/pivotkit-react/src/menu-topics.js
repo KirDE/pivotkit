@@ -10,9 +10,9 @@
 
 import { CATALOG, aggregatorsFor, fieldLabel, formatter, isFormat } from "pivotkit-core";
 import { fill, plural } from "./labels.js";
-import { groupingName, refLabel, sortText, valueLabel } from "./names.js";
-import { ZONES, filtersOf, groupField, groupingOf, moveField, numericResult, reorder, sameRef, setSort, sortEntry, sortOf, sourceOf } from "./view-ops.js";
-import { TOTALS, filterState, measureChoices, setTopFilter, totalNoEffect, updateValue, withMeasure } from "./menu-ops.js";
+import { groupingName, rangeText, refLabel, sortText, valueLabel } from "./names.js";
+import { ZONES, filterZoneFields, filtersOf, groupField, groupingOf, moveField, numericResult, reorder, sameRef, setSort, sortEntry, sortOf, sourceOf } from "./view-ops.js";
+import { TOTALS, filterState, measureChoices, ruleKind, setQuickRange, setRule, setTopFilter, totalNoEffect, updateValue, withMeasure } from "./menu-ops.js";
 
 /**
  * One choice of a topic: a menu item. `change` gives the next view and the history's note, or `run`
@@ -21,7 +21,7 @@ import { TOTALS, filterState, measureChoices, setTopFilter, totalNoEffect, updat
  * `reason`; `info`: the id of its explanation (labels.settingInfo). `open`: the id of a topic whose
  * level it opens (after `run`; Back puts the focus on `backTo`, else on the choice), instead of applying; `actions`: an entry's own actions next to it
  * (choices themselves, drawn as icon buttons with `label`); `current`: the entry shown now.
- * @typedef {{ id: string, text: string, change?: () => { view: any, note: any }, run?: () => void, checked?: boolean,
+ * @typedef {{ id: string, text: string, change?: () => { view: any, note: any } | null, run?: () => void, checked?: boolean,
  *   hint?: string, icon?: string, closes?: boolean, checkbox?: boolean, disabled?: boolean, reason?: string, info?: string,
  *   keywords?: string, open?: string, backTo?: string, actions?: Array<Choice & { label: string }>, current?: boolean, testId?: string, label?: string }} Choice
  */
@@ -36,10 +36,11 @@ import { TOTALS, filterState, measureChoices, setTopFilter, totalNoEffect, updat
  * @typedef {{ id: string, title: string, kind: "segmented" | "inline" | "menu" | "panel",
  *   groups?: Array<{ title?: string, choices: Choice[] }>, state?: string | null, changed?: boolean,
  *   icon?: string, titled?: boolean, info?: string, hidden?: boolean, levelTitle?: string, note?: string | null, noteId?: string,
- *   keywords?: string, searchExtra?: Array<{ id: string, text: string, focus?: string, choice?: Choice }> }} Topic
+ *   keywords?: string, searchExtra?: Array<{ id: string, text: string, focus?: string, choice?: Choice }>,
+ *   searchFor?: (query: string) => Array<{ id: string, text: string, focus?: string, choice: Choice }> }} Topic
  * `keywords`: more words the search finds the topic's entries by (a choice's own `keywords` put it
  * first among the hits for them); `searchExtra`: more entries of a panel topic (a part of its level,
- * or a quick choice of it).
+ * or a quick choice of it); `searchFor`: entries made from what is typed ("last 3 years", "from 2022").
  */
 
 /** The formats the value menu offers first, and those under "More formats"; any other format of a view still works. */
@@ -74,11 +75,12 @@ function moveTopic(view, zone, index, count, labels, name, type) {
  * The topics of a field's menu on Rows or Columns: sort by label (side by side), sort by a value,
  * Filter, the grouping of a date or a number, Top items, Move to.
  * @param {{ view: any, zone: string, index: number, field: string, types: Map<string, string>,
- *   labels: any, locale: string, state?: any, defaultsOf?: (field: string) => any }} input
- *   `state`: the chip's state (zones.jsx), for the filter's "3 of 12"
+ *   labels: any, locale: string, state?: any, defaultsOf?: (field: string) => any, encoded?: any }} input
+ *   `state`: the chip's state (zones.jsx), for the filter's "3 of 12"; `encoded`: the data, for the
+ *   search's quick choices of a date field
  * @returns {Topic[]}
  */
-export function axisTopics({ view, zone, index, field, types, labels, locale, state, defaultsOf }) {
+export function axisTopics({ view, zone, index, field, types, labels, locale, state, defaultsOf, encoded }) {
     const source = sourceOf(view, field);
     const name = fieldLabel(field, labels.core);
     const sourceType = types.get(source.toLowerCase());
@@ -127,20 +129,7 @@ export function axisTopics({ view, zone, index, field, types, labels, locale, st
         },
         // one value: largest and smallest first right here; more: a level of their own
         { id: "sortValue", title: labels.sortByValue, kind: byValue.length <= 2 ? "inline" : "menu", icon: "sortDesc", state: otherSort, changed: Boolean(otherSort), groups: [{ choices: byValue }] },
-        {
-            id: "filter",
-            title: labels.filterTopic,
-            kind: "panel",
-            icon: "filter",
-            state: filterState(view, field, state, labels, locale) ?? labels.filterAll,
-            changed: filterState(view, field, state, labels, locale) !== null,
-            keywords: labels.filterKeywords,
-            // the conditions are found by their names, and open the level on them
-            searchExtra: [
-                { id: "open-filter-text", text: labels.condition, focus: "conditions" },
-                { id: "open-filter-value", text: labels.valueConditionTitle, focus: "conditions" }
-            ]
-        }
+        filterTopic({ view, field, labels, locale, state, encoded })
     ];
     if (date) {
         const regroup = (unit) => () => {
@@ -187,6 +176,79 @@ export function axisTopics({ view, zone, index, field, types, labels, locale, st
     return topics;
 }
 
+/** The search's "a number" in what is typed: "last 3 years" 3, "from 2022" 2022. */
+const NUMBER_TYPED = /\d+/;
+
+/**
+ * The Filter topic of a field's menu: its state in words ("last 5 years (2022–2026)", "3 of 12"), the
+ * rules found by their names (they open the level on them), and from what is typed in the search,
+ * for a date field: the quick choices with that count ("Last 3 years (2024–2026)") and, for a grouping
+ * by year, a year compared ("From 2022"), applied at once.
+ * @param {{ view: any, field: string, labels: any, locale: string, state?: any, encoded?: any }} input
+ * @returns {Topic}
+ */
+export function filterTopic({ view, field, labels, locale, state, encoded }) {
+    const name = fieldLabel(field, labels.core);
+    const note = { step: "filter", field: name };
+    const filtered = filterState(view, field, state, labels, locale);
+    const fk = encoded ? ruleKind(encoded, view, field) : null;
+    const timeZone = encoded?.timeZone ?? "UTC";
+    const capital = (text) => text.charAt(0).toLocaleUpperCase(locale) + text.slice(1);
+    /** @type {Topic["searchFor"]} */
+    const searchFor = fk?.dates
+        ? (query) => {
+              const n = Number(NUMBER_TYPED.exec(query)?.[0]);
+              if (!Number.isSafeInteger(n) || n < 1) {
+                  return [];
+              }
+              const units = n > CATALOG.relativeMaxCount ? [] : fk.months ? ["year", "month"] : ["year"];
+              const ranges = units.map((unit) => {
+                  const text = `${capital(fill(labels.relative[`${unit}s`], { count: n.toLocaleString(locale) }))} (${rangeText(unit, n, locale, timeZone)})`;
+                  return { id: `quick-${unit}-${n}`, text, choice: { id: `quick-${unit}-${n}`, text, change: () => ({ view: setQuickRange(view, field, { unit, count: n }), note }) } };
+              });
+              // a year of a grouping by year, written as its chip will say it ("from 2022"); a date
+              // field compares days, which the rule editor picks
+              const keyed = fk.item === "group" && n >= 1000 && n <= 9999 && view.derived.some((d) => d.name.toLowerCase() === field.toLowerCase() && d.by === "year");
+              if (!keyed) {
+                  return ranges;
+              }
+              const compares = [">=", "<=", "<", ">"].map((op) => {
+                  const entry = { field, type: "compare", op, value: n };
+                  // the words of the chip, with the year as typed ("from 2022", not a date)
+                  const text = capital(fill(labels.compareShort[op], { value: String(n) }));
+                  return { id: `compare-${op}-${n}`, text, choice: { id: `compare-${op}-${n}`, text, change: () => ({ view: setRule(view, field, null, entry), note }) } };
+              });
+              return [...compares, ...ranges];
+          }
+        : undefined;
+    return {
+        id: "filter",
+        title: labels.filterTopic,
+        kind: "panel",
+        icon: "filter",
+        state: filtered ?? labels.filterAll,
+        changed: filtered !== null,
+        keywords: labels.filterKeywords,
+        // the rules are found by their names, and open the level on them
+        searchExtra: [
+            { id: "open-filter-rules", text: labels.rulesTitle, focus: "conditions" },
+            { id: "open-filter-text", text: labels.addRuleName, focus: "conditions" },
+            { id: "open-filter-value", text: labels.addRuleTotal, focus: "conditions" }
+        ],
+        searchFor
+    };
+}
+
+/**
+ * The topics of a field's menu in Filters (the whole report): Filter, Move to.
+ * @param {{ view: any, index: number, field: string, types: Map<string, string>, labels: any, locale: string, state?: any, encoded?: any }} input
+ * @returns {Topic[]}
+ */
+export function filterZoneTopics({ view, index, field, types, labels, locale, state, encoded }) {
+    const type = types.get(sourceOf(view, field).toLowerCase());
+    return [filterTopic({ view, field, labels, locale, state, encoded }), moveTopic(view, "filters", index, filterZoneFields(view).length, labels, fieldLabel(field, labels.core), type)];
+}
+
 /**
  * A Top items filter in words: "Top 10 by Sum of Revenue", "Bottom 3 by Count".
  * @param {any} view
@@ -217,10 +279,11 @@ export function formatLabel(format, labels, locale) {
 /**
  * The topics of a value's menu: Summarize by, Show as, Number format (each a level), Highlight (side
  * by side), Name, Move to. A value whose result is no number has no Show as, format or highlight.
- * @param {{ view: any, index: number, types: Map<string, string>, labels: any, locale: string, defaultsOf?: (field: string) => any }} input
+ * @param {{ view: any, index: number, types: Map<string, string>, labels: any, locale: string, defaultsOf?: (field: string) => any,
+ *   earlier?: () => any[] }} input  `earlier`: the history's views before this one, oldest first
  * @returns {Topic[]}
  */
-export function valueTopics({ view, index, types, labels, locale, defaultsOf }) {
+export function valueTopics({ view, index, types, labels, locale, defaultsOf, earlier }) {
     const spec = view.values[index];
     const type = spec.field ? types.get(spec.field.toLowerCase()) ?? "string" : "number";
     const defaults = spec.field ? defaultsOf?.(spec.field) : undefined;
@@ -285,7 +348,26 @@ export function valueTopics({ view, index, types, labels, locale, defaultsOf }) 
                 { title: labels.moreFormats, choices: MORE_FORMATS.map(format) }
             ]
         });
-        // three choices: side by side on the first level; no colours, pivotkit-core's DEFAULT_THEME gives them
+        /**
+         * A highlight of the value: its own of that type when it had one (the view's colours; also an
+         * earlier step's, so None and back keeps them), else the theme's colours (pivotkit-core's
+         * DEFAULT_THEME gives them).
+         */
+        const ownOf = (type) => {
+            const same = (v) => v.agg === spec.agg && (v.field ?? null) === (spec.field ?? null);
+            for (const v of [view, ...[...(earlier?.() ?? [])].reverse()]) {
+                const c = (v.values ?? []).find(same)?.conditional;
+                if (c?.type === type) {
+                    return c;
+                }
+            }
+            return type === "colorScale" ? { type } : { type, color: null };
+        };
+        const highlight = (id, text, type) => {
+            const checked = (spec.conditional?.type ?? null) === type;
+            return { id, text, checked, change: checked ? () => null : set({ conditional: type ? ownOf(type) : null }) };
+        };
+        // three choices: side by side on the first level
         topics.push({
             id: "highlight",
             title: labels.conditional,
@@ -294,10 +376,11 @@ export function valueTopics({ view, index, types, labels, locale, defaultsOf }) 
             changed: Boolean(spec.conditional),
             groups: [
                 {
+                    // the one checked changes nothing; another brings back the value's own colours of that kind
                     choices: [
-                        { id: "cond-none", text: labels.conditionalNone, checked: !spec.conditional, change: set({ conditional: null }) },
-                        { id: "cond-colorScale", text: labels.colorScale, checked: spec.conditional?.type === "colorScale", change: set({ conditional: { type: "colorScale" } }) },
-                        { id: "cond-dataBar", text: labels.dataBar, checked: spec.conditional?.type === "dataBar", change: set({ conditional: { type: "dataBar", color: null } }) }
+                        highlight("cond-none", labels.conditionalNone, null),
+                        highlight("cond-colorScale", labels.colorScale, "colorScale"),
+                        highlight("cond-dataBar", labels.dataBar, "dataBar")
                     ]
                 }
             ]
@@ -397,16 +480,19 @@ export const afterDelete = (list, place) => list[place + 1] ?? list[place - 1];
 
 /**
  * Every entry of a menu, for its search: each choice with the titles above it as its path ("Number
- * format › More formats"), and each panel as an entry that opens it.
+ * format › More formats"), each panel as an entry that opens it, and the entries a topic makes from
+ * what is typed (`query`).
  * @param {Topic[]} topics
+ * @param {string} [query]
  * @returns {SearchEntry[]}
  */
-export function searchEntries(topics) {
+export function searchEntries(topics, query = "") {
     return topics.flatMap((topic) => {
         if (topic.hidden) {
             return [];
         }
-        const extra = (topic.searchExtra ?? []).map((x) => ({ id: x.id, text: x.text, path: topic.title, topic, choice: x.choice, focus: x.focus }));
+        const typed = query && topic.searchFor ? topic.searchFor(query) : [];
+        const extra = [...typed, ...(topic.searchExtra ?? [])].map((x) => ({ id: x.id, text: x.text, path: topic.title, topic, choice: x.choice, focus: x.focus }));
         return topic.kind === "panel"
             ? [{ id: `open-${topic.id}`, text: topic.title, path: "", topic }, ...extra]
             : (topic.groups ?? []).flatMap((g) => g.choices.map((choice) => ({ id: choice.id, text: choice.text, path: [topic.title, g.title].filter(Boolean).join(" › "), topic, choice })));

@@ -54,22 +54,49 @@ export const en = {
     // the Filter level: how many items the list keeps, the condition on a value as a sentence
     itemsPicked: "{shown} of {total} items picked",
     valueConditionTitle: "Condition on a value",
-    keepWhose: "Keep {field} items whose",
-    valueOpAny: "is anything",
     nameHint: "Applies with Enter or when you leave the field; Escape gives the name back.",
     // more words the search of a menu finds an entry by
     showAsKeywords: "percent % share",
     nameKeywords: "rename label title",
-    filterKeywords: "values pick choose",
+    filterKeywords: "values pick choose rule rules condition range dates",
     formatDecimals: { one: "Number, {count} decimal", other: "Number, {count} decimals" },
     // the Filter level: what it keeps in words, what its buttons take away, its folded part
     pickedPlus: "{picked}, plus {conditions}",
     conditionOnNames: "a condition on the names",
-    conditionOnValue: "a condition on {value}",
     listAnd: " and ",
     clearPicks: "Clear picks",
-    removeConditions: "Remove the conditions",
+    removeConditions: "Remove the rules",
     moreFilters: "More ways to filter",
+    // the Filter level of a date field: its quick choices ("Last [5] years" around the number typed)
+    quickTitle: "Quick choices",
+    quickCustom: "Custom rules",
+    quickCount: { year: "Number of years", month: "Number of months", day: "Number of days" },
+    quickLast: { year: { one: "Last {count} year", other: "Last {count} years" }, month: { one: "Last {count} month", other: "Last {count} months" } },
+    // the rules under "More ways to filter", all of them together: on the item, its total, its name
+    rulesTitle: "Rules",
+    rulesKeep: "Keep the items for which all of these are true:",
+    rulesNone: "No rules yet.",
+    ruleAnd: "and",
+    addRule: "Add a rule",
+    addRuleItem: "Compare {field}",
+    addRuleTotal: "Compare its total",
+    addRuleName: "Rule on the name",
+    removeRule: "Remove this rule",
+    rulesFull: "At most {max} rules per field.",
+    ruleName: "The name",
+    ruleValue: "Value",
+    ruleDate: "Date",
+    dateOps: { "=": "is", "!=": "is not", ">": "is after", ">=": "is from", "<": "is before", "<=": "is up to", between: "is between", notBetween: "is not between" },
+    lastOp: { one: "is in the last", other: "is in the last" },
+    ruleUnits: { year: { one: "year", other: "years" }, month: { one: "month", other: "months" }, day: { one: "day", other: "days" } },
+    // a rule on the total, as a sentence: "Product items whose / Count of Cycle / is greater than / 3"
+    ruleWhose: "{field} items whose",
+    blanksOut: "Blank items are not kept.",
+    // the Filter level's first line with rules on the items, and an item they leave out
+    itemsShown: "{shown} of {total} items shown: {rules}",
+    itemsShownPicked: "{shown} of {total} items shown: {picked} picked, {rules}",
+    ruleOut: "left out by a rule",
+    ruleUnit: "Unit",
     moveLeft: "Move left",
     moveRight: "Move right",
     // the last item of a chip menu: takes the field (or value) out of the report
@@ -268,6 +295,7 @@ export const en = {
     switchStartsFresh: "Switching shows the other data with this view; Undo starts there.",
     numberInvalid: "Enter a number, such as {example}.",
     countInvalid: "Enter a whole number of 1 or more.",
+    countMax: "Enter a whole number up to {max}.",
     sizeInvalid: "Enter a number above 0, such as {example}.",
     valueFilterBy: "Value",
     valueFilterOp: "Condition",
@@ -275,7 +303,6 @@ export const en = {
     valueFilterTo: "and",
     // a value condition as a sentence: "… whose Sum of Units is greater than 10"
     valueOps: { "=": "is", "!=": "is not", ">": "is greater than", ">=": "is at least", "<": "is less than", "<=": "is at most", between: "is between", notBetween: "is not between" },
-    removeFilter: "Remove filter",
     // the second group of a level's choices
     moreFormats: "More formats",
     // Options: the totals, and why one would change nothing; expand and collapse all, and what they did
@@ -295,8 +322,6 @@ export const en = {
     groupsExpanded: { one: "{count} group expanded", other: "{count} groups expanded" },
     // the chart type menu: how the chart is drawn
     chartDisplay: "Display",
-    // the filter's conditions on the names
-    labelOps: { equals: "is", notEquals: "is not", contains: "contains", notContains: "does not contain", beginsWith: "begins with", endsWith: "ends with" },
     // what sharing and the exports said (share-actions.js, export-run.js)
     toastExported: "Exported {file}",
     toastLinkCopied: "Link copied",
