@@ -133,11 +133,28 @@ export function PivotDnd({ labels, onDrop, onDragStart, renderOverlay, children 
     );
 }
 
+/**
+ * Passes an event on only when it happened inside the element the listener is on. A menu that a chip
+ * or a field opens is rendered into the report's layer through a portal, and React bubbles a portal's
+ * events up its component tree, not the DOM: without this, a press inside the menu (selecting text,
+ * a native select, a click that moves a little) would start a drag of the chip that opened it.
+ */
+function ownEventsOnly(listener) {
+    return (event) => {
+        if (event.currentTarget instanceof Node && event.target instanceof Node && !event.currentTarget.contains(event.target)) {
+            return;
+        }
+        listener(event);
+    };
+}
+
 /** Splits dnd-kit's listeners: pointer and touch on the whole item, the keyboard on its handle only,
- *  so Enter on a button inside the item does not start a drag. */
+ *  so Enter on a button inside the item does not start a drag; each one for the item's own DOM only. */
 function split(listeners) {
-    const { onKeyDown, ...pointer } = listeners ?? {};
-    return { pointer, keyboard: onKeyDown ? { onKeyDown } : {} };
+    const own = Object.fromEntries(Object.entries(listeners ?? {}).map(([name, listener]) => [name, ownEventsOnly(listener)]));
+    const { onKeyDown, ...pointer } = own;
+    // whether dnd-kit gave a keyboard listener at all (the wrapped one is always a function)
+    return { pointer, keyboard: listeners?.onKeyDown ? { onKeyDown } : {} };
 }
 
 /** A field of the field list or a table header cell. */
