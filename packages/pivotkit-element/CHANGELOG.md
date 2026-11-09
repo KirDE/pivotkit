@@ -6,6 +6,29 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 
 ## [Unreleased]
 
+### Changed
+
+- pivotkit-react's chip menus, Options and Views are in levels, and no menu folds any more (Reset
+  menu sections is gone; stored folds are dropped): a first level that says what each topic
+  holds, a level of its own per topic with **‹ Back**, every choice applied at once, a search over all
+  levels of a chip's menu; ARIA menus with one Tab stop, the arrow keys and type-ahead. The label
+  changes are pivotkit-react's (some menu labels new, `valueOps` and `groupCyclic` reworded,
+  `chooseValues`, `valueFilter`, `change`, `removeSetting`, `topStart`, `binsStart`, `filterIs`,
+  `groupBy`, `resetSections` and `resetSectionsDone` gone); the new token `--pk-input-border` can be set on the element like every `--pk-*`
+  token. No new attribute or event. Size: the menus 28.5 KiB measured (budget 30), their German texts
+  4.8 (budget 5.3), the first load 149.4 (budget 151, for the levels' rules in the stylesheet).
+
+### Fixed
+
+- pivotkit-react's popovers appear at their final size and place
+  ([#91](https://github.com/eizedev/pivotkit/issues/91)).
+- With reduced motion pivotkit-react's menus take the focus when they open
+  ([#78](https://github.com/eizedev/pivotkit/issues/78)).
+- German texts quote with German quotation marks (pivotkit-react's new label `quote`)
+  ([#79](https://github.com/eizedev/pivotkit/issues/79)).
+- The empty report's first steps are no longer cut off in a low report: pivotkit-react's result area
+  scrolls what is taller than it.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added

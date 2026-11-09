@@ -6,7 +6,7 @@ import { drillTable } from "../src/drill-table.js";
 import { LABELS, fill, hostFailure, resolveLabels } from "../src/labels.js";
 import { de as menuDe } from "../src/menu-labels-de.js";
 import { addMenuTexts, en as menuEn, menuLabels } from "../src/menu-labels.js";
-import { fromOrigin, placePopover } from "../src/place.js";
+import { fromOrigin, keepPlace, placePopover, viewportOf } from "../src/place.js";
 import { chartThemeFrom, resolveTheme } from "../src/theme.js";
 import { rowLabelOf, sliceRows, windowOf } from "../src/virtual.js";
 
@@ -113,6 +113,16 @@ test("popover placement: below, above when there is no room, inside the viewport
     assert.equal(placePopover({ top: 389, bottom: 419, left: 241, right: 271 }, { width: 340, height: 400 }, { width: 2000, height: 850 }, "start", { fill: true }).top, 425);
 });
 
+test("popover placement: the window's room without its scroll bars", () => {
+    // a classic scroll bar of 17 px: innerWidth counts it, the area of fixed elements does not
+    const doc = { documentElement: { clientWidth: 1263, clientHeight: 900 }, defaultView: { innerWidth: 1280, innerHeight: 900 } };
+    assert.deepEqual(viewportOf(/** @type {any} */ (doc)), { width: 1263, height: 900 });
+    const at = placePopover({ top: 10, bottom: 40, left: 1240, right: 1260 }, { width: 320, height: 100 }, viewportOf(/** @type {any} */ (doc)));
+    assert.equal(at.left + 320, 1263 - 8, "its right edge a margin before the scroll bar");
+    // no root box (a document being torn down): the window
+    assert.deepEqual(viewportOf(/** @type {any} */ ({ documentElement: null, defaultView: { innerWidth: 800, innerHeight: 600 } })), { width: 800, height: 600 });
+});
+
 test("drill-down: the host's rows, or rows rebuilt from encoded data, limited", () => {
     const rows = [
         { Region: "North", Units: 3, Day: "2026-01-05" },
@@ -181,4 +191,24 @@ test("a host that refuses to save a view: its own message when it gives one, a p
     }
     assert.equal(save(undefined, de), "Der Server konnte die Ansicht nicht speichern.");
     assert.equal(hostFailure(de.toastDeleteFailed, de.toastDeleteRejected, null), "Der Server konnte die Ansicht nicht löschen.");
+});
+
+test("a popover keeps its side while its content changes, as long as the anchor stays and the side has room", () => {
+    const vp = { width: 1280, height: 800 };
+    const anchor = { top: 450, bottom: 480, left: 50, right: 150 };
+    // placed below with a short first level; a taller level would go above: it stays below and scrolls
+    const first = placePopover(anchor, { width: 400, height: 300 }, vp);
+    assert.equal(first.side, "below");
+    const last = { top: first.top, side: first.side, anchorTop: anchor.top };
+    const tall = placePopover(anchor, { width: 400, height: 600 }, vp);
+    assert.equal(tall.side, "above");
+    const kept = keepPlace(last, tall, anchor, { height: 600 }, vp);
+    assert.deepEqual([kept.side, kept.top, kept.maxHeight], ["below", 486, 800 - 480 - 6 - 8]);
+    // the anchor moved (a scroll): placed anew
+    assert.equal(keepPlace({ ...last, anchorTop: 200 }, tall, anchor, { height: 600 }, vp), tall);
+    // too little room on its side (the panel was still loading when it was placed): placed anew
+    const low = { top: 700, bottom: 730, left: 50, right: 150 };
+    const lowNext = placePopover(low, { width: 400, height: 500 }, vp);
+    assert.equal(keepPlace({ top: 736, side: "below", anchorTop: 700 }, lowNext, low, { height: 500 }, vp), lowNext);
+    assert.equal(keepPlace(null, tall, anchor, { height: 600 }, vp), tall);
 });

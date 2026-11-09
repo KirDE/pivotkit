@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
-import { chips, drag, expect, tableRows, test, toolbar } from "./fixtures.js";
+import { chipMenu, chips, drag, expect, openLevel, openSaveAs, tableRows, test, toolbar } from "./fixtures.js";
 
 test.describe("building a report", () => {
     test("the empty state explains the first steps; fields are added by drag and by menu", async ({ page }) => {
@@ -55,9 +55,8 @@ test.describe("building a report", () => {
         await page.locator(".pk-toast", { hasText: "Country removed" }).locator(".pk-toast-action").click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Region", "Country"]);
 
-        await page.getByTestId("chip-menu-Region").click();
-        // Move is a folded section of the menu
-        await page.getByTestId("section-move").click();
+        // Move to is a level of the menu
+        await chipMenu(page, "Region", "move");
         await page.getByTestId("move-cols").click();
         await expect.poll(() => chips(page, "cols")).toEqual(["Region"]);
     });
@@ -89,23 +88,28 @@ test.describe("building a report", () => {
         await expect(page.getByTestId("undo")).toBeEnabled();
     });
 
-    test("value menu: common aggregators first, statistics folded, show as renames the value, a colour scale", async ({ page }) => {
+    test("value menu: common aggregators first, the statistics under them, show as renames the value, a colour scale", async ({ page }) => {
         await page.goto("?data=sales");
-        await page.getByTestId("chip-menu-Sum of Revenue").click();
+        await chipMenu(page, "Sum of Revenue");
         const menu = page.locator(".pk-chip-menu");
-        for (const agg of ["sum", "count", "average", "min", "max"]) await expect(menu.getByTestId(`agg-${agg}`)).toBeVisible();
-        await expect(menu.getByTestId("agg-stdev")).toBeHidden();
-        await menu.getByText("More statistics").click();
-        await expect(menu.getByTestId("agg-stdev")).toHaveText("Standard deviation (sample)");
-        // Remove stays reachable at the foot however long the menu is
+        // the first level is short: Remove field in view with it
         await expect(menu.getByTestId("menu-remove")).toBeInViewport();
+        await openLevel(menu, "summarize");
+        for (const agg of ["sum", "count", "average", "min", "max"]) await expect(menu.getByTestId(`agg-${agg}`)).toBeVisible();
+        // the statistics under their heading, after the common ones
+        const order = await menu.locator('[role="menuitemradio"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+        expect(order.indexOf("agg-stdev")).toBeGreaterThan(order.indexOf("agg-max"));
+        await expect(menu.getByText("More statistics")).toBeVisible();
+        await expect(menu.getByTestId("agg-stdev")).toHaveText("Standard deviation (sample)");
+        await menu.getByTestId("level-back").click();
+        await openLevel(menu, "showAs");
         await menu.getByTestId("showas-percentOfGrandTotal").click();
         await expect.poll(() => chips(page, "values")).toEqual(["% of grand total of Revenue"]);
         await expect(page.locator('[data-testid="pivot-table"] thead')).toContainText("% of grand total of Revenue");
         expect((await tableRows(page)).at(-1).at(-1)).toBe("100.0%");
-        await page.getByTestId("chip-menu-% of grand total of Revenue").click();
-        await page.getByTestId("section-highlight").click();
-        await page.getByTestId("cond-colorScale").click();
+        // the menu stays open on its first level, the value renamed
+        await expect(menu.getByTestId("menu-head")).toHaveText("% of grand total of Revenue");
+        await menu.getByTestId("cond-colorScale").click();
         await expect(page.locator(".pk-td.pk-has-scale").first()).toBeVisible();
     });
 
@@ -117,27 +121,26 @@ test.describe("building a report", () => {
         await expect(page.locator('[data-zone="rows"] .pk-chip .pk-type')).toHaveClass(/pk-type-date/);
         const labels = (await tableRows(page)).map((r) => r[0]);
         expect(labels[0]).toMatch(/^[A-Z][a-z]{2} 20\d\d$/);
-        await page.getByTestId("chip-menu-Created by month").click();
+        await chipMenu(page, "Created by month", "group");
         await page.getByTestId("group-year").click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Created by year"]);
         expect((await tableRows(page)).map((r) => r[0])).toEqual(["2025", "2026", "Grand Total"]);
-        await page.getByTestId("chip-menu-Created by year").click();
+        await chipMenu(page, "Created by year", "group");
         await page.getByTestId("group-none").click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Created"]);
     });
 });
 
 test.describe("filter, table and chart", () => {
-    test("the filter popover lists values with counts and filters the report", async ({ page }) => {
+    test("the Filter level lists values with counts and filters the report", async ({ page }) => {
         await page.goto("?data=sales");
         await expect(page.getByTestId("row-count")).toHaveText("4,000 rows");
-        await page.getByTestId("chip-menu-Region").click();
-        await page.getByTestId("open-filter").click();
+        await chipMenu(page, "Region", "filter");
         const west = page.locator(".pk-value", { hasText: "West" });
         const count = Number((await west.locator(".pk-count").textContent()).replace(/,/g, ""));
         expect(count).toBeGreaterThan(0);
+        // applied at once
         await west.locator("input").uncheck();
-        await page.getByTestId("filter-apply").click();
         await expect(page.getByTestId("row-count")).toHaveText(`${(4000 - count).toLocaleString("en-US")} rows`);
         expect((await tableRows(page)).some((r) => r[0] === "West")).toBe(false);
         await expect(page.locator('[data-zone="rows"] .pk-chip[data-chip="Region"] .pk-chip-badge').first()).toBeVisible();
@@ -219,20 +222,21 @@ test.describe("filter, table and chart", () => {
         await page.goto("?data=tickets");
         await page.getByRole("button", { name: "Remove Priority" }).click();
         await toolbar(page, "views");
+        await openSaveAs(page);
         await page.getByTestId("saved-view-name").fill("Teams only");
         await page.getByRole("button", { name: "Save", exact: true }).click();
         // "saved" comes when the host's promise is kept
         await expect(page.locator(".pk-toasts")).toContainText("View “Teams only” saved");
         await toolbar(page, "views");
         // a preset of the host has no delete button
-        await expect(page.getByRole("button", { name: "Delete Open work per team (chart)" })).toHaveCount(0);
+        await expect(page.getByRole("menuitem", { name: "Delete Open work per team (chart)" })).toHaveCount(0);
         await page.getByTestId("saved-view-Open work per team (chart)").click();
         await expect(page.getByTestId("show-chart")).toHaveAttribute("aria-pressed", "true");
         await toolbar(page, "views");
         await page.getByTestId("saved-view-Teams only").click();
         await expect.poll(() => chips(page, "cols")).toEqual([]);
         await toolbar(page, "views");
-        await page.getByRole("button", { name: "Delete Teams only" }).click();
+        await page.getByRole("menuitem", { name: "Delete Teams only" }).click();
         // asked in place, no window.confirm (a dialog would fail the test through the console check)
         await expect(page.getByText("Delete “Teams only”?")).toBeVisible();
         await page.getByTestId("confirm-delete").click();
@@ -244,18 +248,19 @@ test.describe("filter, table and chart", () => {
         await page.goto("?data=tickets");
         const preset = "Tickets per team and priority";
         await toolbar(page, "views");
+        await openSaveAs(page);
         await page.getByTestId("saved-view-name").fill(preset);
         await page.getByRole("button", { name: "Save", exact: true }).click();
         await expect(page.locator(".pk-toasts")).toContainText(`View “${preset}” saved`);
         await toolbar(page, "views");
         // the host's preset and the user's template of the same name, one delete button (the saved one)
         await expect(page.getByTestId(`saved-view-${preset}`)).toHaveCount(2);
-        await page.getByRole("button", { name: `Delete ${preset}` }).click();
-        await expect(page.getByTestId("confirm-delete")).toHaveCount(1);
-        await expect(page.getByTestId(`saved-view-${preset}`)).toHaveCount(1);
+        await page.getByRole("menuitem", { name: `Delete ${preset}` }).click();
+        // the question names it, in a level of its own
+        await expect(page.getByTestId("delete-confirm")).toContainText(`Delete “${preset}”?`);
         await page.getByTestId("confirm-delete").click();
         await expect(page.getByTestId(`saved-view-${preset}`)).toHaveCount(1);
-        await expect(page.getByRole("button", { name: `Delete ${preset}` })).toHaveCount(0);
+        await expect(page.getByRole("menuitem", { name: `Delete ${preset}` })).toHaveCount(0);
     });
 });
 
@@ -407,4 +412,50 @@ test("a popover opens at its button also inside a transformed ancestor (a contai
     // below the button, its right edge on the button's (align end), as without the transform
     expect(Math.abs(m.y - (b.y + b.height + 6))).toBeLessThan(3);
     expect(Math.abs(m.x + m.width - (b.x + b.width))).toBeLessThan(3);
+});
+
+test.describe("a result taller than its area scrolls inside it", () => {
+    /** Turns the mouse wheel over the result until `target` is inside the result's box (or 40 turns). */
+    async function wheelTo(page, target) {
+        const area = page.locator(".pk-result");
+        const box = await area.boundingBox();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        const inside = () =>
+            target.evaluate((el) => {
+                const r = el.getBoundingClientRect();
+                const a = el.closest(".pk-result").getBoundingClientRect();
+                return r.top >= a.top - 1 && r.bottom <= a.bottom + 1 && r.height > 0;
+            });
+        for (let i = 0; i < 40 && !(await inside()); i++) {
+            await page.mouse.wheel(0, 200);
+            await page.waitForTimeout(50);
+        }
+        return inside();
+    }
+
+    for (const height of [640, 480]) {
+        test(`the empty report's start help at ${height} px: the wheel reaches its last "Start with" button`, async ({ page }) => {
+            await page.setViewportSize({ width: 1280, height: 800 });
+            await page.goto(`?empty&height=${height}`);
+            const empty = page.getByTestId("empty-state");
+            await expect(empty).toBeVisible();
+            const last = empty.locator(".pk-empty-actions .pk-btn").last();
+            await expect(last).toHaveText(/^Start with /);
+            expect(await wheelTo(page, last)).toBe(true);
+            // and the title at the top is reachable again: the wheel back up (Firefox scrolls it
+            // smoothly, over a few frames) reaches the top, where the title is in view
+            await page.mouse.wheel(0, -2000);
+            await expect.poll(() => page.locator(".pk-result").evaluate((el) => el.scrollTop)).toBe(0);
+            expect(await wheelTo(page, empty.locator("h2"))).toBe(true);
+        });
+    }
+
+    test("a table taller than a 480 px report: the wheel reaches its Grand Total row", async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.goto("?data=sales&height=480");
+        await page.locator('[data-testid="pivot-table"]').waitFor();
+        const total = page.locator('[data-testid="pivot-table"] tbody tr[data-r]').last();
+        await expect(total.locator("th").first()).toHaveText("Grand Total");
+        expect(await wheelTo(page, total)).toBe(true);
+    });
 });

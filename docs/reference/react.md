@@ -46,7 +46,7 @@ Installation and a first example are in [Getting started with React](../getting-
 | `fileName` | `string` | `"pivot"` | Name of exported files, without the extension; path separators and characters a file system refuses are replaced. |
 | `onExport` | `({ kind, fileName, blob, text, rows }) => unknown` |  | Every exported file before it is downloaded, and every copy before it goes on the clipboard; returning `false` skips it. [More](#prop-onexport) |
 | `tips` | `"on"` or `"off"` or `string` or `string[]` | `"on"` | The [tips](#tips) above the result: `"on"`, `"off"` (none, and no switch in Options), or the ids of the tips allowed, as an array or a comma-separated text. |
-| `storageKey` | `string` |  | Remembers the dismissed tips, the help switches and the menu sections the user opened or folded in the browser's `localStorage` under `pivotkit:tips:<storageKey>`. [More](#prop-storagekey) |
+| `storageKey` | `string` |  | Remembers the dismissed tips and the help switches in the browser's `localStorage` under `pivotkit:tips:<storageKey>`. [More](#prop-storagekey) |
 | `dismissedTips` | `string[]` |  | Dismissed tip ids from the host's own storage. [More](#prop-dismissedtips) |
 | `onTipDismiss` | `({ id, dismissed }) => void` |  | Every change of the dismissed tips, with the whole list to store and pass back as `dismissedTips`. [More](#prop-ontipdismiss) |
 | `fieldInfo` | `"on"` or `"off"` |  | The "i" of the field descriptions (field list, chips; the tooltip of the table headers): `"on"` or `"off"` decides it, whatever the user's switch says. [More](#prop-fieldinfo) |
@@ -151,19 +151,19 @@ Every exported file (`"xlsx"`, `"csv"`, `"png"`, or `"json"` for the [view file]
 
 Type: `string`.
 
-Remembers the dismissed tips, the help switches and the menu sections the user opened or folded in the browser's `localStorage` under `pivotkit:tips:<storageKey>`. Give each report on a page its own key. Without it the tips stay dismissed until the page is loaded again. Read after the first render, so server rendering and hydration match. With `templateStore="browser"` the user's own views are kept under `pivotkit:views:<key>` too.
+Remembers the dismissed tips and the help switches in the browser's `localStorage` under `pivotkit:tips:<storageKey>`. Give each report on a page its own key. Without it the tips stay dismissed until the page is loaded again. Read after the first render, so server rendering and hydration match. With `templateStore="browser"` the user's own views are kept under `pivotkit:views:<key>` too.
 
 ### `dismissedTips` { #prop-dismissedtips }
 
 Type: `string[]`.
 
-Dismissed tip ids from the host's own storage; `"*"` means the user switched all tips off, `"-explanations"` that the user switched off "Show explanations" (Options, Help); `"open:<section>"` and `"closed:<section>"` a menu section the user opened or folded against its default. A new list (by value) replaces the report's.
+Dismissed tip ids from the host's own storage; `"*"` means the user switched all tips off, `"-explanations"` that the user switched off "Show explanations" (Options, Help). Entries of other shapes (`"open:<section>"` and `"closed:<section>"` of the menu sections that folded before) are dropped. A new list (by value) replaces the report's.
 
 ### `onTipDismiss` { #prop-ontipdismiss }
 
 Type: `({ id, dismissed }) => void`.
 
-Every change of the dismissed tips: a dismissal (`id` the tip), "Show tips" off (`id` `"*"`), "Show explanations" off (`"-explanations"`), a switch on, a section opened or folded, "Show dismissed tips again" (`id` `null`; the switches and the sections stay) or "Reset menu sections" (`id` `null`; every `open:` and `closed:` entry goes, the tips and switches stay), with the whole list to store and pass back as `dismissedTips`.
+Every change of the dismissed tips: a dismissal (`id` the tip), "Show tips" off (`id` `"*"`), "Show explanations" off (`"-explanations"`), a switch on, or "Show dismissed tips again" (`id` `null`; the switches stay), with the whole list to store and pass back as `dismissedTips`.
 
 ### `fieldInfo` { #prop-fieldinfo }
 
@@ -226,8 +226,8 @@ important first. Three are **notices**: they say that the result is cut or empty
 have no x, count against no limit and stay with `tips="off"` and "Show tips" off. The others are
 **tips**: one at a time, the most important first; the next one waits until it is followed or
 dismissed. Each has an x that dismisses it (Tab reaches it; the focus then goes to the next tip).
-Options, Help has "Show tips", "Show explanations", "Show dismissed tips again", "Reset menu
-sections" and the keyboard shortcuts. A screen reader hears new notes through a
+Options, Help has "Show tips", "Show explanations", "Show dismissed tips again" and the keyboard
+shortcuts. A screen reader hears new notes through a
 polite live region. In the order they are shown, and when:
 
 | Id | Kind | Shown when | Button |
@@ -328,6 +328,10 @@ the status line need depends on whether the host gives a height:
 - **With `height`** (a number, `"100%"`, any CSS length) the report stays inside that height: it folds
   its zones (above), and the table scrolls inside the result, however small it gets. Nothing is cut
   off: a card of a fixed size, such as a PowerShell Universal card, keeps the whole report.
+
+Whatever is taller than the result's area scrolls inside it, with or without `height`: the table in
+its own box (its header stays at the top, the last row, Grand Total, is reached by scrolling), the
+empty report's first steps with their **Start with …** buttons and a message in the area itself.
 - `grow` decides it either way: `"on"` lets a report with a height grow too, `"off"` keeps a report
   without one inside its 640 px. The element's attribute is `grow`.
 
@@ -349,26 +353,46 @@ Neither is part of the view.
 
 ## Menus
 
+The menus of a chip and Options are menus in levels: the first level is an ARIA menu (`role="menu"`
+with `menuitem`, `menuitemradio`, `menuitemcheckbox`, `group` and `separator`; one Tab stop with a
+roving `tabindex`, the arrow keys, Home and End, type-ahead), each row with what is set on its right
+and ", changed" in its name where it is not the default. Enter or the right arrow opens a topic's
+level in the menu's place: a level of choices is a menu again (labelled by its title, "Month ›
+Group"), a level with form controls (Filter, Top items, Number ranges, Name, Keyboard shortcuts) a
+`group` labelled by its heading. Escape or the left arrow goes back, with the focus on the row the
+level came from; Escape on the first level closes the menu and the focus goes back to its button;
+Tab closes it and moves on from the button. The popover around them is a non-modal dialog (it holds
+the field's name with its "i" and the search, which a menu cannot hold). Every choice applies at
+once; a number applies about half a second after the typing stops (or with Enter), a value's name
+with Enter or when the field is left, and Escape in a field gives back what applies.
+
+| Menu | First level | Levels |
+| --- | --- | --- |
+| A field on Rows or Columns | Sort (A to Z, Z to A side by side), sort by its one value, Filter, Top items, Move to, Remove field | Sort by value (two or more values, or a custom order), Filter, Group (dates), Number ranges (numbers), Top items, Move to |
+| A value | Summarize by, Show as, Number format, Highlight (side by side), Name, Move to, Remove field | Summarize by, Show as, Number format, Name, Move to |
+| Options | Totals, Rows (Expand all, Collapse all), Help | Keyboard shortcuts |
+| Views | This view (Save "…", Save as…, New, empty report), Shared views, My views (each entry with its Publish and Delete as items next to it), Share | Save as, Share (a menu), Load view, the question before a delete, a publish or a Save over a shared view |
+
+The chip menus have a search above their first level (`/` focuses it): it finds a choice of any level
+by its text, the titles above it and a few more words (labels `showAsKeywords`, `nameKeywords`,
+`filterKeywords`), and opens a level by its title; Enter runs a hit the arrow keys reached, not the
+text typed. What is typed in a level applies when the level or the menu closes too (a click outside).
+A popover keeps its side of the anchor while its content changes (a level opening), as long as that
+side has room.
+
 A menu keeps the mouse wheel to itself: a wheel turn that nothing inside it can scroll further is
 stopped, so the table or the page behind never scrolls (`overscroll-behavior: contain` does the same
-for touch). A menu is at most as high as the window, and scrolls inside. Its sections fold with their
-title (a button with `aria-expanded`); their default and the user's choice:
+for touch). A menu is at most as high as the window, and scrolls inside. No menu folds: the chart
+type menu and the Export menus are flat lists in titled groups (`role="group"` with its title).
 
-| Menu | Open | Folded |
-| --- | --- | --- |
-| A value | Summarize by, Show as | Number format, Highlight, Name, Filters, Move |
-| A field on Rows or Columns | Sort, Group dates by, Group numbers into ranges, Show only the top items, Filters | Move |
-| Options, Views, Chart type | every section | |
-
-What the user opens or folds is kept with the tips (`storageKey`, `dismissedTips`). Rarely used
-entries sit behind a link inside their section: "More statistics", "More calculations", "More
-formats" (whole number, compact, bytes, durations).
-
-An "i" next to a setting explains it on hover, focus or tap: the totals, Show as, Along, Excel and CSV
+An "i" next to a setting explains it on hover, focus or tap: the totals, Show as, Excel and CSV
 in the export menu, Labels and Group labels of the chart. It is the same button as a field's "i"; its
-name is "About <setting>". A menu row stays one line. Options, Help, "Show explanations" (or
-`settingInfo`) hides them all. An entry that would change nothing is disabled, and a short line under
-it says why, only while it is disabled: the grand total row needs a field in Rows, the grand total
+name is "About <setting>". A menu row stays one line. Next to an item of a menu in levels (the
+totals) the "i" is for the pointer: the item carries its text as its description, so the arrow keys
+stay on the items. Options, Help, "Show explanations" (or
+`settingInfo`) hides them all. An entry that would change nothing is disabled (in a menu in levels
+`aria-disabled`, so the arrow keys still reach it), and a short line under it says why, only while it
+is disabled: the grand total row needs a field in Rows, the grand total
 column one in Columns, row subtotals two or more fields in Rows, column subtotals two or more in
 Columns; Expand all and Collapse all; the chart image "Switch to Chart first."; a pie's Labels while
 value labels are off. The export menu is a dialog, so Tab reaches each format's "i".

@@ -13,10 +13,10 @@ import { Icon } from "./icons.jsx";
 import { fill, hostFailure } from "./labels.js";
 import { Option } from "./popover.jsx";
 import { Section, SettingInfo } from "./section.jsx";
-import { withoutSections } from "./sections.js";
 import { shareActions } from "./share-actions.js";
 import { SHORTCUTS } from "./tips.js";
-import { totalNoEffect, TOTALS } from "./menu-ops.js";
+import { LevelMenu } from "./levels.jsx";
+import { afterDelete, entryIds, optionTopics } from "./menu-topics.js";
 import { canSaveAs, isLoadedEntry, saveAsTarget, saveTarget } from "./view-save.js";
 import { storeViews } from "./view-store.js";
 
@@ -96,18 +96,8 @@ function ChartDisplay({ view, plan, labels, onDisplay }) {
     const choices = pie ? VALUE_LABELS.slices : VALUE_LABELS.other;
     // a pie's "percent" on another type draws the value: it shows as "Value" there
     const valueLabels = !pie && (chart.valueLabels === "percent" || chart.valueLabels === "both") ? "value" : chart.valueLabels;
-    // folded, the title names the settings that are not the default ("Legend, Title"), else "Automatic"
-    const changed = [
-        [valueLabels !== "auto", labels.valueLabels],
-        [pie && (chart.labelPosition ?? "outside") !== "outside", labels.labelPosition],
-        [chart.legend !== "auto", labels.legend],
-        [Boolean(chart.title), labels.chartTitle],
-        [axis && chart.axisLabels !== "auto", labels.axisLabels],
-        [axis && view.rows.length >= 2 && chart.groupLabels !== "auto", labels.groupLabels],
-        [(drawn === "line" || drawn === "area") && chart.smooth, labels.smoothLines]
-    ].flatMap(([on, name]) => (on ? [name] : []));
     return (
-        <Section title={labels.chartDisplay} id="chartDisplay" state={changed.join(", ") || labels.formatAuto} changed={changed.length > 0}>
+        <Section title={labels.chartDisplay}>
             <div className="pk-subtitle">{labels.valueLabels}</div>
             <div className="pk-choice-grid">
                 {choices.map((v) => (
@@ -177,7 +167,7 @@ function ChartDisplay({ view, plan, labels, onDisplay }) {
 export function ChartTypePanel({ view, plan, labels, onChart, onDisplay, close }) {
     return (
         <>
-            <Section title={labels.chartType} id="chartType">
+            <Section title={labels.chartType}>
                 <div className="pk-choice-grid">
                     <ChartTypeOptions view={view} plan={plan} labels={labels} onChart={onChart} close={close} />
                 </div>
@@ -210,114 +200,73 @@ function Shortcuts({ labels, mod }) {
 }
 
 /**
- * A switch: a checkbox drawn as a track, on one line, with an "i" (`info`, an id of
- * labels.settingInfo) next to it. Disabled, it says why under it (`reason`).
- * @param {{ checked: boolean, onChange: (on: boolean) => void, testId?: string, children: React.ReactNode,
- *   disabled?: boolean, reason?: string | null, info?: string, name?: string }} props
+ * A switch: a checkbox drawn as a track, on one line (the chart's smooth lines).
+ * @param {{ checked: boolean, onChange: (on: boolean) => void, testId?: string, children: React.ReactNode }} props
  */
-function Switch({ checked, onChange, testId, children, disabled, reason, info, name }) {
-    const reasonId = useId();
+function Switch({ checked, onChange, testId, children }) {
     return (
-        <div className="pk-setting-row">
-            <label className={`pk-switch${disabled ? " pk-disabled" : ""}`}>
-                <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} aria-describedby={disabled && reason ? reasonId : undefined} data-testid={testId} />
-                <span className="pk-switch-track" aria-hidden="true" />
-                <span className="pk-switch-text">
-                    {children}
-                    {disabled && reason ? (
-                        <span id={reasonId} className="pk-option-hint" data-testid={testId ? `${testId}-reason` : undefined}>
-                            {reason}
-                        </span>
-                    ) : null}
-                </span>
-            </label>
-            {info ? <SettingInfo id={info} name={name ?? ""} /> : null}
-        </div>
-    );
-}
-
-/** "Reset menu sections": every section open or folded as at first, the tips as they are; off while nothing differs. */
-function ResetSections({ list, change, labels }) {
-    const rest = withoutSections(list);
-    // said in a live region of the menu's own (it stays open): the first load carries nothing for it
-    const [done, setDone] = useState(false);
-    const status = useRef(/** @type {HTMLSpanElement | null} */ (null));
-    return (
-        <>
-            <Option
-                icon="reset"
-                onSelect={() => {
-                    // the entry turns off: the focus goes to the Help section's title, the status says it
-                    const title = /** @type {HTMLElement | null | undefined} */ (status.current?.closest(".pk-section")?.querySelector(".pk-section-toggle"));
-                    change(rest, null);
-                    title?.focus();
-                    setDone(true);
-                }}
-                disabled={rest.length === list.length}
-                testId="reset-sections"
-            >
-                {labels.resetSections}
-            </Option>
-            <span ref={status} className="pk-sr" role="status" data-testid="reset-sections-status">
-                {done ? labels.resetSectionsDone : ""}
-            </span>
-        </>
-    );
-}
-
-export function OptionsPanel({ view, labels, onTotal, onExpand, onCollapse, close, tips, mod, folding, help }) {
-    return (
-        <>
-            <Section title={labels.totals} id="totals">
-                {/* a total that would change nothing in this view is off-limits, with the reason */}
-                {TOTALS.map((key) => {
-                    const why = totalNoEffect(view, key);
-                    return (
-                        <Switch key={key} checked={view.totals[key]} onChange={(on) => onTotal(key, on)} disabled={why !== null} reason={why ? labels[why] : null} info={key} name={labels[key]} testId={`total-${key}`}>
-                            {labels[key]}
-                        </Switch>
-                    );
-                })}
-            </Section>
-            <Section title={labels.zones.rows}>
-                {/* each only when it would change something; when not, a line says why */}
-                <Option icon="chevronDown" onSelect={() => { close(); onExpand(labels); }} disabled={!folding.canExpand} reason={folding.why.expand ? labels[folding.why.expand] : undefined} testId="expand-all">{labels.expandAll}</Option>
-                <Option icon="chevronRight" onSelect={() => { close(); onCollapse(labels); }} disabled={!folding.canCollapse} reason={folding.why.collapse ? labels[folding.why.collapse] : undefined} testId="collapse-all">{labels.collapseAll}</Option>
-            </Section>
-            {/* help: the tips, and the "i" of settings, zones and fields: one switch, unless the host decides each */}
-            <Section title={labels.help} id="help">
-                {tips.controls ? <Switch checked={tips.on} onChange={tips.onOn} testId="show-tips">{labels.showTips}</Switch> : null}
-                {help?.explanations ? <Switch checked={help.explanations.on} onChange={help.explanations.set} testId="show-explanations">{labels.showSettingInfo}</Switch> : null}
-                {tips.controls ? <Option icon="reset" onSelect={() => tips.onReset()} disabled={!tips.canReset} testId="reset-tips">{labels.resetTips}</Option> : null}
-                {/* the sections' folding is kept apart from the tips: its own way back to the start */}
-                {help?.sections ? <ResetSections list={help.sections[0]} change={help.sections[1]} labels={labels} /> : null}
-                <details className="pk-more">
-                    <summary className="pk-more-title" data-testid="shortcuts-title">{labels.shortcutsTitle}</summary>
-                    <Shortcuts labels={labels} mod={mod} />
-                </details>
-            </Section>
-        </>
+        <label className="pk-switch">
+            <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} data-testid={testId} />
+            <span className="pk-switch-track" aria-hidden="true" />
+            <span className="pk-switch-text">{children}</span>
+        </label>
     );
 }
 
 /**
- * A question in place of what asked it (Save as onto a name that is taken, Save over a shared view):
+ * The Options menu (topics in menu-topics.js): the totals, Expand all and Collapse all, help with the
+ * keyboard shortcuts as a level. A switch or an action applies at once and the menu stays open (the
+ * report behind it shows the change); Expand all and Collapse all close it.
+ */
+export function OptionsPanel({ view, labels, onTotal, onExpand, onCollapse, close, tips, mod, folding, help }) {
+    const topics = optionTopics({
+        view,
+        labels,
+        folding,
+        tips,
+        explanations: help?.explanations ?? null,
+        act: {
+            total: onTotal,
+            expand: () => onExpand(labels),
+            collapse: () => onCollapse(labels),
+            tipsOn: (on) => tips.onOn(on),
+            resetTips: () => tips.onReset(),
+            explain: (on) => help?.explanations?.set(on)
+        }
+    });
+    return <LevelMenu name={labels.options} labels={labels} topics={topics} close={close} onPick={runChoice(close)} panel={(id) => (id === "shortcuts" ? <Shortcuts labels={labels} mod={mod} /> : null)} />;
+}
+
+/** What a choice of a toolbar menu in levels does: closes the menu first when it says so, then runs. */
+const runChoice = (close) => (/** @type {import("./menu-topics.js").Choice} */ c) => {
+    if (c.closes) {
+        close();
+    }
+    c.run?.();
+};
+
+/**
+ * A question in place of what asked it (Save as onto a name that is taken; in a level of its own:
+ * delete or publish a view, Save over a shared view):
  * it takes the focus on Cancel, so Enter never writes over a view by accident; Cancel (`onNo`) gives
  * the focus back to whatever comes in its place.
- * @param {{ question: string, action: string, cancel: string, onYes: () => void, onNo: () => void, testId: string, yesId: string, noId: string }} props
+ * @param {{ question: string, action: string, cancel: string, onYes: () => void, onNo: () => void, testId: string, yesId: string, noId: string,
+ *   danger?: boolean, busy?: boolean, focusYes?: boolean }} props  `busy`: while the host answers, both wait;
+ *   `focusYes`: the action takes the focus (a delete or a publish the user just asked for), not Cancel
  */
-function Confirm({ question, action, cancel, onYes, onNo, testId, yesId, noId }) {
+function Confirm({ question, action, cancel, onYes, onNo, testId, yesId, noId, danger = false, busy = false, focusYes = false }) {
     const no = useRef(/** @type {HTMLButtonElement | null} */ (null));
+    const yes = useRef(/** @type {HTMLButtonElement | null} */ (null));
     useEffect(() => {
-        no.current?.focus({ preventScroll: true });
-    }, []);
+        (focusYes ? yes : no).current?.focus({ preventScroll: true });
+    }, [focusYes]);
     return (
         <div className="pk-confirm pk-save-confirm" role="group" aria-label={question} data-testid={testId}>
             <span className="pk-confirm-text">{question}</span>
-            <button type="button" className="pk-btn pk-primary" data-testid={yesId} onClick={onYes}>
+            <button ref={yes} type="button" className={danger ? "pk-btn pk-danger-btn" : "pk-btn pk-primary"} disabled={busy} data-autofocus={focusYes ? "" : undefined} data-testid={yesId} onClick={onYes}>
                 {action}
             </button>
-            <button ref={no} type="button" className="pk-btn" data-autofocus="" data-testid={noId} onClick={onNo}>
+            <button ref={no} type="button" className="pk-btn" disabled={busy} data-autofocus={focusYes ? undefined : ""} data-testid={noId} onClick={onNo}>
                 {cancel}
             </button>
         </div>
@@ -531,41 +480,6 @@ function LoadView({ labels, onLoadText, close }) {
     );
 }
 
-/** Share this view: a link (when the host allows links), the JSON, a file; and load one. */
-function ShareSection({ labels, share, close }) {
-    const [loading, setLoading] = useState(false);
-    const act = shareActions(share, labels);
-    if (loading) {
-        return (
-            <Section title={labels.loadView.replace(/…$/, "")}>
-                <LoadView labels={labels} onLoadText={act.loadText} close={close} />
-            </Section>
-        );
-    }
-    return (
-        <Section title={labels.share} id="share">
-            {share.canLink ? (
-                <Option icon="link" onSelect={() => { close(); act.copyLink(); }} testId="copy-link">
-                    {labels.copyLink}
-                </Option>
-            ) : null}
-            <Option icon="copy" onSelect={() => { close(); act.copyJson(); }} testId="copy-json">
-                {labels.copyJson}
-            </Option>
-            <Option icon="download" onSelect={() => { close(); act.download(); }} testId="download-view">
-                {labels.downloadView}
-            </Option>
-            <Option icon="upload" onSelect={() => setLoading(true)} testId="load-view">
-                {labels.loadView}
-            </Option>
-            {/* what leaves the report with a view: filter values can be values of the data */}
-            <p className="pk-hint pk-menu-hint" data-testid="share-privacy">
-                {labels.sharePrivacy}
-            </p>
-        </Section>
-    );
-}
-
 /**
  * What the Views menu's buttons do, from what the report passes (PivotReport: templateActions): save
  * the view under a new name (the host's onSaveTemplate wins over the browser store), save the loaded
@@ -620,159 +534,169 @@ function viewActions(ctx, labels) {
 }
 
 /**
- * The Views menu: "This view" (Save the loaded view under its name, or why not; Save as, the name
- * field; New, an empty report), the templates in two groups, "Shared views" (the host's, for
+ * The Views menu in levels: its first level is the list to scan - "This view" (Save the loaded view
+ * under its name, or why not; Save as…; New, an empty report), "Shared views" (the host's, for
  * everyone) and "My views" (the user's own: the host's or the browser store's), each shown only when
- * it has entries ("My views" also when the user can save), then sharing. An entry loads its view; a deletable one
- * has a delete button, a shared one that is not has the "i" that says who changes shared views, and
- * a user's view offers "Publish as shared view" when the host allows it. Delete and publish ask
- * first, in place; the entry changes only when the host's callback (or the browser store) has
- * finished, and the focus goes back to the entry in that place. Names need not be unique: every
- * entry is shown, keyed and confirmed by its place in the list.
+ * it has entries ("My views" also when the user can save), then Share. Save as…, Share (copy a link
+ * or the JSON, download, load a view) and the questions before a change open levels of their own. An
+ * entry loads its view; a deletable one has Delete next to it, a user's view Publish when the host
+ * allows it, a shared one that is not deletable the "i" that says who changes shared views. Delete,
+ * publish and Save over a shared view ask first, in a level; the entry changes only when the host's
+ * callback (or the browser store) has finished, and the focus goes back to the entry in that place
+ * (the next one after a delete). Names need not be unique: every entry is shown, keyed by its group,
+ * its name and how often the name came before.
  * @param {{ templates: import("./templates.js").TemplateEntry[], labels: any, onLoad: (t: any) => void, actions: any, close: () => void, share?: any }} props
  */
 export function ViewsPanel({ templates, labels, onLoad, actions, close, share }) {
     const { save, remove: onDelete, publish: onPublish } = viewActions(actions, labels);
     const can = { host: Boolean(actions.onSave), store: Boolean(actions.store), publish: Boolean(onPublish), sourceId: actions.sourceId };
     const target = saveTarget(actions.loaded, templates, can, actions.empty);
-    // Save over a shared view asks first: everyone sees the change
-    const [askShared, setAskShared] = useState(false);
     // "My views" says where they are kept while the browser store takes the saves
     const store = actions.store && !actions.onSave;
-    const [confirming, setConfirming] = useState(/** @type {{ at: number, kind: "delete" | "publish" } | null} */ (null));
+    // the question a level asks: delete or publish an entry, or Save over a shared view
+    const [asking, setAsking] = useState(/** @type {{ kind: "delete" | "publish" | "replaceShared", t?: any, focus?: string } | null} */ (null));
     const [busy, setBusy] = useState(false);
-    const box = useRef(/** @type {HTMLDivElement | null} */ (null));
-    // the entry the focus goes back to once a question in its place is gone: by its key, else (it was
-    // deleted) the entry now at its place in the menu
-    const [refocus, setRefocus] = useState(/** @type {{ key: string, place: number } | null} */ (null));
     useEffect(() => {
         // the link module, before a click asks for it: a copy right in the click is allowed everywhere
         share?.prepare?.();
     }, [share]);
-    useEffect(() => {
-        if (refocus && box.current) {
-            const entries = [...box.current.querySelectorAll("[data-pk-entry]")];
-            const entry = entries.find((el) => el.getAttribute("data-pk-entry") === refocus.key) ?? entries[Math.min(refocus.place, entries.length - 1)];
-            /** @type {HTMLElement | null} */ ((entry ?? box.current).querySelector("[data-pk-option]"))?.focus({ preventScroll: true });
-            setRefocus(null);
-        }
-    }, [refocus, templates]);
-    /** An entry's key in the menu: its group, its place in the browser store and its name. */
-    const keyOf = (t) => `${t.scope}:${t.at ?? ""}:${t.name}`;
-    useEffect(() => {
-        // a question in an entry's place takes the focus (a click does not focus a button everywhere: Safari)
-        if (confirming) {
-            /** @type {HTMLElement | null | undefined} */ (box.current?.querySelector(".pk-confirm [data-autofocus]"))?.focus({ preventScroll: true });
-        }
-    }, [confirming]);
-    const answer = (t) => {
-        setConfirming(null);
-        const entries = box.current ? [...box.current.querySelectorAll("[data-pk-entry], .pk-confirm")] : [];
-        setRefocus({ key: keyOf(t), place: Math.max(0, entries.findIndex((el) => el.classList.contains("pk-confirm"))) });
-    };
-    const entry = (t, at) => {
-        if (confirming && confirming.at === at) {
-            const kind = confirming.kind;
-            const publish = kind === "publish";
-            const question = fill(publish ? labels.publishConfirm : labels.deleteConfirm, { name: t.name });
-            return (
-                <div key={`${at}:${t.name}`} className="pk-template pk-confirm" role="group" aria-label={question}>
-                    <span className="pk-confirm-text">{question}</span>
-                    <button
-                        type="button"
-                        className={publish ? "pk-btn pk-primary" : "pk-btn pk-danger-btn"}
-                        disabled={busy}
-                        data-autofocus=""
-                        data-testid={`confirm-${kind}`}
-                        onClick={async () => {
-                            setBusy(true);
-                            const ok = await (publish ? onPublish : onDelete)?.(t);
-                            setBusy(false);
-                            if (ok) {
-                                answer(t);
-                            }
-                        }}
-                    >
-                        {publish ? labels.publishAction : labels.deleteAction}
-                    </button>
-                    <button type="button" className="pk-btn" disabled={busy} onClick={() => answer(t)}>
-                        {labels.cancel}
-                    </button>
-                </div>
-            );
-        }
-        const button = (kind, icon, text) => (
-            <button type="button" className="pk-icon-btn" onClick={() => setConfirming({ at, kind })} aria-label={text} title={text} data-testid={`${kind}-view-${t.name}`}>
-                <Icon name={icon} />
-            </button>
-        );
-        return (
-            <div key={`${at}:${t.name}`} className="pk-template" data-pk-entry={keyOf(t)}>
-                <Option icon="bookmark" current={isLoadedEntry(t, actions.loaded)} onSelect={() => { close(); onLoad(t); }} testId={`saved-view-${t.name}`}>
-                    {t.name}
-                </Option>
-                {onPublish && t.scope === "user" ? button("publish", "upload", fill(labels.publishView, { name: t.name })) : null}
-                {onDelete && t.deletable ? button("delete", "trash", fill(labels.deleteView, { name: t.name })) : t.scope === "shared" && sharedChange ? <SettingInfo id="sharedView" name={t.name} /> : null}
-            </div>
-        );
-    };
     // the "i" on a shared view says who changes shared views: only where someone here can (a shared
     // view the host lets delete, or Publish), so no report claims admins it does not have
     const sharedChange = Boolean(onPublish) || templates.some((t) => t.scope === "shared" && t.deletable);
-    const group = (scope) => templates.map((t, at) => (t.scope === scope ? entry(t, at) : null)).filter(Boolean);
+    const ids = entryIds(templates);
+    const group = (scope) => templates.flatMap((t, at) => (t.scope === scope ? [at] : []));
+    /** @returns {import("./menu-topics.js").Choice} */
+    const entry = (at, list) => {
+        const t = templates[at];
+        const id = ids[at];
+        // after a delete the focus goes to the entry that takes its place
+        const next = afterDelete(list, list.indexOf(at));
+        const ask = (kind, focus) => () => setAsking({ kind, t, focus });
+        return {
+            id,
+            testId: `saved-view-${t.name}`,
+            text: t.name,
+            icon: "bookmark",
+            current: isLoadedEntry(t, actions.loaded),
+            closes: true,
+            run: () => onLoad(t),
+            info: t.scope === "shared" && sharedChange && !(onDelete && t.deletable) ? "sharedView" : undefined,
+            actions: [
+                ...(onPublish && t.scope === "user" ? [{ id: `publish:${id}`, testId: `publish-view-${t.name}`, text: t.name, label: fill(labels.publishView, { name: t.name }), icon: "upload", open: "confirm", backTo: `item:${id}`, run: ask("publish", `item:${id}`) }] : []),
+                ...(onDelete && t.deletable ? [{ id: `delete:${id}`, testId: `delete-view-${t.name}`, text: t.name, label: fill(labels.deleteView, { name: t.name }), icon: "trash", open: "confirm", backTo: `item:${id}`, run: ask("delete", next === undefined ? undefined : `item:${ids[next]}`) }] : [])
+            ]
+        };
+    };
     const shared = group("shared");
     const mine = group("user");
-    return (
-        <div ref={box} className="pk-views">
-            <Section title={labels.thisView} id="thisView">
-                {target && askShared && target.kind === "publish" ? (
-                    <Confirm
-                        question={fill(labels.replaceSharedConfirm, { name: actions.loaded.name })}
-                        action={labels.replaceAction}
-                        cancel={labels.cancel}
-                        testId="replace-shared-confirm"
-                        yesId="confirm-replace-shared"
-                        noId="cancel-replace-shared"
-                        onYes={() => { close(); save(target, actions.loaded.name); }}
-                        onNo={() => setAskShared(false)}
-                    />
-                ) : target ? (
-                    <Option icon="save" onSelect={() => { if (target.kind === "publish") { setAskShared(true); } else { close(); save(target, actions.loaded.name); } }} disabled={target.kind === null} reason={target.kind === null ? labels[target.why] : undefined} testId="save-loaded">
-                        {fill(labels.saveNamed, { name: actions.loaded.name })}
-                    </Option>
-                ) : null}
-                {canSaveAs(can) ? (
-                    <>
-                        <div className="pk-subtitle">{actions.loaded ? labels.saveAs : labels.saveView}</div>
-                        <SaveView labels={labels} button={actions.loaded ? labels.saveAs.replace(/…$/, "") : labels.save} onSave={(name, t) => save(t, name)} resolve={(name) => saveAsTarget(name, templates, can)} close={close} />
-                    </>
-                ) : null}
-                <div className="pk-setting-row">
-                    <Option icon="newFile" onSelect={() => { close(); actions.onNew(); }} disabled={!actions.canNew} reason={actions.canNew ? undefined : labels.newAlready} testId="new-report">
-                        {labels.newEmpty}
-                    </Option>
-                    <SettingInfo id="newReport" name={labels.newEmpty} />
-                </div>
-            </Section>
-            {shared.length ? (
-                <Section title={labels.sharedViews} id="sharedViews">
-                    {shared}
-                </Section>
-            ) : null}
-            {mine.length || canSaveAs(can) || !shared.length ? (
-                <Section title={labels.myViews} id="myViews">
-                    {/* empty: one line, with the store's note in short */}
-                    {mine.length ? mine : <p className="pk-hint" data-testid={store ? "store-note" : undefined}>{store ? labels.noViewsStore : labels.noViews}</p>}
-                    {store && mine.length ? (
-                        <p className="pk-hint pk-menu-hint" data-testid="store-note">
-                            {labels.storeNote}
-                        </p>
-                    ) : null}
-                </Section>
-            ) : null}
-            {share ? <ShareSection labels={labels} share={share} close={close} /> : null}
-        </div>
-    );
+    /** @type {import("./menu-topics.js").Choice[]} */
+    const thisView = [];
+    if (target) {
+        thisView.push({
+            id: "save-loaded",
+            text: fill(labels.saveNamed, { name: actions.loaded.name }),
+            icon: "save",
+            disabled: target.kind === null,
+            reason: target.kind === null ? labels[target.why] : undefined,
+            // over a shared view: asked first, everyone sees the change
+            ...(target.kind === "publish" ? { open: "confirm", run: () => setAsking({ kind: "replaceShared" }) } : { closes: true, run: () => save(target, actions.loaded.name) })
+        });
+    }
+    if (canSaveAs(can)) {
+        thisView.push({ id: "save-as", text: actions.loaded ? labels.saveAs : `${labels.saveView}…`, icon: "save", open: "saveAs" });
+    }
+    thisView.push({ id: "new-report", text: labels.newEmpty, icon: "newFile", disabled: !actions.canNew, reason: actions.canNew ? undefined : labels.newAlready, info: "newReport", closes: true, run: () => actions.onNew() });
+    const act = share ? shareActions(share, labels) : null;
+    const question =
+        asking?.kind === "replaceShared"
+            ? { text: fill(labels.replaceSharedConfirm, { name: actions.loaded?.name }), action: labels.replaceAction, testId: "replace-shared-confirm", yesId: "confirm-replace-shared", noId: "cancel-replace-shared" }
+            : asking
+              ? { text: fill(asking.kind === "publish" ? labels.publishConfirm : labels.deleteConfirm, { name: asking.t.name }), action: asking.kind === "publish" ? labels.publishAction : labels.deleteAction, testId: `${asking.kind}-confirm`, yesId: `confirm-${asking.kind}`, noId: `cancel-${asking.kind}` }
+              : null;
+    /** @type {import("./menu-topics.js").Topic[]} */
+    const topics = [
+        { id: "thisView", title: labels.thisView, kind: "inline", titled: true, groups: [{ choices: thisView }] },
+        ...(shared.length ? [{ id: "sharedViews", title: labels.sharedViews, kind: /** @type {const} */ ("inline"), titled: true, groups: [{ choices: shared.map((at) => entry(at, shared)) }] }] : []),
+        ...(mine.length || canSaveAs(can) || !shared.length
+            ? [
+                  {
+                      id: "myViews",
+                      title: labels.myViews,
+                      kind: /** @type {const} */ ("inline"),
+                      titled: true,
+                      groups: [{ choices: mine.map((at) => entry(at, mine)) }],
+                      // empty: one line, with the store's note in short
+                      note: mine.length ? (store ? labels.storeNote : null) : store ? labels.noViewsStore : labels.noViews,
+                      noteId: store ? "store-note" : undefined
+                  }
+              ]
+            : []),
+        ...(act
+            ? [
+                  {
+                      id: "share",
+                      title: labels.share,
+                      kind: /** @type {const} */ ("menu"),
+                      icon: "link",
+                      groups: [
+                          {
+                              choices: [
+                                  ...(share.canLink ? [{ id: "copy-link", text: labels.copyLink, icon: "link", closes: true, run: act.copyLink }] : []),
+                                  { id: "copy-json", text: labels.copyJson, icon: "copy", closes: true, run: act.copyJson },
+                                  { id: "download-view", text: labels.downloadView, icon: "download", closes: true, run: act.download },
+                                  { id: "load-view", text: labels.loadView, icon: "upload", open: "load" }
+                              ]
+                          }
+                      ],
+                      // what leaves the report with a view: filter values can be values of the data
+                      note: labels.sharePrivacy,
+                      noteId: "share-privacy"
+                  }
+              ]
+            : []),
+        { id: "saveAs", title: labels.saveAs, levelTitle: (actions.loaded ? labels.saveAs : labels.saveView).replace(/…$/, ""), kind: "panel", hidden: true },
+        { id: "load", title: labels.loadView, levelTitle: labels.loadView.replace(/…$/, ""), kind: "panel", hidden: true },
+        { id: "confirm", title: question?.action ?? "", kind: "panel", hidden: true }
+    ];
+    const panel = (id, back) => {
+        if (id === "saveAs") {
+            return <SaveView labels={labels} button={actions.loaded ? labels.saveAs.replace(/…$/, "") : labels.save} onSave={(name, t) => save(t, name)} resolve={(name) => saveAsTarget(name, templates, can)} close={close} />;
+        }
+        if (id === "load" && act) {
+            return <LoadView labels={labels} onLoadText={act.loadText} close={close} />;
+        }
+        if (id === "confirm" && question && asking) {
+            return (
+                <Confirm
+                    question={question.text}
+                    action={question.action}
+                    cancel={labels.cancel}
+                    danger={asking.kind === "delete"}
+                    focusYes={asking.kind !== "replaceShared"}
+                    busy={busy}
+                    testId={question.testId}
+                    yesId={question.yesId}
+                    noId={question.noId}
+                    onNo={() => back()}
+                    onYes={async () => {
+                        if (asking.kind === "replaceShared") {
+                            close();
+                            save(target, actions.loaded.name);
+                            return;
+                        }
+                        setBusy(true);
+                        const ok = await (asking.kind === "publish" ? onPublish : onDelete)?.(asking.t);
+                        setBusy(false);
+                        if (ok) {
+                            back(asking.focus);
+                        }
+                    }}
+                />
+            );
+        }
+        return null;
+    };
+    return <LevelMenu name={labels.views} labels={labels} topics={topics} close={close} onPick={runChoice(close)} panel={panel} focusAgain={templates.length} />;
 }
 
 /**
@@ -814,12 +738,12 @@ export function ExportPanel({ labels, onExport, chartReady, display, empty = fal
     const off = empty ? { disabled: true, reason: labels.exportNeedsField } : {};
     return (
         <>
-            <Section title={labels.exportDownload} id="exportDownload">
+            <Section title={labels.exportDownload}>
                 <ExportOption icon="file" text={labels.exportXlsx} info="exportXlsx" onSelect={run("xlsx")} {...off} testId="export-xlsx" />
                 <ExportOption icon="file" text={labels.exportCsv} info="exportCsv" onSelect={run("csv")} {...off} testId="export-csv" />
                 <ExportOption icon="image" text={labels.exportPng} disabled={empty || !chartReady} reason={empty ? off.reason : display !== "chart" ? labels.exportPngNeedsChart : undefined} onSelect={run("png")} testId="export-png" />
             </Section>
-            <Section title={labels.exportCopy} id="exportCopy">
+            <Section title={labels.exportCopy}>
                 <ExportOption icon="copy" text={labels.copyTable} info="copyTable" onSelect={run("copy-table")} {...off} testId="export-copy-table" />
                 <ExportOption icon="copy" text={labels.copyDataJson} info="copyDataJson" onSelect={run("copy-json")} {...off} testId="export-copy-json" />
             </Section>

@@ -57,7 +57,7 @@ supported.
 | `drillDown` | `drill-down` | `boolean` | `true` | The panel with the rows behind a clicked value; `drill-down="false"` turns it off. |
 | `drillDownLimit` | `drill-down-limit` | `number` | `1000` | Rows passed to the panel and to `pivot-cell-click`; the panel's exports hold these rows and say when there are more ("1,000 of 4,212 rows"). |
 | `tips` | `tips` | `string` | `"on"` | The tips above the result: `"on"`, `"off"` (none, and no switch in Options) or the tip ids allowed, comma-separated (`tips="top,cells"`); the ids are in the [React reference](react.md#tips). |
-| `storageKey` | `storage-key` | `string` |  | Remembers dismissed tips, the help switches and the folded or opened menu sections in `localStorage` under `pivotkit:tips:<key>`; give each element on a page its own. [More](#prop-storagekey) |
+| `storageKey` | `storage-key` | `string` |  | Remembers dismissed tips and the help switches in `localStorage` under `pivotkit:tips:<key>`; give each element on a page its own. [More](#prop-storagekey) |
 | `dismissedTips` |  | `string[]` |  | Dismissed tip ids from the page's own storage (from `pivot-tip-dismiss`); `"*"`: all tips off; `"-explanations"`: "Show explanations" off; `"open:<section>"`, `"closed:<section>"`: a menu section opened or folded. |
 | `fieldInfo` | `field-info` | `"on"` or `"off"` |  | `"on"` or `"off"` decides the "i" of the field descriptions; unset, the user's "Show explanations" in Options, Help decides. Screen readers keep the descriptions. |
 | `zoneInfo` | `zone-info` | `"on"` or `"off"` |  | The same for the "i" next to the zone titles. |
@@ -125,7 +125,7 @@ Pixels (`height="480"`) or a CSS length; `"100%"` fills the element, which then 
 
 Attribute: `storage-key`. Type: `string`.
 
-Remembers dismissed tips, the help switches and the folded or opened menu sections in `localStorage` under `pivotkit:tips:<key>`; give each element on a page its own. Without it they stay dismissed until the page is loaded again. With `template-store="browser"` the user's own views are kept under `pivotkit:views:<key>` too.
+Remembers dismissed tips and the help switches in `localStorage` under `pivotkit:tips:<key>`; give each element on a page its own. Without it they stay dismissed until the page is loaded again. With `template-store="browser"` the user's own views are kept under `pivotkit:views:<key>` too.
 
 ### `sourceId` { #prop-sourceid }
 
@@ -327,12 +327,12 @@ CI reads about 0.3 KiB more than these numbers):
 
 | Loaded | Files | Size | gzip |
 | --- | ---: | ---: | ---: |
-| First (`index.js` and its static imports: React, ReactDOM, pivotkit-react, pivotkit-core, @dnd-kit, styles) | 6 | 455 KiB | 148 KiB |
+| First (`index.js` and its static imports: React, ReactDOM, pivotkit-react, pivotkit-core, @dnd-kit, styles) | 6 | 461 KiB | 149 KiB |
 | On the first chart (ECharts with bar, line, pie (also the donut), heatmap, the components they use, the title among them, the canvas renderer, and the layout of the chart's labels) | 1 | 604 KiB | 204 KiB |
 | On the first export or copy (pivotkit-core's export, and fflate as a chunk it shares with the link; the Export menu and the drill-down's start loading it when they open) | 2 | 24 KiB | 11 KiB |
 | On the first shared link, Copy link or loaded link (pivotkit-core's link with fflate) | 2 | 14 KiB | 7 KiB |
-| Right after the first render (the menus' panels, the Export menu, the drill-down's panel and its table, sharing's copy, download and load, and the English texts only they show) | 1 | 74 KiB | 23 KiB |
-| With the menus, for a German report only (the menus' German texts) | 1 | 12 KiB | 4 KiB |
+| Right after the first render (the menus' panels with their levels, the Export menu, the drill-down's panel and its table, sharing's copy, download and load, and the English texts only they show) | 1 | 89 KiB | 29 KiB |
+| With the menus, for a German report only (the menus' German texts) | 1 | 13 KiB | 5 KiB |
 
 ECharts is bundled, not left to the page: a page without a bundler or an import map would have no
 way to provide it, and loading it on first use keeps it out of the first load. Only the four chart

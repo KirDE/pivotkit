@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { test as plain } from "@playwright/test";
 import { toViewFile } from "pivotkit-core";
 import { encodeViewLink } from "pivotkit-core/link";
-import { chips, expect, test, toolbar, openSection, openShare } from "./fixtures.js";
+import { chips, expect, test, toolbar, openShare } from "./fixtures.js";
 
 /** A switch of a menu (its checkbox is drawn as a track): by keyboard, as a person reaches it. */
 async function flip(locator) {
@@ -29,8 +29,7 @@ test.describe("chart display", () => {
         await page.getByTestId("chart-bar").click();
         await expect(page.getByTestId("pivot-chart")).toBeVisible();
         await toolbar(page, "chart-type");
-        // the display settings are folded at first; opened once, they stay open
-        await openSection(page, "chartDisplay");
+        // the display settings are shown under the chart types
         await page.getByTestId("labels-value").click();
         await page.getByTestId("legend-right").click();
         // a choice applies at once and the menu stays open
@@ -216,11 +215,16 @@ test.describe("sharing a view", () => {
         // Cancel: nothing changed, the form is back
         await page.getByTestId("load-cancel").click();
         await expect(page.getByTestId("load-view-text")).toBeVisible();
-        // the pasted text is still there: the first Escape empties the field, the next closes the menu
+        // the pasted text is still there: the first Escape empties the field, the next goes back to
+        // Share (the focus on Load view…), then to the list, then the menu closes
         await expect(page.getByTestId("load-view-text")).toHaveValue(file);
         await page.getByTestId("load-view-text").press("Escape");
         await expect(page.getByTestId("load-view-text")).toHaveValue("");
         await page.getByTestId("load-view-text").press("Escape");
+        await expect(page.getByTestId("load-view")).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(page.getByTestId("topic-share")).toBeFocused();
+        await page.keyboard.press("Escape");
         await expect(page.locator(".pk-popover")).toHaveCount(0);
         await expect.poll(() => chips(page, "rows")).toEqual(["Region", "Country"]);
         // Switch: the host shows the other data with the view
@@ -297,8 +301,8 @@ test.describe("help switches", () => {
         await expect(page.locator(".pk-info-pop")).toContainText("Example: Region in Rows");
         await page.keyboard.press("Escape");
         await toolbar(page, "options");
-        // two switches only: tips and explanations
-        await expect(page.locator(".pk-popover .pk-switch input")).toHaveCount(6);
+        // two switches only besides the four totals: tips and explanations
+        await expect(page.locator('.pk-popover [role="menuitemcheckbox"]')).toHaveCount(6);
         await expect(page.getByTestId("show-zone-info")).toHaveCount(0);
         await expect(page.getByTestId("show-field-info")).toHaveCount(0);
         await flip(page.getByTestId("show-explanations"));
@@ -435,5 +439,5 @@ plain("a menu whose code cannot be loaded says so and loads on Try again", async
     // loaded once, every menu has it
     await page.keyboard.press("Escape");
     await page.getByTestId("chip-menu-Region").click();
-    await expect(page.getByTestId("open-filter")).toBeVisible();
+    await expect(page.getByTestId("topic-filter")).toBeVisible();
 });

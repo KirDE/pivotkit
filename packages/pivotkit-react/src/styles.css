@@ -40,6 +40,8 @@
     --pk-muted: #5a6270;
     --pk-border: #dde1e7;
     --pk-border-strong: #c3c9d2;
+    /* the edge of a text field or a select in a menu: 3:1 against the surfaces it sits on */
+    --pk-input-border: #7d8592;
     /* the dashed edge of an empty drop zone: 3:1 against --pk-surface-2 */
     --pk-drop-border: #868e9a;
     --pk-grid: #edf0f3;
@@ -83,6 +85,7 @@
     --pk-muted: #a3aab7;
     --pk-border: #2f343e;
     --pk-border-strong: #454c58;
+    --pk-input-border: #737b88;
     --pk-drop-border: #6f7785;
     --pk-grid: #23272e;
     --pk-accent: #84a3ff;
@@ -466,7 +469,7 @@
     gap: 0.5em;
     height: 2.35em;
     padding: 0 0.7em;
-    border: 1px solid var(--pk-border);
+    border: 1px solid var(--pk-input-border);
     border-radius: var(--pk-radius-sm);
     background: var(--pk-surface);
     color: var(--pk-muted);
@@ -1043,6 +1046,10 @@
     z-index: 60;
     display: flex;
     flex-direction: column;
+    /* its own width, not the room right of where it was placed last (popover.jsx measures it): a
+       containing block that ends before the window (a classic scroll bar, a transformed host) would
+       else narrow it on every placement, frame after frame */
+    width: max-content;
     min-width: 220px;
     max-width: min(380px, calc(100vw - 16px));
     padding: 6px;
@@ -1062,49 +1069,10 @@
     transform-origin: bottom left;
 }
 
-/* chip menus: the options scroll, Remove stays at the foot */
+/* chip menus: in levels (levels.jsx); the level scrolls inside the popover */
 .pk-chip-menu {
-    width: 400px;
-    overflow: hidden;
-    padding-bottom: 0;
-}
-
-.pk-menu-body {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    /* a shadow at an edge says there is more to scroll */
-    background:
-        linear-gradient(var(--pk-surface-raised) 30%, transparent) top / 100% 24px no-repeat local,
-        linear-gradient(transparent, var(--pk-surface-raised) 70%) bottom / 100% 24px no-repeat local,
-        radial-gradient(farthest-side at 50% 0, color-mix(in srgb, var(--pk-text) 16%, transparent), transparent) top / 100% 10px no-repeat scroll,
-        radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--pk-text) 16%, transparent), transparent) bottom / 100% 10px no-repeat scroll;
-}
-
-.pk-menu-foot {
-    flex: none;
-    padding: 4px 0 6px;
-    border-top: 1px solid var(--pk-border);
-}
-
-.pk-more {
-    margin-top: 2px;
-}
-
-.pk-more-title {
-    display: flex;
-    align-items: center;
-    min-height: max(var(--pk-target), 2.2em);
-    padding: 0 0.6em;
-    border-radius: var(--pk-radius-sm);
-    color: var(--pk-accent);
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.pk-more-title:hover {
-    background: var(--pk-surface-3);
+    width: 420px;
+    max-width: min(420px, calc(100vw - 16px));
 }
 
 .pk-subtitle {
@@ -1203,57 +1171,9 @@
     font-weight: 650;
 }
 
-/* a section that folds: its title is the button */
-.pk-section-toggle {
-    display: inline-flex;
-    flex: 1;
-    align-items: center;
-    gap: 0.35em;
-    min-height: var(--pk-target);
-    padding: 2px 6px;
-    border: 0;
-    border-radius: var(--pk-radius-sm);
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
-}
-
-/* a control, not a caption: the text's colour; folded, what it holds at its end, muted, with a dot
-   (pk-section-mark) when that is not the default */
-.pk-root .pk-section-toggle {
-    color: var(--pk-text);
-}
-
-/* with .pk-badge-cut: one line, an ellipsis */
-.pk-section-state {
-    margin-left: auto;
-    color: var(--pk-muted);
-    font-weight: 400;
-}
-
-/* the dot of a folded section that is not the default, and Change and Remove next to what a section
-   of the field menu has set (a .pk-inline-form row; the setting itself in the text's colour) */
-.pk-section-mark,
-.pk-state-line .pk-link {
+/* the dot of a setting that is not the default (a row of a menu in levels) */
+.pk-section-mark {
     color: var(--pk-accent);
-}
-
-.pk-root .pk-section-toggle:hover {
-    background: var(--pk-surface-3);
-}
-
-.pk-section.pk-folded {
-    padding-bottom: 2px;
-}
-
-.pk-section-body {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-}
-
-.pk-section-body[hidden] {
-    display: none;
 }
 
 /* a setting with its "i": one line, the "i" at its end */
@@ -1360,7 +1280,7 @@
     min-width: 6em;
     height: 2.2em;
     padding: 0 0.6em;
-    border: 1px solid var(--pk-border);
+    border: 1px solid var(--pk-input-border);
     border-radius: var(--pk-radius-sm);
     background: var(--pk-surface);
     color: var(--pk-text);
@@ -1427,24 +1347,243 @@
     min-width: 0;
 }
 
-/* a value condition: the value, then the operator and the number(s) */
-.pk-value-filter .pk-field-label:not(.pk-narrow-input, .pk-by-pick) {
-    flex: 1 1 10em;
+/* a menu in levels (levels.jsx): the first level a summary, a topic's level in its place */
+.pk-levels {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
 }
 
-.pk-value-filter .pk-narrow-input {
+.pk-level-name,
+.pk-level-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: var(--pk-target);
+    padding: 0 4px 0 8px;
+}
+
+.pk-level-name-text,
+.pk-level-title {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: 1em;
+    font-weight: 650;
+}
+
+.pk-level-head {
+    padding-left: 0;
+    border-bottom: 1px solid var(--pk-border);
+    padding-bottom: 4px;
+}
+
+.pk-level-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+}
+
+.pk-flip {
+    transform: scaleX(-1);
+}
+
+.pk-level-first,
+.pk-level-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.pk-level-search {
+    flex: none;
+    margin: 0 2px;
+}
+
+.pk-level-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.pk-level-sep {
+    margin: 4px 0;
+    border-top: 1px solid var(--pk-border);
+}
+
+/* a topic's row: its title, what is set on the right, a chevron */
+.pk-topic-row .pk-option-text {
+    flex: none;
+    margin-right: auto;
+}
+
+.pk-topic-state {
+    display: flex;
+    gap: 0.3em;
+    min-width: 0;
+    color: var(--pk-muted);
+    font-weight: 400;
+}
+
+.pk-topic-chevron {
+    flex: none;
+    color: var(--pk-muted);
+}
+
+/* a few choices side by side: their title, then the segments */
+.pk-topic-seg {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    min-height: 2.2em;
+    padding: 2px 0 2px 0.45em;
+}
+
+.pk-topic-seg-title {
+    display: inline-flex;
+    flex: 1 0 auto;
+    align-items: center;
+    gap: 0.55em;
+}
+
+.pk-topic-seg .pk-segmented > button:focus-visible {
+    outline: 2px solid var(--pk-focus);
+    outline-offset: -2px;
+}
+
+/* a choice's example or hint: on its right */
+.pk-item-hint {
+    margin-left: auto;
+    padding-left: 1em;
+    color: var(--pk-muted);
+    font-size: var(--pk-small);
+    font-weight: 400;
+    white-space: nowrap;
+}
+
+/* an item that would change nothing here: muted (still 4.5:1), its reason under it */
+.pk-option.pk-disabled {
+    color: var(--pk-muted);
+    cursor: default;
+}
+
+.pk-level-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 2px;
+}
+
+.pk-filter-level {
+    padding: 0;
+}
+
+.pk-level-result {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+}
+
+.pk-level-result > p {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--pk-muted);
+}
+
+.pk-value-condition {
+    align-items: center;
+}
+
+.pk-value-condition .pk-by {
+    font-size: inherit;
+}
+
+.pk-value-condition .pk-narrow-input {
     flex: 1 1 7em;
 }
 
-.pk-template {
-    display: flex;
-    align-items: center;
-    gap: 2px;
+/* the comparison on a line of its own: its longest words ("is not between") are never cut */
+.pk-value-condition > select {
+    flex: 1 1 100%;
 }
 
-/* the Views menu's groups stand in the popover as its own sections */
-.pk-views {
-    display: contents;
+/* the Filter level: the list first, at most this high, then the folded "More ways to filter" */
+.pk-filter-level .pk-values {
+    max-height: min(16em, 38vh);
+}
+
+.pk-more-filters {
+    display: flex;
+    align-items: center;
+    gap: 0.35em;
+    min-height: var(--pk-target);
+    padding: 2px 4px;
+    border: 0;
+    border-radius: var(--pk-radius-sm);
+    background: transparent;
+    color: var(--pk-text);
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pk-more-filters:hover {
+    background: var(--pk-surface-3);
+}
+
+.pk-more-filters-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* a text button that acts (Select all, Clear picks): underlined, so it reads as one */
+.pk-filter-actions .pk-link,
+.pk-link-button {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.pk-topic-seg-state {
+    font-size: var(--pk-small);
+}
+
+.pk-radios {
+    display: flex;
+    flex-direction: column;
+}
+
+.pk-radio {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    min-height: 2.2em;
+    padding: 0 0.6em;
+    border-radius: var(--pk-radius-sm);
+    cursor: pointer;
+}
+
+.pk-radio:hover {
+    background: var(--pk-surface-3);
+}
+
+.pk-radio > input {
+    width: 1.1em;
+    height: 1.1em;
+    margin: 0;
+    accent-color: var(--pk-accent);
+}
+
+.pk-level-form > .pk-hint {
+    flex-basis: 100%;
+    margin: 0;
 }
 
 .pk-switch {
@@ -1465,20 +1604,6 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-}
-
-/* a switch that would change nothing here: dimmed, its reason under it */
-.pk-switch.pk-disabled {
-    cursor: default;
-}
-
-.pk-switch.pk-disabled:hover {
-    background: transparent;
-}
-
-.pk-switch.pk-disabled > .pk-switch-track,
-.pk-switch.pk-disabled > .pk-switch-text > :first-child {
-    opacity: 0.45;
 }
 
 .pk-switch input {
@@ -1754,7 +1879,10 @@
     display: flex;
     flex: 1;
     min-height: var(--pk-result-least);
-    overflow: hidden;
+    /* what is taller than the area scrolls inside it: the empty report's start help, a message, in a
+       report lower than they are (a host's height); the table scrolls in its own box (.pk-table-wrap)
+       and fills the area, so this never scrolls with it */
+    overflow: auto;
     border: 1px solid var(--pk-border);
     border-radius: var(--pk-radius);
     background: var(--pk-surface);
@@ -2551,18 +2679,12 @@
     font-weight: 600;
 }
 
-.pk-template.pk-confirm {
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 4px 6px;
-}
-
 .pk-confirm-text {
     flex: 1 1 100%;
     font-weight: 600;
 }
 
-/* Save as onto a name that is taken: the question in place of the field */
+/* a question before a change: in place of the field (Save as onto a name that is taken) or in a level of its own */
 .pk-save-confirm {
     display: flex;
     flex-wrap: wrap;
@@ -2690,7 +2812,7 @@
     box-sizing: border-box;
     min-height: 6em;
     padding: 0.45em calc(var(--pk-target) + 8px) 0.45em 0.6em;
-    border: 1px solid var(--pk-border);
+    border: 1px solid var(--pk-input-border);
     border-radius: var(--pk-radius-sm);
     background: var(--pk-surface);
     color: var(--pk-text);
@@ -2972,12 +3094,15 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+    /* nothing moves: no animation (a short one still shows its first frame, a popover scaled down), and
+       no transition at all (a duration here would also apply to every element without a transition of
+       its own, transition-property being "all" by default: a popover shown from visibility: hidden
+       stayed hidden for a frame and could not take the focus). No code waits for their end events. */
     .pk-root *,
     .pk-root *::before,
     .pk-root *::after {
-        animation-duration: 1ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 1ms !important;
+        animation: none !important;
+        transition: none !important;
     }
 }
 
@@ -3084,7 +3209,7 @@
 /* ---- touch screens: the small controls get a hit area a finger finds (44 px) ---- */
 
 @media (pointer: coarse) {
-    .pk-root :is(.pk-chip-x, .pk-info, .pk-field-menu, .pk-handle, .pk-tip-x, .pk-toast-x, .pk-issues-x, .pk-th-sort, .pk-section-toggle) {
+    .pk-root :is(.pk-chip-x, .pk-info, .pk-field-menu, .pk-handle, .pk-tip-x, .pk-toast-x, .pk-issues-x, .pk-th-sort) {
         min-width: var(--pk-target-touch);
         min-height: var(--pk-target-touch);
     }

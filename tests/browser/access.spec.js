@@ -1,5 +1,5 @@
 // Keyboard, focus and screen reader behaviour (WCAG 2.2 AA): every test here fails without its fix.
-import { chips, expect, tableRows, test, toolbar } from "./fixtures.js";
+import { chipMenu, chips, expect, tableRows, test, toolbar } from "./fixtures.js";
 
 test.describe("keyboard and focus", () => {
     test("collapse and expand from the keyboard keep the focus on the toggle", async ({ page }) => {
@@ -24,6 +24,21 @@ test.describe("keyboard and focus", () => {
         await page.getByTestId("chip-menu-Category").click();
         await page.getByTestId("menu-remove").click();
         await expect(page.locator('[data-zone="cols"]')).toBeFocused();
+    });
+
+    test("with reduced motion a chip menu, a field's menu and a toolbar menu take the focus when they open", async ({ page }) => {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto("?data=sales");
+        await page.locator('[data-testid="pivot-table"]').waitFor();
+        const inMenu = () => page.evaluate(() => Boolean(document.activeElement?.closest(".pk-popover")));
+        for (const id of ["chip-menu-Region", "chip-menu-Sum of Revenue", "field-menu-Units", "export"]) {
+            await page.getByTestId(id).focus();
+            await page.keyboard.press("Enter");
+            await expect(page.locator(".pk-popover")).toBeVisible();
+            await expect.poll(inMenu, { message: id }).toBe(true);
+            await page.keyboard.press("Escape");
+            await expect(page.getByTestId(id)).toBeFocused();
+        }
     });
 
     test("a field from the field list moves into a zone with the keyboard, with its position announced", async ({ page }) => {
@@ -143,11 +158,10 @@ test.describe("names, roles and sizes", () => {
         await page.goto("?data=sales");
         await expect(page.locator('.pk-field[data-field="Region"] .pk-field-name')).toHaveAccessibleName("Region, in Rows");
         await expect(page.getByTestId("chip-menu-Region")).toHaveAccessibleName("Region, sorted Largest Sum of Revenue first");
-        await page.getByTestId("chip-menu-Region").click();
-        await page.getByTestId("open-filter").click();
+        await chipMenu(page, "Region", "filter");
         const total = await page.locator(".pk-value").count();
+        // applied at once: the chip's name says it while the level is still open
         await page.locator(".pk-value", { hasText: "West" }).locator("input").uncheck();
-        await page.getByTestId("filter-apply").click();
         await expect(page.getByTestId("chip-menu-Region")).toHaveAccessibleName(new RegExp(`^Region, filtered ${total - 1} of ${total}, sorted`));
     });
 

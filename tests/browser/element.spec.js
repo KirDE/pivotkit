@@ -4,7 +4,7 @@
 // strict Content-Security-Policy. Playwright's CSS locators reach into open shadow roots.
 import { readFile } from "node:fs/promises";
 import { test as plain } from "@playwright/test";
-import { expect, test } from "./fixtures.js";
+import { expect, openSaveAs, test } from "./fixtures.js";
 
 const wanted = process.env.PIVOTKIT_REACT === "19" ? /^19\./ : /^18\./;
 
@@ -23,10 +23,13 @@ async function tool(host, testId) {
     if (await own.count()) {
         // an open menu stays open (Views after a save): a click on its button would close it
         if ((await own.getAttribute("aria-expanded")) !== "true") await own.click();
-        return;
+    } else {
+        await host.getByTestId("more").click();
+        await host.getByTestId(`more-${testId}`).click();
     }
-    await host.getByTestId("more").click();
-    await host.getByTestId(`more-${testId}`).click();
+    // a menu takes the focus a frame after it opens (from More once its panel is there): wait for it,
+    // so a test that moves the focus inside does not lose it to that
+    await expect.poll(() => host.evaluate((el) => Boolean(el.shadowRoot?.activeElement?.closest(".pk-popover")))).toBe(true);
 }
 
 /** A custom property's value on an element's .pk-root. */
@@ -39,22 +42,22 @@ test("the menus' German texts load only for a German report, also when the langu
     const host = page.locator("#views");
     await expect(host.locator(".pk-root")).toBeVisible();
     await tool(host, "options");
-    await expect(host.getByTestId("section-help")).toHaveText("Help");
+    await expect(host.getByTestId("topic-title-help")).toHaveText("Help");
     await page.keyboard.press("Escape");
     expect(loaded.filter((p) => /menu-texts-de-/.test(p))).toEqual([]);
-    // every text the Help section's title shows from now on
+    // every text the Help group's title shows from now on
     await page.evaluate(() => {
         const root = document.getElementById("views").shadowRoot;
         window.__seen = [];
         new MutationObserver(() => {
-            const title = root.querySelector('[data-testid="section-help"]');
+            const title = root.querySelector('[data-testid="topic-title-help"]');
             if (title) window.__seen.push(title.textContent);
         }).observe(root, { subtree: true, childList: true, characterData: true });
         document.getElementById("views").locale = "de-DE";
     });
     await expect(host.locator(".pk-root")).toHaveAttribute("lang", "de");
     await tool(host, "options");
-    await expect(host.getByTestId("section-help")).toHaveText("Hilfe");
+    await expect(host.getByTestId("topic-title-help")).toHaveText("Hilfe");
     expect(loaded.filter((p) => /menu-texts-de-/.test(p))).toHaveLength(1);
     // the menu waited for the German texts: no English title in between
     expect(await page.evaluate(() => window.__seen.filter((t) => t !== "Hilfe"))).toEqual([]);
@@ -64,7 +67,7 @@ test("the menus' German texts load only for a German report, also when the langu
         document.getElementById("views").labels = { help: "Hilfe und Tipps" };
     });
     await tool(host, "options");
-    await expect(host.getByTestId("section-help")).toHaveText("Hilfe und Tipps");
+    await expect(host.getByTestId("topic-title-help")).toHaveText("Hilfe und Tipps");
 });
 
 test("a language change while a menu is open keeps the menu and its focus, and changes its texts", async ({ page }) => {
@@ -76,7 +79,7 @@ test("a language change while a menu is open keeps the menu and its focus, and c
     await page.evaluate(() => {
         document.getElementById("views").locale = "de-DE";
     });
-    await expect(host.getByTestId("section-help")).toHaveText("Hilfe");
+    await expect(host.getByTestId("topic-title-help")).toHaveText("Hilfe");
     await expect(host.getByTestId("show-tips")).toBeFocused();
 });
 
@@ -86,21 +89,21 @@ test("two reports on one page, English and German: each menu in its language, an
     const tickets = page.locator("#tickets");
     await expect(tickets.locator(".pk-root")).toHaveAttribute("lang", "de");
     await tool(sales, "options");
-    await expect(sales.getByTestId("section-help")).toHaveText("Help");
+    await expect(sales.getByTestId("topic-title-help")).toHaveText("Help");
     await page.keyboard.press("Escape");
     await tool(tickets, "options");
-    await expect(tickets.getByTestId("section-help")).toHaveText("Hilfe");
+    await expect(tickets.getByTestId("topic-title-help")).toHaveText("Hilfe");
     await page.keyboard.press("Escape");
     // the English report stays English after the German texts loaded
     await tool(sales, "options");
-    await expect(sales.getByTestId("section-help")).toHaveText("Help");
+    await expect(sales.getByTestId("topic-title-help")).toHaveText("Help");
     await page.keyboard.press("Escape");
     await page.evaluate(() => {
         document.getElementById("tickets").locale = "en-US";
     });
     await expect(tickets.locator(".pk-root")).toHaveAttribute("lang", "en");
     await tool(tickets, "options");
-    await expect(tickets.getByTestId("section-help")).toHaveText("Help");
+    await expect(tickets.getByTestId("topic-title-help")).toHaveText("Help");
 });
 
 // a partial copy of dist/, a Content-Security-Policy or a dropped connection: the German texts do not
@@ -113,17 +116,17 @@ plain("when the German menu texts cannot load, the menus open in English, work, 
     const tickets = page.locator("#tickets");
     await expect(tickets.locator(".pk-root")).toHaveAttribute("lang", "de");
     await tool(tickets, "options");
-    const help = tickets.getByTestId("section-help");
-    await expect(help).toHaveText("Help");
-    // it works: the section folds and opens
-    await help.click();
-    await expect(help).toHaveAttribute("aria-expanded", "false");
-    await help.click();
-    await expect(help).toHaveAttribute("aria-expanded", "true");
+    await expect(tickets.getByTestId("topic-title-help")).toHaveText("Help");
+    // it works: a switch turns off and on
+    const tips = tickets.getByTestId("show-tips");
+    await tips.click();
+    await expect(tips).toHaveAttribute("aria-checked", "false");
+    await tips.click();
+    await expect(tips).toHaveAttribute("aria-checked", "true");
     await page.keyboard.press("Escape");
     blocked = false;
     await tool(tickets, "options");
-    await expect(tickets.getByTestId("section-help")).toHaveText("Hilfe");
+    await expect(tickets.getByTestId("topic-title-help")).toHaveText("Hilfe");
 });
 
 test.describe("two elements on one page", () => {
@@ -183,6 +186,7 @@ test.describe("two elements on one page", () => {
         await page.goto("pages/element-two.html");
         const sales = page.locator("#sales");
         await tool(sales, "views");
+        await openSaveAs(sales);
         await sales.getByTestId("saved-view-name").fill("Mine");
         await sales.getByRole("button", { name: "Save", exact: true }).click();
         await expect(sales.locator(".pk-toasts")).toContainText("View “Mine” saved");
@@ -193,11 +197,12 @@ test.describe("two elements on one page", () => {
         expect(save.detail.scope).toBe("user");
         // the view shown is "Mine" now: the field saves it under another name, its button says so
         await tool(sales, "views");
+        await openSaveAs(sales);
         await sales.getByTestId("saved-view-name").fill("fail");
         await sales.getByRole("button", { name: "Save as", exact: true }).click();
         await expect(sales.locator(".pk-toasts")).toContainText("the server said no");
         await tool(sales, "views");
-        await sales.getByRole("button", { name: "Delete Mine" }).click();
+        await sales.getByRole("menuitem", { name: "Delete Mine" }).click();
         await sales.getByTestId("confirm-delete").click();
         await expect(sales.locator(".pk-toasts")).toContainText("View “Mine” deleted");
         await tool(sales, "views");

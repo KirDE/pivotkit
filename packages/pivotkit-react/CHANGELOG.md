@@ -6,6 +6,90 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Changed
+
+- The menus of a chip and Options are in levels instead of long accordions. The first level is a
+  short summary: one row per topic with what is set on its right ("Filter · All", "Top items · Off",
+  "Number format · ● Currency"; the dot and ", changed" in its accessible name where it is not the
+  default), or a topic's few choices right there (A to Z and Z to A, a value's Highlight, the totals
+  and help switches). A row opens the topic's own level in place, titled with the field ("Month ›
+  Group"), with **‹ Back**. The first level and the levels of choices are ARIA menus (WAI-ARIA
+  Authoring Practices: one Tab stop, arrow keys, Home and End, type-ahead; Enter or the right arrow
+  into a level, Escape or the left arrow back to the row it came from, Escape on the first level
+  closes the menu, Tab closes it and moves on); a level with form controls is a group with its
+  heading. A search above a chip menu's first level finds a choice of any level, with its path.
+- Every choice in these menus applies at once, without Apply: the values of the Filter level (in a
+  chip's menu; the filter popover of a Filters chip keeps its draft and Apply), the text condition and
+  the numbers a moment after the typing stops (or with Enter), a value's name with Enter or when the
+  field is left; Escape in a field gives back what applies. Number ranges keep Apply (size and start
+  apply together).
+- The Filter level of a field: how many items the list keeps, **Remove filter** (now also taking the
+  value condition; Top N stays), the values with their counts, the condition on the names, and the
+  condition on a value as a sentence ("Keep Region items whose Sum of Revenue is greater than …";
+  "is anything" takes it off). The Top items level: Off, Top 3, Top 5, Top 10, or **Top N…** with Top
+  or Bottom and a count. The Group level of a date: one column, each unit's example on its right,
+  under "Along the time line" and "Same period every year". Sorting by a value: on the first level
+  for one value, else in the level **Sort by value**.
+- Options: the totals and help switches are menu items (`menuitemcheckbox`); one that would change
+  nothing is `aria-disabled` with its reason, so the arrow keys still reach it; the "i" next to a
+  total is for the pointer, its text is the item's description; Keyboard shortcuts is a level.
+- The Views menu is in levels too: its first level is the flat list to scan (This view with Save “…”,
+  Save as… and New, Shared views, My views, Share); Save as…, Share (copy link, copy JSON, download,
+  Load view…) and the questions before a delete, a publish or a Save over a shared view open levels of
+  their own. An entry's Publish and Delete are items next to it, reached by the arrow keys; after a
+  delete the focus goes to the entry that takes its place.
+- No menu folds any more: the chart type menu (its Display settings shown at once) and the Export
+  menus are flat lists in titled groups. The folding (`SECTIONS`, `open:<section>` and
+  `closed:<section>` in the tips' list) and **Reset menu sections** are gone; a stored state of a
+  section is dropped when the list is read, and `dismissedTips` and `onTipDismiss` carry only tips and
+  switches.
+- After a usability review: the Filter level shows the list first and folds "More ways to filter"
+  (the text condition and the condition on a value) each time it opens; its first line names the
+  conditions; Clear picks and Remove the conditions replace Remove filter there; the comparison has a
+  line of its own. A typed name, count or number applies when the menu closes from a click outside.
+  The search knows "percent", "%", "rename", "top 5" and the two conditions, and `/` goes to it. A
+  format the menu does not offer (number:1) is a checked entry by its name. The levels of choices are
+  one column, the chip menus 420 px wide. The Sort row names a sort by a value; the menu's head names
+  the field as its levels do; Expand all has a neutral icon; Select all and the Filter level's
+  actions are underlined. A popover keeps its side while its content changes.
+- A menu whose entries are all off (the Export menu of an empty report) no longer puts the focus on
+  its first "i", whose explanation opened over the entries; the menu takes the focus itself.
+- Text fields, searches and selects in the menus have an edge of 3:1 contrast in both themes: the new
+  token `--pk-input-border`.
+- Labels of the menus (a host's `labels` for them): new `back`, `backTo`, `levelTitle`, `searchMenu`,
+  `searchMenuShort`, `searchResults`, `searchNothing`, `sortByValue`, `sortOldestShort`,
+  `sortNewestShort`, `filterTopic`, `filterAll`, `groupTopic`, `groupNoneShort`, `off`,
+  `moveToTitle`, `topOwn`, `binsOff`, `itemsPicked`, `valueConditionTitle`, `keepWhose`,
+  `valueOpAny`, `nameHint`, `showAsKeywords`, `nameKeywords`, `filterKeywords`, `formatDecimals`,
+  `pickedPlus`, `conditionOnNames`, `conditionOnValue`, `listAnd`, `clearPicks`, `removeConditions`,
+  `moreFilters`; changed: `valueOps` is the comparison inside the sentence ("is greater
+  than", German "größer als"), `groupCyclic` reads "Same period every year"; gone (no longer shown):
+  `chooseValues`, `valueFilter`, `change`, `removeSetting`, `topStart`, `binsStart`, `filterIs`,
+  `groupBy`, `resetSections`, `resetSectionsDone`. A host's text for a key that is gone is ignored.
+
+### Fixed
+
+- The "i" popover (and every other popover) appears at its final size and place
+  ([#91](https://github.com/eizedev/pivotkit/issues/91)). Where the area of fixed elements ends before
+  the window's edge (a classic scroll bar, as on Windows; a transformed host element), it narrowed a
+  little on every placement, over about a second; it now takes its own width (`width: max-content`,
+  capped as before) and is placed inside the window without its scroll bars.
+- With reduced motion a chip's menu (and every other menu) takes the focus when it opens
+  ([#78](https://github.com/eizedev/pivotkit/issues/78)). The reduced-motion rule gave every element a
+  transition of 1 ms, also those without one of their own (`transition-property` is `all` by
+  default), so a popover shown from `visibility: hidden` was still hidden in the frame its focus
+  moved; reduced motion now turns animations and transitions off (`animation: none`,
+  `transition: none`), so nothing moves at all.
+- German texts quote with German quotation marks
+  ([#79](https://github.com/eizedev/pivotkit/issues/79)): a text condition in a chip's menu
+  ("enthält „an“") and the fields a view for other data names ("Felder, die diese Daten
+  nicht haben: „Country“") take their quotes from the new label `quote` (`"“{text}”"` in English,
+  `"„{text}“"` in German); they were English quotes in every language.
+- The empty report's first steps ("Build your report in three steps" with its **Start with …**
+  buttons) are no longer cut off in a report lower than they are (a host's height, the result's least
+  height of 240 px): the result's area scrolls what is taller than it (`.pk-result` is
+  `overflow: auto`); the table keeps scrolling in its own box.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added

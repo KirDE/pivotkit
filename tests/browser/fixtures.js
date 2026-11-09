@@ -93,11 +93,35 @@ export async function openZones(page) {
     await expect(page.locator(".pk-zone").first()).toBeVisible();
 }
 
-/** Opens a section of an open menu when it is folded (the report remembers it once opened). */
-export async function openSection(scope, id) {
-    const title = scope.getByTestId(`section-${id}`);
-    if ((await title.getAttribute("aria-expanded")) === "false") await title.click();
+/** Opens the Share level of an open Views menu (its row on the first level). */
+export async function openShare(scope) {
+    if (!(await scope.getByTestId("level-share").count())) await openLevel(scope, "share");
 }
 
-/** Opens the Share section of an open Views menu: folded at first. */
-export const openShare = (scope) => openSection(scope, "share");
+/** Opens the Save as level of an open Views menu ("Save as…", or "Save current view…"). */
+export async function openSaveAs(scope) {
+    await scope.getByTestId("save-as").click();
+    await expect(scope.getByTestId("saved-view-name")).toBeVisible();
+}
+
+/**
+ * Opens a topic's level in an open menu in levels: its row on the first level ("filter", "top",
+ * "format", ...), then waits for the level.
+ */
+export async function openLevel(scope, topic) {
+    await scope.getByTestId(`topic-${topic}`).click();
+    await expect(scope.getByTestId(`level-${topic}`)).toBeVisible();
+}
+
+/** Opens the menu of a chip (by its text) and, with a topic, that topic's level. */
+export async function chipMenu(page, chip, topic) {
+    await page.getByTestId(`chip-menu-${chip}`).click();
+    await expect(page.locator(".pk-chip-menu .pk-levels")).toBeVisible();
+    if (topic) await openLevel(page.locator(".pk-chip-menu"), topic);
+}
+
+/** Opens "More ways to filter" of an open Filter level (folded each time the level opens). */
+export async function openMoreFilters(scope) {
+    const more = scope.getByTestId("filter-more");
+    if ((await more.getAttribute("aria-expanded")) !== "true") await more.click();
+}
