@@ -37,6 +37,43 @@ from the label when it is made ("Release date by month") and keeps it, like a va
 The texts are shown as text, never as markup; control characters become spaces and longer texts are
 cut with "…".
 
+## Identifier fields
+
+A number field that identifies a row (`ID`, `CustomerId`, `Order No`) is not a quantity: its sum
+means nothing, and 27,880 reads worse than 27880. A field `fieldDefaults` says nothing about how to
+count or show is treated as an identifier when
+
+- it is a number field whose values are all whole numbers, and
+- its name ends in the word **ID**, **Nr**, **No**, **Number**, **Key** or **#**, in any case.
+
+How the last word is found:
+
+- Words are split at a space, `_`, `-`, `.`, `/`, `:`, a change from a small letter (or a digit)
+  to a capital (`CustomerId`, `CustomerID`) and from a letter to a digit (`userID2`); a `#` is a word
+  of its own (`Serial#` is `Serial #`).
+- A part in parentheses at the end and digits at the end are left out first: `ID (Asset)`,
+  `Asset ID (old) (2)`, `userID2`, `user_id_2`, `Ticket No.2` end in their identifier word.
+- Identifiers: `ID`, `id`, `CustomerId`, `CustomerID`, `customer_id`, `Asset Nr.`, `Order No`,
+  `OrderNumber`, `Primary key`, `Serial #`, `#`.
+- Not identifiers: `Paid`, `PAID`, `UUID`, `UUID2` (one word, not one ending in "id"), `Keys`,
+  `Number of items` and `Number of items (total)` (they end in "items"), `#items`, `Paid (EUR)`.
+
+The check of the values reads a column's distinct values once and keeps the answer for that data.
+
+That every value is another is no sign: a count per row is too.
+
+Such a field gets `{ agg: "count", drillFormat: "text" }`: added to Values from the field list, by a
+drag or by Move to, it is counted ("Count of ID"; Sum stays a choice of its menu), and the
+drill-down shows its numbers as they are. On Rows and Columns a number field's items show without
+grouping separators anyway.
+
+A host that knows better sets any of `agg`, `format` or `drillFormat` for the field, and the report
+takes its settings as they are:
+
+```jsx
+<PivotReport data={rows} fieldDefaults={{ ID: { agg: "sum" }, OrderNo: { drillFormat: "number" } }} />
+```
+
 ## From a JSON Schema or an OpenAPI document
 
 Many APIs describe their rows already. pivotkit-core's `fieldDefaultsFromSchema(schema, options?)`

@@ -12,7 +12,7 @@
  */
 
 import React, { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { activeIn, rootOf } from "./dom.js";
+import { activeIn, rootOf, stopAfter } from "./dom.js";
 import { Icon } from "./icons.jsx";
 import { fill } from "./labels.js";
 import { ClearInput } from "./clear-input.jsx";
@@ -35,8 +35,9 @@ export function openerOf(el) {
 }
 
 /**
- * Tab in a menu leaves it: the focus goes to its button first, so the browser's Tab moves on from
- * there to what follows it, and the menu closes.
+ * Tab in a menu leaves it: the focus goes to what follows its button, else (at the end of the page)
+ * to the button; the menu closes. The Tab is taken (preventDefault), so the popover or sheet around
+ * the menu leaves it alone (dom.js: who takes Tab).
  * @param {KeyboardEvent | React.KeyboardEvent} e
  * @param {() => void} close
  */
@@ -45,10 +46,12 @@ export function tabLeaves(e, close) {
         return false;
     }
     const opener = openerOf(/** @type {Element} */ (e.target));
-    if (opener) {
+    const next = opener ? stopAfter(opener) : null;
+    e.preventDefault();
+    next?.focus();
+    // no stop after it, or one that would not take the focus: its button
+    if (opener && (!next || activeIn(next) !== next)) {
         opener.focus({ preventScroll: true });
-    } else {
-        e.preventDefault();
     }
     close();
     return true;

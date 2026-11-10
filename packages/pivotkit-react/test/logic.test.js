@@ -8,7 +8,7 @@ import { de as menuDe } from "../src/menu-labels-de.js";
 import { addMenuTexts, en as menuEn, menuLabels } from "../src/menu-labels.js";
 import { fromOrigin, keepPlace, placePopover, viewportOf } from "../src/place.js";
 import { chartThemeFrom, resolveTheme } from "../src/theme.js";
-import { rowLabelOf, sliceRows, windowOf } from "../src/virtual.js";
+import { longestLabels, rowLabelOf, sliceRows, windowOf } from "../src/virtual.js";
 
 /** The menus' texts of both languages (German is a chunk of its own in the package). */
 const MENU_LABELS = { en: menuEn, de: menuDe };
@@ -89,6 +89,26 @@ test("the whole row label of a body row: merged levels read from above, a sidewa
     assert.equal(body[2], "A / A2");
     assert.ok(body.includes("B / B1"));
     assert.equal(body.at(-1), "Grand Total");
+});
+
+test("the longest row labels of a column by characters, with their toggles, from every row (not the rows on screen)", () => {
+    const rows = [];
+    for (const g of ["Alpha", "B"]) for (let i = 0; i < 400; i++) rows.push({ G: g, I: i === 377 ? `host-${g}-with-a-much-longer-name-${i}` : `h${i}`, V: i });
+    const grid = toGrid(computePivot(encode(rows), { rows: ["G", "I"], values: [{ field: "V", agg: "sum" }] }));
+    const inner = longestLabels(grid, 1, 3);
+    assert.equal(inner.length, 3);
+    assert.deepEqual(inner.slice(0, 2).map((l) => l.text).sort(), ["host-Alpha-with-a-much-longer-name-377", "host-B-with-a-much-longer-name-377"]);
+    assert.ok(inner.every((l, i) => i === 0 || l.text.length <= inner[i - 1].text.length), "longest first");
+    assert.equal(inner[0].toggle, false);
+    // the outer level has a toggle; its subtotals and the grand total span both columns: they widen
+    // neither column alone and are left out
+    const outer = longestLabels(grid, 0, 50);
+    assert.deepEqual(outer.map((l) => l.text), ["Alpha", "B"]);
+    assert.ok(outer.every((l) => l.toggle && !l.total));
+    assert.deepEqual(longestLabels(grid, 0, 0), []);
+    // with one row field the grand total is a label of the column, drawn bold: marked as a total
+    const one = toGrid(computePivot(encode(rows), { rows: ["G"], values: [{ field: "V", agg: "sum" }] }));
+    assert.deepEqual(longestLabels(one, 0, 50).map((l) => [l.text, l.total]), [["Grand Total", true], ["Alpha", false], ["B", false]]);
 });
 
 test("popover placement: below, above when there is no room, inside the viewport", () => {

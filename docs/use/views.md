@@ -7,8 +7,9 @@ description: Undo and redo every step, reset, start an empty report, pick a shar
 
 A report you built is a **view**: which fields are where, the filters, the chart settings. You can
 undo every step, save the view under a name, pick one someone else saved, and share it as a link or a
-file. A view holds the names of fields and settings, not the data: whoever opens it sees the report on
-their own data.
+file. A view holds the names of fields and settings and, in its filters, the values chosen there (a
+customer, a country), but none of the other data: whoever opens it sees the report on their own data.
+Share it only where those filter values may be seen.
 
 ## Undo, redo, reset
 
@@ -191,7 +192,7 @@ not take the focus; one opened later in the tab is a step Undo takes back once l
   view from the link", or "View loaded; some parts did not fit this data" (a warning, not an error).
 - What was left out stays above the result as a warning, "2 parts of this view could not be used",
   open with one line per part in plain words, until you dismiss it with its **×** or load another
-  view ([details](behaviour.md#parts-of-a-view-that-were-not-used)).
+  view; a line goes once you change its part by hand ([details](behaviour.md#parts-of-a-view-that-were-not-used)).
   A saved view from **Views** that the data cannot fully use (a field that is gone) shows the same
   warning, as does one that has more fields in a zone than the limits allow.
 - Real errors (a damaged link, an application that could not save) stay in the status line until

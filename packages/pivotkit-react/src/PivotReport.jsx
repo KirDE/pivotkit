@@ -17,7 +17,7 @@ import { MAX_CATEGORIES, chartPlan } from "./chart-types.js";
 import { groupingName, layoutSummary, valueLabel } from "./names.js";
 import { PivotDnd } from "./dnd.jsx";
 import { DRILL_LIMIT, drillRows } from "./drill.js";
-import { displayNames, fieldInfoOf, typesOf } from "./field-info.js";
+import { displayNames, fieldDefaultsFor, fieldInfoOf, typesOf } from "./field-info.js";
 import { FieldPanel } from "./fields.jsx";
 import { Icon, TYPE_ICON } from "./icons.jsx";
 import { errorText, fill, plural, resolveLabels } from "./labels.js";
@@ -34,7 +34,8 @@ import { templateEntries, viewsName } from "./templates.js";
 import { ALL_TIPS, FIELDS_COLLAPSED, fieldsCollapsed, NO_EXPLANATIONS, activeTips, helpSwitch, allowedTips, cleanDismissed, keptOnReset, parseStored, readStored, subscribeStored, tipActionText, tipContext, tipText, withoutFilters, writeDismissed } from "./tips.js";
 import { Tips } from "./tip-list.jsx";
 import { Unused } from "./unused.jsx";
-import { activeIn } from "./dom.js";
+import { FormNameContext, activeIn } from "./dom.js";
+import { stillApplies } from "./unused-keep.js";
 import { Toolbar } from "./toolbar.jsx";
 import { prepareExporters, useExport } from "./use-export.js";
 import { useResolvedTheme } from "./use-theme.js";
@@ -188,14 +189,21 @@ function WaitingReport({ locale = "en-US", labels: customLabels, theme = "auto",
     );
 }
 
-/** The host's settings for a field (fieldDefaults), matched case-insensitively like column names. */
-function defaultsFor(fieldDefaults, field) {
-    if (!fieldDefaults || typeof fieldDefaults !== "object") {
-        return undefined;
+/**
+ * The host's view as JSON, to compare it by value; "null" for none, and for one that is no JSON (a
+ * cycle, a BigInt): normalize() reports nothing of that kind here.
+ * @param {unknown} view
+ */
+function keyOfHostView(view) {
+    try {
+        return JSON.stringify(view ?? null) ?? "null";
+    } catch {
+        return "null";
     }
-    const key = Object.keys(fieldDefaults).find((k) => k.toLowerCase() === String(field).toLowerCase());
-    return key === undefined ? undefined : fieldDefaults[key];
 }
+
+/** A subscription to something that never changes (useSyncExternalStore of a value chosen once). */
+const staysTheSame = () => () => undefined;
 
 function EmptyState({ labels, templates, onTemplate }) {
     return (
@@ -308,6 +316,11 @@ function Report(props) {
     const [folded, setFolded] = useState(/** @type {boolean | null} */ (null));
     const layoutFolded = folded ?? short;
     const zonesId = useId();
+    // the prefix of the names of this report's form fields (dom.js useFormName): useId is unique in
+    // one React root only, two web components are two roots; chosen in the browser, so a server
+    // render and its hydration agree (the server's snapshot is the plain prefix)
+    const ownPrefix = useRef(/** @type {string | null} */ (null));
+    const formPrefix = useSyncExternalStore(staysTheSame, () => (ownPrefix.current ??= `pk-${Math.random().toString(36).slice(2, 8)}`), () => "pk");
     const [drawer, setDrawer] = useState(false);
     const [filterTarget, setFilterTarget] = useState(/** @type {{ field: string, anchor: HTMLElement, base?: object } | null} */ (null));
     const [drill, setDrill] = useState(/** @type {import("./drill-table.js").DrillSource | null} */ (null));
@@ -327,7 +340,9 @@ function Report(props) {
     const [viewsRequest, setViewsRequest] = useState(0);
     // what a loaded view (a file, a link, a saved view) left out, for the area above the result; it
     // stays until it is dismissed or another view is loaded
-    const [leftOut, setLeftOut] = useState(/** @type {import("./unused.jsx").UnusedNote[]} */ ([]));
+    // (`loaded`: that view normalized, for the lines that still apply to the view shown, unused-keep.js;
+    // `after`: the host's view then, so a host's broken view given later takes the area over)
+    const [leftOut, setLeftOut] = useState(/** @type {{ notes: import("./unused.jsx").UnusedNote[], loaded: any, after: string | null }} */ ({ notes: [], loaded: null, after: null }));
     const [issuesDismissed, setIssuesDismissed] = useState(/** @type {string | null} */ (null));
     // views loaded from outside (a template, a file, a link, New): a new one is a new warning of its
     // unused parts (open again, not dismissed), also with the same parts as the view before
@@ -391,6 +406,25 @@ function Report(props) {
     }, [ordersKey]);
     const history = useViewHistory({ encoded, view: viewProp, defaultView, onViewChange, limits, outsideNote: labels.steps.outside, orderOf });
     const view = history.view;
+    // the host's view (`view`, else the first `defaultView`) and what of it the data cannot use: shown
+    // above the result like a loaded view's unused parts, once per distinct view (a host may render the
+    // same view again and again), not while the data is still on its way
+    const [startView] = useState(() => defaultView);
+    const hostKey = keyOfHostView(viewProp !== undefined ? viewProp : startView);
+    const keyOf = history.keyOf;
+    const hostNotes = useMemo(() => {
+        if (hostKey === "null" || loading || encoded.schema.fields.length === 0) {
+            return null;
+        }
+        const raw = JSON.parse(hostKey);
+        if (raw === null) {
+            return null;
+        }
+        const notes = unusedNotes(normalize(raw, encoded, { limits }).issues, raw);
+        return notes.length ? { notes, loaded: JSON.parse(keyOf(raw)) } : null;
+    }, [hostKey, loading, encoded, limits, keyOf]);
+    /** What a loaded view (`given`, as given) left out, for the area above the result. */
+    const leaveOut = useCallback((notes, given) => setLeftOut({ notes, loaded: given ? JSON.parse(keyOf(given)) : null, after: hostKey }), [keyOf, hostKey]);
     // the saved view shown: the history step's, when it was loaded for the data shown now (another
     // source with the same columns keeps the history, not the name)
     const loadedView = tagFor(history.tag, sourceId);
@@ -598,7 +632,7 @@ function Report(props) {
                 commit(loaded.view, { step: "viewLoaded" }, tag);
             }
             const notes = unusedNotes(loaded.issues, loaded.file?.view);
-            setLeftOut(notes);
+            leaveOut(notes, loaded.view);
             setIssuesDismissed(null);
             setLoads((x) => x + 1);
             // the status note says some parts did not fit: the warning's live region stays quiet
@@ -606,7 +640,7 @@ function Report(props) {
             const text = link ? (notes.length ? labels.toastLinkOpenedPartly : labels.toastLinkOpened) : notes.length ? labels.toastViewLoadedPartly : labels.toastViewLoaded;
             announce(text, restored ? undefined : { action: { label: labels.undo, run: () => undoLater.current() } });
         },
-        [commit, labels, announce, remember]
+        [commit, labels, announce, remember, leaveOut]
     );
 
     useEffect(() => {
@@ -763,17 +797,17 @@ function Report(props) {
         }
     }, [size, drawerOpen]);
 
-    /** How a field from the field list is placed: a date grouped by its span, a value with the host's defaults. */
+    /** A field's settings: the host's (fieldDefaults), and an identifier's own when the host says nothing (field-info.js). */
+    const defaultsOf = useCallback((field) => fieldDefaultsFor(fieldDefaults, field, encoded.column(field)), [fieldDefaults, encoded]);
+    /** How a field from the field list is placed: a date grouped by its span, a value with the field's settings. */
     const placeOptions = useCallback(
         (field, zone, index = undefined) => {
             const column = encoded.column(field);
             const unit = zone !== "values" && column && column.type === "date" && !column.derived ? suggestDateUnit(encoded, field) : null;
-            return { index, type: typeOf(field), defaults: defaultsFor(fieldDefaults, field), dateUnit: unit, groupName: unit ? groupingName(nameOf(column.name), unit, labels) : undefined };
+            return { index, type: typeOf(field), defaults: defaultsOf(field), dateUnit: unit, groupName: unit ? groupingName(nameOf(column.name), unit, labels) : undefined };
         },
-        [encoded, typeOf, fieldDefaults, labels, nameOf]
+        [encoded, typeOf, defaultsOf, labels, nameOf]
     );
-    /** The host's settings for a field (fieldDefaults), for the chip menus: its format, its custom order. */
-    const defaultsOf = useCallback((field) => defaultsFor(fieldDefaults, field), [fieldDefaults]);
     const addTo = useCallback(
         (field, zone, index = undefined) => {
             const options = placeOptions(field, zone, index);
@@ -818,10 +852,11 @@ function Report(props) {
             } else {
                 const zone = /** @type {any} */ (target.zone);
                 const note = src.zone !== zone ? { step: "moved", field: src.label ?? src.field, zone } : { step: "reordered", zone };
-                commit(moveField(view, src.zone, src.index, zone, target.index, { type: typeOf(src.field) }), note);
+                // into Values: a new value, counted or summed by the field's settings as one from the field list
+                commit(moveField(view, src.zone, src.index, zone, target.index, { type: typeOf(src.field), defaults: zone === "values" && src.field ? defaultsOf(src.field) : undefined }), note);
             }
         },
-        [view, typeOf, commit, addTo]
+        [view, typeOf, commit, addTo, defaultsOf]
     );
 
     const openCell = useCallback(
@@ -836,14 +871,14 @@ function Report(props) {
             if (drillDown) {
                 // the values as the table shows them; a host's format for a field (fieldDefaults) applies
                 const formatOf = (name) => {
-                    const d = defaultsFor(fieldDefaults, name);
+                    const d = defaultsOf(name);
                     return d ? (d.drillFormat ?? d.format) : undefined;
                 };
                 // the panel's table is drill-table.js's, with the menus: here only what it is made of
                 setDrill({ result, rowPath, colPath, count, indices, formatOf, nameOf, infoOf });
             }
         },
-        [result, encodedProp, data, drillDownLimit, onCellClick, drillDown, fieldDefaults, nameOf, infoOf]
+        [result, encodedProp, data, drillDownLimit, onCellClick, drillDown, defaultsOf, nameOf, infoOf]
     );
 
     const doExport = useExport({ fileName, result, locale, labels, limits, root, chartRef, announce, onExport });
@@ -886,13 +921,13 @@ function Report(props) {
             // what else of it the data cannot use (a field that is gone, a setting this version lacks);
             // a zone over the limit is said in its own words above
             const issues = normalize(t.view, encoded, { limits }).issues.filter((i) => !over || i.code !== "tooMany");
-            setLeftOut([...(over ? [{ text: fill(labels.viewTrimmed, { name: t.name, zone: labels.zones[over.zone], max: over.max.toLocaleString(locale) }) }] : []), ...unusedNotes(issues, t.view)]);
+            leaveOut([...(over ? [{ text: fill(labels.viewTrimmed, { name: t.name, zone: labels.zones[over.zone], max: over.max.toLocaleString(locale) }), path: over.zone }] : []), ...unusedNotes(issues, t.view)], t.view);
             setIssuesDismissed(null);
             setLoads((x) => x + 1);
             setUnusedSaid(false);
             announce(fill(labels.toastLoaded, { name: t.name }));
         },
-        [commit, labels, announce, limits, locale, history, remember, sourceId, encoded]
+        [commit, labels, announce, limits, locale, history, remember, sourceId, encoded, leaveOut]
     );
     /** New: an empty report (the start screen), one step Undo takes back; the loaded view's name goes. */
     const newReport = () => {
@@ -900,7 +935,7 @@ function Report(props) {
             return;
         }
         commit(emptyView(), { step: "new" }, null);
-        setLeftOut([]);
+        leaveOut([], null);
         setLoads((x) => x + 1);
         setUnusedSaid(false);
         announce(labels.newEmpty, { action: { label: labels.undo, run: () => undoLater.current() } });
@@ -1118,9 +1153,20 @@ function Report(props) {
         appliedLink.current = null;
         setLinkCheck(null);
     };
-    // the area above the result: what a loaded view left out, then what normalize() dropped from the view shown
-    const notes = useMemo(() => [...leftOut, ...(result && !empty ? result.issues.slice(0, 20).map((issue) => ({ issue, raw: view })) : [])], [leftOut, result, empty, view]);
-    const notesKey = useMemo(() => JSON.stringify([loads, ...notes.map((n) => ("issue" in n ? [n.issue.path, n.issue.message] : n.text))]), [notes, loads]);
+    // the area above the result: what a loaded view (or the host's, when it came later) left out, the
+    // lines that still apply to the view shown (unused-keep.js), then what computePivot() could not use
+    const fromHost = hostNotes !== null && leftOut.after !== hostKey;
+    const given = fromHost ? hostNotes : leftOut;
+    const notes = useMemo(
+        () => [...given.notes.filter((n) => stillApplies(n, given.loaded, view)), ...(result && !empty ? result.issues.slice(0, 20).map((issue) => ({ issue, raw: view })) : [])],
+        [given, result, empty, view]
+    );
+    // the warning's identity: its view's lines, all of them (one that no longer applies does not open
+    // or bring back a warning folded or dismissed), and the load
+    const notesKey = useMemo(
+        () => JSON.stringify([fromHost ? "host" : loads, ...given.notes.map((n) => ("issue" in n ? [n.issue.path, n.issue.message] : n.text)), ...(result && !empty ? result.issues.slice(0, 20).map((i) => [i.path, i.message]) : [])]),
+        [fromHost, given, loads, result, empty]
+    );
     // while enlarged, the fields in one line: what the result shows, without the zones
     const summaryParts = big.enlarged ? layoutSummary(zoneEntries(view, types, labels), labels) : [];
     const summaryText = summaryParts.length ? summaryParts.map((p) => `${p.title}: ${p.fields}`).join(" · ") : labels.layoutEmpty;
@@ -1145,6 +1191,7 @@ function Report(props) {
             onKeyDown={onKeyDown}
         >
             <LayerContext.Provider value={layerValue}>
+              <FormNameContext.Provider value={formPrefix}>
               <HelpContext.Provider value={help}>
                 <PivotDnd
                     labels={labels}
@@ -1264,7 +1311,7 @@ function Report(props) {
                                 locale={locale}
                                 narrow={size === "narrow"}
                                 // the status note "View loaded; some parts did not fit this data" said it
-                                quiet={unusedSaid}
+                                quiet={unusedSaid && !fromHost}
                             />
                             <Tips
                                 tips={shownTips}
@@ -1354,6 +1401,7 @@ function Report(props) {
                     <span className="pk-origin" aria-hidden="true" />
                 </div>
               </HelpContext.Provider>
+              </FormNameContext.Provider>
             </LayerContext.Provider>
         </div>
     );

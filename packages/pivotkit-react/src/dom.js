@@ -4,9 +4,26 @@
  * composed path, and Escape closes only the topmost layer (popover, dialog, drawer) of a page.
  */
 
-import { useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useId, useRef } from "react";
 
-/** Elements that take the focus with Tab. */
+/**
+ * The prefix of the names of a report's form fields (PivotReport sets one per report instance, after
+ * mounting: React's useId is unique inside one React root only, and two web components are two roots).
+ */
+export const FormNameContext = createContext("pk");
+
+/**
+ * A name for a form field (input, select, textarea) of this report: browsers autofill and restore by
+ * name, and list a field without a name or id as a problem of the page. A component with several
+ * fields adds a suffix of its own to it (`${name}-op`); a group of radios or checkboxes shares one.
+ * @returns {string}
+ */
+export function useFormName() {
+    const prefix = useContext(FormNameContext);
+    return `${prefix}-${useId().replace(/[^A-Za-z0-9_-]/g, "")}`;
+}
+
+/** Elements that can take the focus (by Tab or not: tabStops says which Tab stops at). */
 export const FOCUSABLE = "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])";
 
 /**
@@ -42,38 +59,97 @@ export function eventWithin(event, elements) {
 }
 
 /**
- * The elements of a container that Tab reaches, in order.
- * @param {Element} container
+ * The stops Tab makes in a container, in order - the one definition of a Tab stop in the report:
+ * what can take the focus (FOCUSABLE) with a tabindex of 0 or more (a roving list's other items are
+ * -1), shown (a box, not visibility: hidden) and not inert, and of a group of radios the checked one
+ * (else its first), as the browser steps.
+ * @param {Element | ShadowRoot} container
  * @returns {HTMLElement[]}
  */
-export function tabbables(container) {
-    return /** @type {HTMLElement[]} */ ([...container.querySelectorAll(FOCUSABLE)]).filter((el) => !el.closest("[inert]") && el.getClientRects().length > 0);
+export function tabStops(container) {
+    const all = /** @type {HTMLElement[]} */ ([...container.querySelectorAll(FOCUSABLE)]).filter(
+        (el) => el.tabIndex >= 0 && !el.closest("[inert]") && el.getClientRects().length > 0 && el.ownerDocument.defaultView?.getComputedStyle(el).visibility !== "hidden"
+    );
+    const radio = (/** @type {Element} */ el) => el instanceof HTMLInputElement && el.type === "radio" && el.name !== "";
+    return all.filter((el) => {
+        if (!radio(el)) {
+            return true;
+        }
+        const group = all.filter((o) => radio(o) && /** @type {HTMLInputElement} */ (o).name === /** @type {HTMLInputElement} */ (el).name);
+        const checked = group.find((o) => /** @type {HTMLInputElement} */ (o).checked);
+        return el === (checked ?? group[0]);
+    });
 }
 
 /**
- * Keeps Tab and Shift+Tab inside a container: from the last element to the first and back.
+ * The stop Tab goes to from an element of the page or its shadow root, popovers left out (the one it
+ * leaves closes); null at the end of the root.
+ * @param {HTMLElement} el
+ * @returns {HTMLElement | null}
+ */
+export function stopAfter(el) {
+    const root = rootOf(el);
+    const scope = root && root.nodeType === 9 ? /** @type {Document} */ (root).body : root;
+    if (!scope) {
+        return null;
+    }
+    const stops = tabStops(/** @type {Element | ShadowRoot} */ (scope)).filter((s) => !s.closest(".pk-popover"));
+    const at = stops.indexOf(el);
+    return at === -1 ? null : stops[at + 1] ?? null;
+}
+
+/*
+ * Who takes Tab: the innermost handler that moves the focus itself calls preventDefault(), and every
+ * handler further out leaves a Tab that is defaultPrevented alone. Inside a menu, tabLeaves
+ * (levels.jsx) leaves the menu; inside a popover, Popover's onKeyDown moves between its stops
+ * (tabWithin; past the ends it closes) or, in a bottom sheet, keeps Tab inside (trapTab), as useModal
+ * does for the drawer and the drill-down. The focus is always moved by pivotkit, by tabStops, never
+ * left to the browser inside a layer: WebKit leaves a popover in the top layer for the page's body.
+ */
+
+/**
+ * Tab and Shift+Tab inside a popover: moves the focus to the next (or previous) stop inside and
+ * returns "moved", or returns "out" when the focus is at the last (first) stop, for the caller to
+ * decide; null for any other key, a Tab taken already, or a focus outside the container.
+ * @param {KeyboardEvent | React.KeyboardEvent} event
+ * @param {Element | null} container
+ * @returns {"moved" | "out" | null}
+ */
+export function tabWithin(event, container) {
+    const active = activeIn(container);
+    if (event.key !== "Tab" || event.defaultPrevented || !container || !active || !container.contains(active)) {
+        return null;
+    }
+    const stops = tabStops(container);
+    const at = stops.indexOf(/** @type {HTMLElement} */ (active));
+    const next = at === -1 ? (event.shiftKey ? stops.length - 1 : 0) : at + (event.shiftKey ? -1 : 1);
+    if (next < 0 || next >= stops.length) {
+        return "out";
+    }
+    event.preventDefault();
+    stops[next].focus();
+    return "moved";
+}
+
+/**
+ * Keeps Tab and Shift+Tab inside a container (a modal layer): to its next stop, from the last to the
+ * first and back, a focus outside it to its first (last) stop. A Tab taken already is left alone.
  * @param {KeyboardEvent | React.KeyboardEvent} event
  * @param {Element | null} container
  */
 export function trapTab(event, container) {
-    if (event.key !== "Tab" || !container) {
+    if (event.key !== "Tab" || event.defaultPrevented || !container) {
         return;
     }
-    const list = tabbables(container);
-    if (list.length === 0) {
-        event.preventDefault();
+    event.preventDefault();
+    const stops = tabStops(container);
+    if (stops.length === 0) {
         return;
     }
-    const first = list[0];
-    const last = list[list.length - 1];
-    const active = activeIn(container);
-    if (event.shiftKey && (active === first || !container.contains(active))) {
-        event.preventDefault();
-        last.focus();
-    } else if (!event.shiftKey && (active === last || !container.contains(active))) {
-        event.preventDefault();
-        first.focus();
-    }
+    const at = stops.indexOf(/** @type {HTMLElement} */ (activeIn(container)));
+    const step = event.shiftKey ? -1 : 1;
+    const next = at === -1 ? (event.shiftKey ? stops.length - 1 : 0) : (at + step + stops.length) % stops.length;
+    stops[next].focus();
 }
 
 /** Open layers, newest last: Escape closes the newest one only. */
@@ -132,7 +208,7 @@ export function useModal(ref, open, onClose, opener) {
         const back = plain && opener ? el.closest(".pk-root")?.querySelector(opener) ?? was : was;
         // on the next frame: the layer may still be inert or hidden in this one
         const t = requestAnimationFrame(() => {
-            const first = /** @type {HTMLElement | null} */ (el.querySelector("[data-autofocus]")) ?? tabbables(el)[0] ?? el;
+            const first = /** @type {HTMLElement | null} */ (el.querySelector("[data-autofocus]")) ?? tabStops(el)[0] ?? el;
             first.focus({ preventScroll: true });
         });
         return () => {

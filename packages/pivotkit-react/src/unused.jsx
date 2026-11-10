@@ -1,9 +1,10 @@
 /*
  * The warning above the result when a view has parts the report could not use (a template, a link, a
- * loaded file, the host's view): a notice that is open the first time it shows for a view and folds
- * with its title, one line per part in plain words (what it is about, what happened, what is used
- * instead) with the technical path below it for developers, and an x that dismisses it. The plain
- * words load on demand (unused-load.js); until they are here, or when they fail, a line shows the
+ * loaded file, the host's `view` or `defaultView`): a notice that is open the first time it shows for
+ * a view and folds with its title, one line per part in plain words (what it is about, what happened,
+ * what is used instead) with the technical path below it for developers, and an x that dismisses it.
+ * A line goes once the part of the view it names is changed by hand (unused-keep.js), and comes back
+ * with Undo. The plain words load on demand (unused-load.js); until they are here, or when they fail, a line shows the
  * core's short message. An open warning shows its first lines (three, two on a narrow report) and a
  * button for the rest. A screen reader hears the title once, through a polite live region that is
  * always there (not when the status note said it already); the warning never takes the focus.
@@ -11,19 +12,20 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fieldLabel } from "pivotkit-core";
+import { tabStops } from "./dom.js";
 import { Icon } from "./icons.jsx";
 import { fill, plural } from "./labels.js";
 import { valueLabel } from "./names.js";
 import { loadUnused, unusedNow, unusedTexts } from "./unused-load.js";
 
 /**
- * @typedef {{ issue: import("pivotkit-core").Issue, raw: unknown } | { text: string }} UnusedNote
- *   an issue of normalize() with the view it was given, or a line in words already (a view trimmed to the limits)
+ * @typedef {{ issue: import("pivotkit-core").Issue, raw: unknown } | { text: string, path?: string }} UnusedNote
+ *   an issue of normalize() with the view it was given, or a line in words already (a view trimmed to
+ *   the limits, with the zone it is about as `path`)
  */
 
 /** The lines an open warning shows before "Show N more": fewer on a narrow report. */
 const FIRST = { narrow: 2, wide: 3 };
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * @param {{ notes: UnusedNote[], notesKey: string, dismissed: boolean, onDismiss: (next: HTMLElement | null) => void,
@@ -71,7 +73,7 @@ export function Unused({ notes, notesKey, dismissed, onDismiss, labels, locale, 
     const dismiss = () => {
         const el = box.current;
         const root = el?.closest(".pk-root");
-        const next = el && root ? [...root.querySelectorAll(FOCUSABLE)].find((c) => !el.contains(c) && el.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING) : null;
+        const next = el && root ? tabStops(root).find((c) => !el.contains(c) && el.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING) : null;
         onDismiss(/** @type {HTMLElement | null} */ (next ?? null));
     };
     // each issue's line in plain words, once they are here
