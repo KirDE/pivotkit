@@ -73,6 +73,45 @@ and one shared part (`createTable`) does the rest.
 - **Empty rows** are left out; a column without a name and without a single value is left out; a row
   with more values than there are names adds columns named `Column N`. Each is a note.
 
+## How a loaded file is named { #how-a-loaded-file-is-named }
+
+A file loaded in the report ([`allowImport`](react.md#prop-allowimport)) becomes the report's
+[`source`](react.md#prop-source) while its data is shown. Its `id` names the views saved for it in the
+browser store (`templateStore="browser"`) and in the view files and links shared from it, so the same
+file loaded again finds its views and other data does not. The rule, in this order:
+
+1. **The name** is the file's `File.name` as the browser gives it, cleaned as a column name is:
+   control characters (but tabs and line breaks), the characters that turn text around and the
+   invisible ones (zero-width characters, the soft hyphen, the byte order mark, tag characters, a
+   lone half of a surrogate pair) taken out, each run of tabs and line breaks as one space, trimmed;
+   then cut to 256 characters (UTF-16 code units, a fixed cut that `limits` does not change, and not
+   trimmed again). An empty name becomes `file`. Two names that differ only in characters taken out
+   are the same name.
+2. **The columns** are the names of the table after the readers' cleanup
+   ([above](#column-names-and-values)): cleaned the same way and cut to `limits.name` characters (256
+   by default); a number or date in the header row as its text (a date in ISO form); columns without a
+   name and without a value left out; an empty name `Column N` (N its place among the columns kept);
+   a name that repeats, compared without case, `Name (2)` ("Team" and "team" become "Team" and
+   "team (2)"); nested JSON as `a.b`. A type picked in the preview changes nothing.
+3. **The hash**: SHA-256 of the UTF-8 bytes of the name and the column names in their order, joined
+   with U+0000. The browser's `crypto.subtle` computes it; a page without it (plain `http` on a host
+   other than `localhost`) uses pivotkit-react's own implementation, which gives the same digest.
+4. **`source.id`** is the shown name, `#` and the first 16 hex digits of the hash.
+   **`source.name`** is the shown name: the name itself, or, above 120 characters, its first 117
+   followed by `...` (116 when the 117th is the first half of a surrogate pair, so no character is
+   split). The hash always covers the whole name.
+
+| File | Columns | `source.id` |
+| --- | --- | --- |
+| `tickets.csv` | `Id`, `Team`, `Opened`, `Hours`, `Zip` | `tickets.csv#e51bd4bc21e98ee8` |
+| `tickets.csv` | `Team`, `Id`, `Opened`, `Hours`, `Zip` | `tickets.csv#d11fe64346f1d906` |
+
+The first row is SHA-256 of `tickets.csv\0Id\0Team\0Opened\0Hours\0Zip`
+(`e51bd4bc21e98ee818b3a8efcb49347b…`). Reordered, renamed or added columns, or another file name
+(`Tickets.csv` too: the name is compared as it is), make other data. The sheet of a workbook is not
+part of it: two sheets with the same columns share their views. The rows are not part of it either: a
+newer export of the same table keeps its views.
+
 ## Types
 
 A column's type is inferred from all its values, unless the caller names it (`types`, by position or
