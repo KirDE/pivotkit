@@ -258,16 +258,18 @@
     transition: background var(--pk-duration), border-color var(--pk-duration), box-shadow var(--pk-duration), transform var(--pk-duration);
 }
 
-.pk-btn:hover:not(:disabled) {
+.pk-btn:hover:not(:disabled, .pk-off) {
     background: var(--pk-surface-3);
     border-color: var(--pk-border-strong);
 }
 
-.pk-btn:active:not(:disabled) {
+.pk-btn:active:not(:disabled, .pk-off) {
     transform: translateY(1px);
 }
 
-.pk-btn:disabled {
+/* off: a menu button whose entries are all off (pk-off) stays focusable, so its reason is heard */
+.pk-btn:disabled,
+.pk-btn.pk-off {
     opacity: 0.45;
     cursor: default;
 }
@@ -1202,10 +1204,26 @@
     padding: 4px 0;
 }
 
-.pk-section + .pk-section {
+/* a rule between a menu's groups (popover.jsx: Group), none above the first: the groups of every menu
+   look alike (Export, Options, Views, the chart type, More, a chip menu's levels) */
+.pk-section:not(:first-child) {
     border-top: 1px solid var(--pk-border);
     margin-top: 2px;
     padding-top: 6px;
+}
+
+/* the groups inside a group (the chart's Display: Value labels, Legend, Title, ...): a dashed rule
+   between them, so they do not run together and still read as parts of their group */
+.pk-subsection {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.pk-subsection + .pk-subsection {
+    border-top: 1px dashed var(--pk-border);
+    margin-top: 4px;
+    padding-top: 4px;
 }
 
 .pk-section-head {
