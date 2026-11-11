@@ -48,12 +48,27 @@ export const options = {
     platform: "browser",
     target: reactOptions.target,
     minify: true,
-    define: { "process.env.NODE_ENV": '"production"', __PIVOTKIT_ELEMENT_VERSION__: JSON.stringify(pkg.version) },
+    define: { "process.env.NODE_ENV": '"production"', __PIVOTKIT_ELEMENT_VERSION__: JSON.stringify(pkg.version), __PIVOTKIT_IMPORT_WORKER__: JSON.stringify("../import-worker.js") },
     // the license texts go into one file (licenses() below), not into comments of the bundle
     legalComments: "none",
     metafile: true,
     plugins: [shadowStyles],
     logLevel: "warning"
+};
+
+/**
+ * dist/import-worker.js: pivotkit-react's import worker with pivotkit-core's CSV and JSON readers in
+ * one file, started by the element to read a file off the page (allow-import). A build of its own, so
+ * the modules it shares with the report do not split the report's first load into more files; the
+ * element's code, in dist/chunks/, finds it at ../import-worker.js (__PIVOTKIT_IMPORT_WORKER__).
+ * @type {import("esbuild").BuildOptions}
+ */
+export const workerOptions = {
+    ...options,
+    entryPoints: { "import-worker": "../pivotkit-react/dist/import-worker.js" },
+    splitting: false,
+    plugins: [],
+    metafile: false
 };
 
 /**
@@ -197,16 +212,27 @@ async function licenses(metafile) {
  * every menu (popover.jsx's Group, first load as More draws its groups) and the toolbar's measured
  * overflow took the first load from 155.9 to 156.8 measured on a Mac; with pivotkit-core's readers
  * (#123) 157.4 (CI about 157.7), budget 158.5.
+ * Loading data in the browser (#44, allow-import): the import UI, its texts and pivotkit-core/import
+ * with its readers are the group "import", loaded on the first use of the Data menu, a drop or the
+ * empty report's button: 19.1 measured on a Mac, then 19.8 with the review's fixes (a worker's
+answers checked, a plugin's minimal table completed, failed sheets, the host's errors; CI about
+20.1), budget 21. The first load keeps the
+ * Data button, the drop handler, the data steps' state in the report, the empty report's line and the
+ * rules of the overlay and the preview (one stylesheet): about 1.9 KiB more code, and 0.6 KiB more
+ * because esbuild splits the modules the import UI shares with the first load into two more files,
+ * each compressed on its own. First load 160.0 measured on a Mac (CI about 160.3), budget 161.5;
+ * the menus 39.7 with the Data menu's panel, within 41.
  * `--size` fails above it; raise it on purpose, with the reason in the commit.
  */
-export const SIZE_BUDGET_KIB = { initial: 158.5, chart: 211, export: 11.5, link: 7.3, menus: 41, texts: 6.8, unused: 5 };
+export const SIZE_BUDGET_KIB = { initial: 161.5, chart: 211, export: 11.5, link: 7.3, menus: 41, texts: 6.8, unused: 5, import: 21 };
 
 /**
  * What a page loads, from the build's metafile: the entry with its static imports ("initial"), and
  * each group of dynamic imports with what they add ("chart": ECharts, "export": XLSX and CSV, "link":
  * a view in a link, pivotkit-core/link with fflate's deflate and inflate, "menus": the menus' panels,
  * "texts": the menus' texts of a language besides English, "unused": the plain words of a view's
- * unused parts, English and every other language).
+ * unused parts, English and every other language, "import": loading data with allow-import, the import
+ * UI with its texts and pivotkit-core/import with its CSV and JSON readers).
  * @param {import("esbuild").Metafile} metafile
  * @returns {{ group: string, files: string[] }[]}
  */
@@ -241,9 +267,9 @@ export function loadGroups(metafile) {
     };
     scan(initial);
     const groupOf = (file) =>
-        /[\\/]echarts-[^\\/]+$/.test(file) ? "chart" : /[\\/]link-[^\\/]+$/.test(file) ? "link" : /[\\/]menus-[^\\/]+$/.test(file) ? "menus" : /[\\/]menu-texts-[^\\/]+$/.test(file) ? "texts" : /[\\/]unused-texts-[^\\/]+$/.test(file) ? "unused" : "export";
+        /[\\/]echarts-[^\\/]+$/.test(file) ? "chart" : /[\\/]import-(?:ui|csv|json)-[^\\/]+$/.test(file) ? "import" : /[\\/]link-[^\\/]+$/.test(file) ? "link" : /[\\/]menus-[^\\/]+$/.test(file) ? "menus" : /[\\/]menu-texts-[^\\/]+$/.test(file) ? "texts" : /[\\/]unused-texts-[^\\/]+$/.test(file) ? "unused" : "export";
     const groups = [{ group: "initial", files: [...initial] }];
-    for (const name of ["chart", "export", "link", "menus", "texts", "unused"]) {
+    for (const name of ["chart", "export", "link", "menus", "texts", "unused", "import"]) {
         const files = [...closure(dynamic.filter((f) => groupOf(f) === name))].filter((f) => !initial.has(f));
         groups.push({ group: name, files });
     }
@@ -273,6 +299,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     await esbuild.build(reactOptions);
     await rm(join(here, "dist"), { recursive: true, force: true });
     const result = await esbuild.build(options);
+    await esbuild.build(workerOptions);
     await writeFile(join(here, "dist", "THIRD_PARTY_LICENSES.txt"), await licenses(result.metafile));
     if (process.argv.includes("--size")) {
         const kb = (n) => `${(n / 1024).toFixed(1)} KiB`;
