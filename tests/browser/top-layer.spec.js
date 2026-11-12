@@ -123,3 +123,19 @@ test("an open popover follows its anchor after a transition moves it (#120)", as
     await expect.poll(async () => Math.round((await anchor.boundingBox()).x - before.x)).toBe(40);
     await expect.poll(async () => Math.abs((await menu.boundingBox()).x - (await anchor.boundingBox()).x)).toBeLessThan(1.5);
 });
+
+test("a popover follows a transform transition on the host ancestor (#120)", async ({ page }) => {
+    await page.goto("?data=sales");
+    const anchor = page.getByTestId("chip-menu-Region");
+    await anchor.click();
+    const menu = page.locator(".pk-chip-menu");
+    await expect(menu).toBeVisible();
+    const before = await anchor.boundingBox();
+    await page.locator("#app").evaluate((el) => {
+        el.style.transition = "transform 120ms linear";
+        el.getBoundingClientRect();
+        el.style.transform = "translateX(40px)";
+    });
+    await expect.poll(async () => Math.round((await anchor.boundingBox()).x - before.x)).toBe(40);
+    await expect.poll(async () => Math.abs((await menu.boundingBox()).x - (await anchor.boundingBox()).x)).toBeLessThan(1.5);
+});

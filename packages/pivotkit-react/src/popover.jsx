@@ -163,12 +163,17 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
         const root = anchor.current?.closest(".pk-root");
         root?.addEventListener("transitionend", place, true);
         root?.addEventListener("animationend", place, true);
+        // Ancestor transforms do not bubble through the report and do not resize the anchor.
+        window.addEventListener("transitionend", place, true);
+        window.addEventListener("animationend", place, true);
         window.addEventListener("resize", place);
         window.addEventListener("scroll", place, true);
         return () => {
             ro?.disconnect();
             root?.removeEventListener("transitionend", place, true);
             root?.removeEventListener("animationend", place, true);
+            window.removeEventListener("transitionend", place, true);
+            window.removeEventListener("animationend", place, true);
             window.removeEventListener("resize", place);
             window.removeEventListener("scroll", place, true);
         };
