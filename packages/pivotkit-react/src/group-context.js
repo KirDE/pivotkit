@@ -10,17 +10,21 @@ export function groupStats(encoded, field) {
     if (!column || column.type !== "date") return null;
     let min = Infinity, max = -Infinity;
     const months = new Set();
-    const years = new Set();
+    // Every representable Gregorian year fits this fixed 68 KiB bitmap.
+    const yearBits = new Uint8Array(Math.ceil(547582 / 8));
+    let yearCount = 0;
     const date = new Date(0);
     for (const value of column.dict) {
-        if (typeof value !== "number" || !Number.isFinite(value)) continue;
+        if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 8.64e15) continue;
         min = Math.min(min, value); max = Math.max(max, value);
         date.setTime(value);
         const month = date.getUTCMonth();
-        years.add(date.getUTCFullYear());
+        const yearIndex = date.getUTCFullYear() + 271821;
+        const byte = yearIndex >> 3, mask = 1 << (yearIndex & 7);
+        if (!(yearBits[byte] & mask)) { yearBits[byte] |= mask; yearCount++; }
         months.add(month);
     }
-    return min <= max ? {span: {min, max}, first: new Date(min), last: new Date(max), years: years.size, months: [...months].sort((a, b) => a - b)} : null;
+    return min <= max ? {span: {min, max}, first: new Date(min), last: new Date(max), years: yearCount, months: [...months].sort((a, b) => a - b)} : null;
 }
 
 /** Inclusive calendar days, independent of the endpoint times. @param {{min: number, max: number}} span */

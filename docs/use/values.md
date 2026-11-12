@@ -240,7 +240,9 @@ number of days, followed by examples from your data.
 
 **One item per period** keeps each year separate (for example, Jan 2024 and Jan 2025).
 **Same period, years combined** puts matching periods together. The axis title says which years
-are combined; if filters leave only one year, the items carry that year instead (Jan 2025).
+are combined; if filters leave only one year, the items carry that year instead (Jan 2025). Week numbers omit this suffix: an ISO week-year
+can differ from the calendar year. Long year lists show up to 32 observed calendar years,
+followed by an ellipsis when more are included; gaps are never filled in.
 This context does not rename your saved fields or change the grouping.
 
 ![Date range and combined years](../assets/screenshots/date-context-light.png#only-light)

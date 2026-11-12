@@ -288,7 +288,7 @@ export function dateSpan(encoded, field) {
     let min = Infinity;
     let max = -Infinity;
     for (const v of column.dict) {
-        if (typeof v === "number") {
+        if (typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 8.64e15) {
             min = Math.min(min, v);
             max = Math.max(max, v);
         }

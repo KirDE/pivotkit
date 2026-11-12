@@ -130,3 +130,41 @@ test("date spans scan once per immutable dataset, including empty/non-date field
     const next = encode([{Date: "2030-01-01"}]);
     assert.equal(dateSpan(next, "Date").min, Date.UTC(2030,0,1));
 });
+
+test("100k nonconsecutive observed years have bounded retained spans and labels", () => {
+    const rows = Array.from({length: 100000}, (_, i) => {
+        const date = new Date(0);
+        date.setUTCFullYear(1000 + 2 * i, 0, 1);
+        return date.getTime();
+    });
+    const result = computePivot(encode({columns:["Date","Amount"], types:["date","number"], data:[rows, rows.map(() => 1)]}), view);
+    assert.equal(yearsOf(result, "Date").length, 32);
+    const label = dateContext(result, LABELS.en).labels.core.fields.Month;
+    assert.match(label, /… combined$/);
+    assert.ok(label.length < 400);
+    assert.equal(groupStats(result.encoded, "Date").years, 100000);
+    assert.ok(yearSetText(Array.from({length: 100000}, (_, i) => 1000 + 2 * i)).length < 400);
+});
+
+test("cyclic week labels do not claim a single Gregorian year is an ISO week-year", () => {
+    const result = computePivot(encode([{Date:"2018-01-01", Amount:1}, {Date:"2018-12-31", Amount:2}]),
+        {...view, rows:["Week"], derived:[{name:"Week", field:"Date", by:"week"}]});
+    const grid = JSON.stringify(toGrid(dateContext(result, LABELS.en).result));
+    assert.match(grid, /W01/);
+    assert.doesNotMatch(grid, /W01 2018/);
+});
+
+test("nonrepresentable typed dates cannot crash field info, footer, years or Group hints", async () => {
+    const {dateSpan} = await import("../src/view-ops.js");
+    const invalid = {columns:["Date", "Amount"], types:["date", "number"], data:[[8.64e15 + 1, -8.64e15 - 1], [1, 2]]};
+    const encoded = encode(invalid);
+    assert.equal(dateSpan(encoded, "Date"), null);
+    assert.equal(groupStats(encoded, "Date"), null);
+    const result = computePivot(encoded, {values:[{field:"Amount", agg:"sum"}]});
+    assert.deepEqual(yearsOf(result, "Date"), []);
+    assert.doesNotThrow(() => dateContext(result, LABELS.en));
+    assert.equal(dateRangeText({min:0, max:8.64e15 + 1}, "en-US"), "");
+    const mixed = encode({...invalid, data:[[8.64e15 + 1, Date.UTC(2024,0,1)], [1,2]]});
+    assert.deepEqual(dateSpan(mixed,"Date"), {min:Date.UTC(2024,0,1), max:Date.UTC(2024,0,1)});
+    assert.equal(groupStats(mixed,"Date").years, 1);
+});
