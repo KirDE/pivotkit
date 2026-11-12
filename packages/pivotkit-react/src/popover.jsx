@@ -166,9 +166,21 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
         // Ancestor transforms do not bubble through the report and do not resize the anchor.
         window.addEventListener("transitionend", place, true);
         window.addEventListener("animationend", place, true);
+        // Immediate layout/transform changes (including reduced motion) emit no end event.
+        // Only re-place when the anchor rectangle changes; a closed/sheet popover has no loop.
+        let frame = 0;
+        let rect = anchor.current?.getBoundingClientRect();
+        const follow = () => {
+            const next = anchor.current?.getBoundingClientRect();
+            if (next && rect && (next.x !== rect.x || next.y !== rect.y || next.width !== rect.width || next.height !== rect.height)) place();
+            rect = next;
+            frame = requestAnimationFrame(follow);
+        };
+        if (!sheet) frame = requestAnimationFrame(follow);
         window.addEventListener("resize", place);
         window.addEventListener("scroll", place, true);
         return () => {
+            cancelAnimationFrame(frame);
             ro?.disconnect();
             root?.removeEventListener("transitionend", place, true);
             root?.removeEventListener("animationend", place, true);
