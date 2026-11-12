@@ -1874,14 +1874,29 @@
     flex-basis: 100%;
 }
 
-/* under a choice: the button that counts back from the data's end, in line with its words */
+/* under a choice: the button that counts back from the data's end, in line with its words; a small
+   button as the level's "Compare" buttons, whose long text wraps inside it at a narrow width */
 .pk-quick-row > .pk-quick-fix {
     flex-basis: 100%;
+    min-width: 0;
     margin-left: 1.7em;
 }
 
-.pk-quick-fix > .pk-action {
+/* "Count back from the latest record": the level's small button, its icon first as on "Compare"; its
+   words wrap at narrow width, the icon stays at the first line */
+.pk-quick-fix > .pk-btn.pk-small-btn {
+    align-items: flex-start;
+    height: auto;
+    min-height: max(2em, var(--pk-target));
+    max-width: 100%;
+    padding-block: 0.25em;
     text-align: start;
+    white-space: normal;
+}
+
+.pk-quick-fix > .pk-btn.pk-small-btn > .pk-icon {
+    flex: none;
+    margin-top: 0.2em;
 }
 
 /* the years a cyclic grouping combines: a toggle per year with its rows */

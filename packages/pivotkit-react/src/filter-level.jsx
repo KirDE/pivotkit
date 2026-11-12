@@ -499,8 +499,9 @@ function QuickChoices({ ctx, quick, anchor, setAnchorLocal, span, column, counts
                 {/* the current period is empty because the data end before it: one click counts back from their end */}
                 {quick.id === d && d !== "next" && currentEmpty && anchor === "today" ? (
                     <div className="pk-quick-fix">
-                        <button type="button" className="pk-action" onClick={() => setAnchorTo("latest")} data-testid={`quick-${d}-from-latest`}>
-                            {fill(labels.anchorUseLatest, { date: dayText(latestDay, locale) })}
+                        <button type="button" className="pk-btn pk-small-btn" onClick={() => setAnchorTo("latest")} data-testid={`quick-${d}-from-latest`}>
+                            <Icon name="date" size={14} />
+                            <span className="pk-btn-text">{fill(labels.anchorUseLatest, { date: dayText(latestDay, locale) })}</span>
                         </button>
                     </div>
                 ) : null}
