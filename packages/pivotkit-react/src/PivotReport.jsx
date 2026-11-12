@@ -1472,7 +1472,7 @@ function Report(props) {
                                     }
                                 }}
                                 labels={labels}
-                                locale={locale}
+                                locale={result?.locale ?? "en-US"}
                                 narrow={size === "narrow"}
                                 // the status note "View loaded; some parts did not fit this data" said it
                                 quiet={unusedSaid && !fromHost}
