@@ -250,3 +250,7 @@ This context does not rename your saved fields or change the grouping.
 
 ![Date context on a phone](../assets/screenshots/date-context-phone-light.png#only-light)
 ![Date context on a phone](../assets/screenshots/date-context-phone-dark.png#only-dark)
+
+Historical year context includes an era for BCE dates, including year zero. Cyclic month
+examples use Gregorian month names in your language, matching the grouping keys even
+when your locale uses another calendar for full dates.

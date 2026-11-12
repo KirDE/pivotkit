@@ -168,3 +168,23 @@ test("nonrepresentable typed dates cannot crash field info, footer, years or Gro
     assert.deepEqual(dateSpan(mixed,"Date"), {min:Date.UTC(2024,0,1), max:Date.UTC(2024,0,1)});
     assert.equal(groupStats(mixed,"Date").years, 1);
 });
+
+test("historical cyclic year context distinguishes BCE and CE including year zero", () => {
+    assert.equal(yearSetText([0, 1]), "1 BC–1");
+    const values = ["0000-01-01", "0001-01-01"].map(day => Date.parse(`${day}T00:00Z`));
+    const typed = dates => encode({columns:["Date", "Amount"], types:["date", "number"], data:[dates, dates.map(() => 1)]});
+    const combined = dateContext(computePivot(typed(values), view), LABELS.en);
+    assert.equal(combined.labels.core.fields.Month, "Month · 1 BC–1 combined");
+    assert.match(combined.ranges[0].text, /BC/);
+    const single = dateContext(computePivot(typed([values[0]]), view), LABELS.en);
+    assert.match(JSON.stringify(toGrid(single.result)), /Jan 1 BC/);
+    assert.match(groupHint(typed(values), "Date", "year", "en-US", {...LABELS.en,...en}), /BC/);
+});
+
+test("cyclic month hints use Gregorian grouping semantics in non-Gregorian locales", () => {
+    const january = encode([{Date: "2024-01-15"}]);
+    for (const locale of ["en-US-u-ca-islamic", "ar-SA", "he-IL-u-ca-hebrew"]) {
+        const month = new Intl.DateTimeFormat(locale, {calendar:"gregory",month:"short",timeZone:"UTC"}).format(Date.UTC(2024,0,15));
+        assert.ok(groupHint(january,"Date","month",locale,{...LABELS.en,...en}).startsWith(`${month} ·`));
+    }
+});

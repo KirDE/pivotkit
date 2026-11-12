@@ -6,6 +6,9 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+- Historical date-context year labels include BCE eras; cyclic month hints use the
+  Gregorian grouping calendar with localized month names.
+
 ### Added
 
 - Date range in the footer, field descriptions and Group level; data-derived grouping hints and

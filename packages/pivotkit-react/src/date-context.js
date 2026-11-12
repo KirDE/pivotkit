@@ -6,7 +6,7 @@ import { fill } from "./labels.js";
 /** @param {{min: number, max: number} | null} span @param {string} locale */
 export function dateRangeText(span, locale) {
     if (!span || !Number.isFinite(span.min) || !Number.isFinite(span.max) || Math.abs(span.min) > 8.64e15 || Math.abs(span.max) > 8.64e15) return "";
-    const fmt = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
+    const fmt = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC", era: new Date(span.min).getUTCFullYear() <= 0 ? "short" : undefined });
     return `${fmt.format(span.min)} – ${fmt.format(span.max)}`;
 }
 
@@ -52,7 +52,7 @@ export function contextYear(year, locale) {
     const date = new Date(0);
     date.setUTCFullYear(year, 0, 1);
     if (!Number.isFinite(date.getTime())) date.setTime(year < 0 ? -8.64e15 : 8.64e15);
-    return new Intl.DateTimeFormat(locale, {year: "numeric", timeZone: "UTC"}).format(date);
+    return new Intl.DateTimeFormat(locale, {year: "numeric", timeZone: "UTC", era: year <= 0 ? "short" : undefined}).format(date);
 }
 
 /** List only years actually included, coalescing consecutive runs.
@@ -75,7 +75,7 @@ function observedYears(result, field) {
     const years = yearsOf(result, field);
     const truncated = yearCache.get(result)?.get(field)?.truncated ?? false;
     const suffix = truncated ? ", …" : "";
-    const fmt = new Intl.DateTimeFormat(result.locale, {year: "numeric", timeZone: "UTC"});
+    const fmt = new Intl.DateTimeFormat(result.locale, {year: "numeric", timeZone: "UTC", era: years[0] <= 0 ? "short" : undefined});
     if (["gregory", "iso8601"].includes(fmt.resolvedOptions().calendar)) return {text: yearSetText(years, result.locale) + suffix, combined: truncated || years.length > 1};
     const spans = yearCache.get(result)?.get(field)?.spans;
     const parts = [];
