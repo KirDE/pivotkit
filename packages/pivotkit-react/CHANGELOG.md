@@ -6,6 +6,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Fixed
+
+- Outside pie and donut labels appear on the first draw, including their chosen values.
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
