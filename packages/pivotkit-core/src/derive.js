@@ -32,14 +32,8 @@ const monthName = (month, locale) =>
     dateTimeFormat(locale, { month: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2000, month - 1, 1)));
 
 /** "Jan 2025" in English, "Jan. 2025" in German: the month of a year, as the locale writes it. */
-const yearMonthName = (v, locale) => {
-    const year = Math.floor(v / 100);
-    const month = v - year * 100;
-    const start = new Date(0);
-    // Date.UTC remaps years 0–99; remainder is negative for BCE keys.
-    start.setUTCFullYear(year, month - 1, 1);
-    return dateTimeFormat(locale, { month: "short", year: "numeric", timeZone: "UTC", era: year <= 0 ? "short" : undefined }).format(start);
-};
+const yearMonthName = (v, locale) =>
+    dateTimeFormat(locale, { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(Math.floor(v / 100), (v % 100) - 1, 1)));
 
 // 2024-01-01 was a Monday
 const weekdayName = (weekday, locale) =>
@@ -71,7 +65,7 @@ export const DERIVED = Object.freeze({
         source: "date",
         type: "number",
         value: (d) => d.getUTCFullYear() * 10 + Math.floor(d.getUTCMonth() / 3) + 1,
-        label: (v) => `Q${v - Math.floor(v / 10) * 10} ${Math.floor(v / 10)}`
+        label: (v) => `Q${v % 10} ${Math.floor(v / 10)}`
     },
     yearMonth: {
         source: "date",
