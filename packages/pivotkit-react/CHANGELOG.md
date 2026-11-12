@@ -6,6 +6,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Fixed
+
+- A delayed popover autofocus frame no longer steals focus from a control already in use (#139).
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

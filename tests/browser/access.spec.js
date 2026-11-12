@@ -259,3 +259,17 @@ test.describe("notes", () => {
         await expect(toast).toHaveCount(0, { timeout: 9000 });
     });
 });
+
+test("a late popover frame leaves focus on the control already in use (#139)", async ({ page }) => {
+    await page.addInitScript(() => {
+        window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(performance.now()), 2000);
+        window.cancelAnimationFrame = (id) => window.clearTimeout(id);
+    });
+    await page.goto("?data=sales");
+    await page.getByTestId("chip-menu-Region").click();
+    const search = page.getByTestId("menu-search");
+    await search.focus();
+    await expect(search).toBeFocused();
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+    await expect(search).toBeFocused();
+});
