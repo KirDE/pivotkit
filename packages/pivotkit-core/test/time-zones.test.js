@@ -109,3 +109,14 @@ console.log(JSON.stringify([r.value(r.rowRoot, r.colRoot, 0), relativeDateRange(
         assert.equal(out, outputs[0]);
     }
 });
+
+test("ISO expanded years use a sign and six digits and reject negative zero", () => {
+    for (const text of ["+010000-02-29", "-000001-01-01", "-271821-04-20", "+275760-09-13"]) {
+        const parsed = parseIso(text);
+        assert.ok(parsed, text);
+        assert.equal(new Date(parsed.ms).toISOString().split("T")[0], text);
+    }
+    for (const text of ["-000000-01-01", "+10000-01-01", "10000-01-01", "+010000-02-30", "+275760-09-14", "-271821-04-19"]) {
+        assert.equal(parseIso(text), null, text);
+    }
+});

@@ -23,7 +23,7 @@ export const MAX_DATE_MS = 8.64e15;
 /** Whether a number (instant or wall-clock ms) is a time a Date holds; `new Date(ms)` of any other is invalid and its formatting throws. */
 export const isDateMs = (ms) => typeof ms === "number" && Math.abs(ms) <= MAX_DATE_MS;
 
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}(?::?\d{2})?)?)?$/;
+const ISO_DATE = /^(\d{4}|[+-]\d{6})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}(?::?\d{2})?)?)?$/;
 
 /**
  * Milliseconds of a UTC date and time, years 0-99 included (Date.UTC maps them to 1900-1999).
@@ -45,7 +45,7 @@ function utc(y, mo, d, h = 0, mi = 0, s = 0, ms = 0) {
  */
 export function parseIso(text) {
     const m = ISO_DATE.exec(text.trim());
-    if (!m) {
+    if (!m || m[1] === "-000000") {
         return null;
     }
     const zone = m[8];
