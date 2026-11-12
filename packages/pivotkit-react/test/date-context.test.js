@@ -90,7 +90,9 @@ test("combined and single-year context follows the effective calendar and digits
         const context = dateContext(result,LABELS.en);
         assert.ok(context.labels.core.fields.Month.includes(fmt.format(Date.UTC(2024,0,1))));
         const single = computePivot(data, {...view,formatting:{locale},filters:[{field:"Date",type:"compare",op:">=",value:"2025-01-01"}]});
-        assert.ok(JSON.stringify(toGrid(dateContext(single,LABELS.en).result)).includes(fmt.format(Date.UTC(2025,0,1))));
+        const monthFmt = new Intl.DateTimeFormat(locale,{month:"short",year:"numeric",timeZone:"UTC"});
+        const expected = locale === "th-TH" ? monthFmt.format(Date.UTC(2025,11,31)) : fmt.format(Date.UTC(2025,0,1));
+        assert.ok(JSON.stringify(toGrid(dateContext(single,LABELS.en).result)).includes(expected));
     }
 });
 
@@ -187,4 +189,32 @@ test("cyclic month hints use Gregorian grouping semantics in non-Gregorian local
         const month = new Intl.DateTimeFormat(locale, {calendar:"gregory",month:"short",timeZone:"UTC"}).format(Date.UTC(2024,0,15));
         assert.ok(groupHint(january,"Date","month",locale,{...LABELS.en,...en}).startsWith(`${month} ·`));
     }
+});
+
+
+test("single-year cyclic months describe observed calendar months, never synthetic year-2000 months", () => {
+    for (const locale of ["en-US-u-ca-islamic", "he-IL-u-ca-hebrew", "ar-SA"]) {
+        const fmt = new Intl.DateTimeFormat(locale, {month:"short",year:"numeric",timeZone:"UTC"});
+        for (const days of [["2024-01-15"], ["2024-01-01", "2024-01-31"]]) {
+            const result = computePivot(encode(days.map(Date => ({Date, Amount:1}))), {...view, formatting:{locale}});
+            const grid = JSON.stringify(toGrid(dateContext(result,LABELS.en).result));
+            for (const day of days) assert.ok(grid.includes(fmt.format(Date.parse(day))), grid);
+        }
+    }
+});
+
+test("date ranges reuse formatters for large date schemas and distinguish era options", () => {
+    const Original = Intl.DateTimeFormat;
+    let constructions = 0;
+    Intl.DateTimeFormat = function(...args) { constructions++; return new Original(...args); };
+    try {
+        const locale = "en-GB-u-nu-arab";
+        const modern = {min:Date.UTC(2024,0,1),max:Date.UTC(2024,11,31)};
+        const ancient = {min:Date.parse("0000-01-01T00:00Z"),max:Date.parse("0001-01-01T00:00Z")};
+        for (let i=0;i<1000;i++) {
+            assert.ok(dateRangeText(modern,locale));
+            assert.match(dateRangeText(ancient,locale), /BC/);
+        }
+        assert.ok(constructions <= 2, `${constructions} formatters constructed`);
+    } finally { Intl.DateTimeFormat = Original; }
 });

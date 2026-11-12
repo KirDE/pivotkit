@@ -253,4 +253,6 @@ This context does not rename your saved fields or change the grouping.
 
 Historical year context includes an era for BCE dates, including year zero. Cyclic month
 examples use Gregorian month names in your language, matching the grouping keys even
-when your locale uses another calendar for full dates.
+when your locale uses another calendar for full dates. For a single-year cyclic month in another
+calendar, table, chart and export labels show the observed localized month and year; if the
+Gregorian month contains dates in two calendar months, both endpoint month-years are shown.

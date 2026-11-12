@@ -3,10 +3,28 @@ import { CATALOG, fieldLabel } from "pivotkit-core";
 import { dateSpan, filterZoneFields, sourceOf } from "./view-ops.js";
 import { fill } from "./labels.js";
 
+// Bound formatter retention across host-selected locales and option combinations.
+/** @type {Map<string, Intl.DateTimeFormat>} */
+const formatters = new Map();
+/** @param {string} locale @param {Intl.DateTimeFormatOptions} options */
+function dateFormatter(locale, options) {
+    const key = JSON.stringify([locale, options]);
+    let fmt = formatters.get(key);
+    if (!fmt) {
+        fmt = new Intl.DateTimeFormat(locale, options);
+        if (formatters.size >= 32) {
+            const oldest = formatters.keys().next().value;
+            if (oldest !== undefined) formatters.delete(oldest);
+        }
+        formatters.set(key, fmt);
+    }
+    return fmt;
+}
+
 /** @param {{min: number, max: number} | null} span @param {string} locale */
 export function dateRangeText(span, locale) {
     if (!span || !Number.isFinite(span.min) || !Number.isFinite(span.max) || Math.abs(span.min) > 8.64e15 || Math.abs(span.max) > 8.64e15) return "";
-    const fmt = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC", era: new Date(span.min).getUTCFullYear() <= 0 ? "short" : undefined });
+    const fmt = dateFormatter(locale, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC", era: new Date(span.min).getUTCFullYear() <= 0 ? "short" : undefined });
     return `${fmt.format(span.min)} – ${fmt.format(span.max)}`;
 }
 
@@ -14,7 +32,7 @@ export function dateRangeText(span, locale) {
 const YEAR_CONTEXT_LIMIT = 32;
 
 /** Cached by immutable pivot result; shared by derived fields and table/chart decoration.
- * @type {WeakMap<import("pivotkit-core").PivotResult, Map<string, {years: number[], spans: Map<number, {min: number, max: number}>, truncated: boolean}>>} */
+ * @type {WeakMap<import("pivotkit-core").PivotResult, Map<string, {years: number[], spans: Map<number, {min: number, max: number}>, months: Map<number, {min: number, max: number}>, truncated: boolean}>>} */
 const yearCache = new WeakMap();
 
 /** Up to 32 distinct observed years after filters, never the interval between endpoints.
@@ -27,6 +45,7 @@ export function yearsOf(result, field) {
     const column = result.encoded.column(field);
     let truncated = false;
     const spans = new Map();
+    const months = new Map();
     if (column?.type === "date") {
         const date = new Date(0);
         for (const row of result.rows) {
@@ -35,6 +54,10 @@ export function yearsOf(result, field) {
             if (typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 8.64e15) {
                 date.setTime(value);
                 const year = date.getUTCFullYear();
+                const month = date.getUTCMonth() + 1;
+                const monthSpan = months.get(month);
+                if (monthSpan) { monthSpan.min = Math.min(monthSpan.min, value); monthSpan.max = Math.max(monthSpan.max, value); }
+                else months.set(month, {min: value, max: value});
                 const span = spans.get(year);
                 if (span) { span.min = Math.min(span.min, value); span.max = Math.max(span.max, value); }
                 else if (spans.size < YEAR_CONTEXT_LIMIT) spans.set(year, {min: value, max: value});
@@ -43,7 +66,7 @@ export function yearsOf(result, field) {
         }
     }
     const sorted = [...spans.keys()].sort((a, b) => a - b);
-    cached.set(field, {years: sorted, spans, truncated});
+    cached.set(field, {years: sorted, spans, months, truncated});
     return sorted;
 }
 
@@ -52,7 +75,7 @@ export function contextYear(year, locale) {
     const date = new Date(0);
     date.setUTCFullYear(year, 0, 1);
     if (!Number.isFinite(date.getTime())) date.setTime(year < 0 ? -8.64e15 : 8.64e15);
-    return new Intl.DateTimeFormat(locale, {year: "numeric", timeZone: "UTC", era: year <= 0 ? "short" : undefined}).format(date);
+    return dateFormatter(locale, {year: "numeric", timeZone: "UTC", era: year <= 0 ? "short" : undefined}).format(date);
 }
 
 /** List only years actually included, coalescing consecutive runs.
@@ -75,7 +98,7 @@ function observedYears(result, field) {
     const years = yearsOf(result, field);
     const truncated = yearCache.get(result)?.get(field)?.truncated ?? false;
     const suffix = truncated ? ", …" : "";
-    const fmt = new Intl.DateTimeFormat(result.locale, {year: "numeric", timeZone: "UTC", era: years[0] <= 0 ? "short" : undefined});
+    const fmt = dateFormatter(result.locale, {year: "numeric", timeZone: "UTC", era: years[0] <= 0 ? "short" : undefined});
     if (["gregory", "iso8601"].includes(fmt.resolvedOptions().calendar)) return {text: yearSetText(years, result.locale) + suffix, combined: truncated || years.length > 1};
     const spans = yearCache.get(result)?.get(field)?.spans;
     const parts = [];
@@ -97,6 +120,8 @@ export function dateContext(result, labels) {
     const { view, encoded, locale } = result;
     const fields = { ...labels.core.fields };
     const single = new Map();
+    /** @type {Map<string, Map<number, {min: number, max: number}>>} */
+    const observedMonths = new Map();
     for (const d of view.derived) {
         if (!CATALOG.cyclicUnits.includes(d.by)) continue;
         const years = yearsOf(result, d.field);
@@ -105,12 +130,28 @@ export function dateContext(result, labels) {
             const span = observed.text;
             Object.defineProperty(fields, d.name, {value: `${fieldLabel(d.name, labels.core)} · ${fill(labels.dateYearsCombined, { years: span })}`, enumerable: true, configurable: true, writable: true});
             // ISO week numbers can span two week-years within one calendar year.
-        } else if (years.length === 1 && d.by !== "week") single.set(d.name, observed.text);
+        } else if (years.length === 1 && d.by !== "week") {
+            single.set(d.name, observed.text);
+            if (d.by === "month") {
+                const months = yearCache.get(result)?.get(d.field)?.months;
+                if (months) observedMonths.set(d.name, months);
+            }
+        }
     }
     /** @type {import("pivotkit-core").PivotResult} */
     const decorated = { ...result, label: (axis, node, core) => {
         const text = result.label(axis, node, core);
         const field = (axis === "rows" ? result.rowFields : result.colFields)[node.depth - 1];
+        const span = typeof node.key === "number" ? observedMonths.get(field)?.get(node.key) : undefined;
+        if (node.parent && span) {
+            const fmt = dateFormatter(locale, {month: "short", year: "numeric", timeZone: "UTC", era: new Date(span.min).getUTCFullYear() <= 0 ? "short" : undefined});
+            // The cyclic key is Gregorian. Other calendars may cross months within that key:
+            // describe actual endpoint months, not the core labeler's synthetic year-2000 date.
+            if (!["gregory", "iso8601"].includes(fmt.resolvedOptions().calendar)) {
+                const first = fmt.format(span.min), last = fmt.format(span.max);
+                return first === last ? first : `${first} – ${last}`;
+            }
+        }
         return node.parent && node.key !== null && single.has(field) ? `${text} ${single.get(field)}` : text;
     } };
     const active = [...new Set([...view.rows, ...view.cols, ...filterZoneFields(view)].map((f) => sourceOf(view, f)))];
