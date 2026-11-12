@@ -6,6 +6,10 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep complete Unicode characters when a long imported file name is shortened (#133).
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
