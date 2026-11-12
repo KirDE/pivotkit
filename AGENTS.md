@@ -115,6 +115,12 @@ root `package.json`: `npm run types` and the builds depend on it.
   loading data on the host page); CI runs them on React 18 and
   React 19 (`tests/react19/`, own lock file), one job per engine and React version. `tests/ci.test.js` checks the pinning (Playwright image = locked `@playwright/test`, exact
   versions, caret ranges for this repository's own packages).
+- `bench/browser/` - the browser benchmark (`npm run bench:browser`): `page.jsx` is `<PivotReport>`
+  from pivotkit-react's `dist/` with the playground's generated data (`examples/playground/src/data.js`),
+  `run.js` builds it into `bench/browser/dist/`, serves it and drives it with Playwright in the three
+  engines: first table, the steps of a person by real clicks, frame gaps, long tasks and heap
+  (Chromium). Not a test (no pass or fail); its numbers are in `docs/concepts/limits.md` (Measured in
+  the browser) with the machine they were taken on.
 - `scripts/check-pack.js` - checks what `npm pack` would publish.
 - `scripts/schemas.js` - builds pivotkit-core's JSON Schemas (`schema/view-2.json`,
   `schema/view-file-2.json`) from the engine's tables: `node scripts/schemas.js` after a change of
@@ -151,6 +157,7 @@ npm run size -w pivotkit-element    # build the element and print what a page lo
 npm run size -w pivotkit-xlsx       # build pivotkit-xlsx's dist/, gzip of the plugin and its reader against the budget
 npm run bench -w pivotkit-xlsx      # read time and memory of a generated 94,000-row workbook (-- --browser: Chromium too)
 npm run bench -w pivotkit-core      # engine timings for 2k, 4k and 100k rows
+npm run bench:browser               # the report in Chromium, Firefox and WebKit, 100k to 1M rows (-- --runs 3 --sizes 100000 --browsers chromium)
 node scripts/schemas.js             # rebuild pivotkit-core's JSON Schemas from the engine's tables
 npm run playground                  # playground with rebuilds on http://localhost:5173
 npm run test:browser                # build the playground, the element and the test pages, Playwright in three browsers (as CI)
@@ -207,7 +214,8 @@ node scripts/check-readme-links.js site   # after `zensical build`: the READMEs'
   (the rule is in `src/csv.js`: tab or CR first, or `=` `@` after leading whitespace and control
   characters, or `+` `-` unless the text is a number as a locale writes it or a number range; the same guard for the clipboard copies); XLSX writes text as
   inline strings, never as formulas.
-- Designed for up to about 100,000 rows: typed arrays, no per-row objects in hot loops. Run the
+- Measured up to 1,000,000 rows in three browsers (`npm run bench:browser`, `docs/concepts/limits.md`
+  "Measured in the browser"): typed arrays, no per-row objects in hot loops. Run the
   benchmark before and after engine changes and compare with the baseline in `docs/reference/core.md`
   (Performance).
 - The engine sources use only globals browsers and Node share (ESLint enforces it for `src/`).
