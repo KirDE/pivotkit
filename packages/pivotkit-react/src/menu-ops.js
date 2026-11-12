@@ -474,3 +474,14 @@ export function filterState(view, field, state, labels, locale) {
     }
     return parts.length ? parts.join(", ") : null;
 }
+
+/** An editable ISO day, including signed six-digit years and HTML's unsigned large years.
+ * @param {string} text @returns {string | null} */
+export function dateRuleValue(text) {
+    const m = /^(\d{4,6}|[+-]\d{6})-(\d{2})-(\d{2})$/.exec(text);
+    if (!m || m[1] === "-000000") return null;
+    const year = m[1];
+    const iso = /^\d{5,6}$/.test(year) ? `+${year.padStart(6, "0")}${text.slice(year.length)}` : text;
+    const date = new Date(`${iso}T00:00:00.000Z`);
+    return date.getUTCFullYear() === +year && date.getUTCMonth() + 1 === +m[2] && date.getUTCDate() === +m[3] ? iso : null;
+}

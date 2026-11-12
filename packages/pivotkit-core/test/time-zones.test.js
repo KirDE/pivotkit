@@ -120,3 +120,15 @@ test("ISO expanded years use a sign and six digits and reject negative zero", ()
         assert.equal(parseIso(text), null, text);
     }
 });
+
+test("expanded-year offsets and zoned wall clocks stay inside Date's range", async () => {
+    const { MAX_DATE_MS, toWallMs, wallClock } = await import("../src/time.js");
+    for (const date of ["+275760-09-13T00:00:00-01:00", "-271821-04-20T00:00:00+01:00"]) {
+        assert.equal(parseIso(date), null);
+        for (const timeZone of ["UTC", "Europe/Berlin"]) {
+            assert.doesNotThrow(() => toGrid(computePivot(encode([{Date: date}], {timeZone}), {rows:["Date"], values:[{agg:"count"}]})));
+        }
+    }
+    assert.ok(Number.isNaN(toWallMs(MAX_DATE_MS, wallClock("Europe/Berlin"))));
+    assert.ok(Number.isNaN(toWallMs(-MAX_DATE_MS, wallClock("America/New_York"))));
+});

@@ -78,6 +78,7 @@ export function parseIso(text) {
             offsetMinutes = (zone[0] === "-" ? -1 : 1) * (oh * 60 + om);
         }
     }
+    if (offsetMinutes !== null && !isDateMs(ms - offsetMinutes * 60_000)) return null;
     return { ms, offsetMinutes };
 }
 
@@ -132,11 +133,12 @@ export function canonicalTimeZone(timeZone) {
  */
 export function wallClock(timeZone) {
     if (timeZone === "UTC") {
-        return (t) => t;
+        return (t) => isDateMs(t) ? t : NaN;
     }
     const dtf = new Intl.DateTimeFormat("en-US", {
         timeZone,
         hourCycle: "h23",
+        era: "short",
         year: "numeric",
         month: "numeric",
         day: "numeric",
@@ -146,14 +148,17 @@ export function wallClock(timeZone) {
     });
     const offsetAt = (t) => {
         const p = {};
+        let beforeCommonEra = false;
         for (const part of dtf.formatToParts(new Date(t))) {
-            p[part.type] = Number(part.value);
+            if (part.type === "era") beforeCommonEra = part.value === "BC";
+            else p[part.type] = Number(part.value);
         }
         const whole = t - (((t % 1000) + 1000) % 1000);
-        return utc(p.year, p.month, p.day, p.hour, p.minute, p.second) - whole;
+        return utc(beforeCommonEra ? 1 - p.year : p.year, p.month, p.day, p.hour, p.minute, p.second) - whole;
     };
     const days = new Map();
     return (t) => {
+        if (!isDateMs(t)) return NaN;
         const day = Math.floor(t / MS_PER_DAY);
         let offset = days.get(day);
         if (offset === undefined) {
@@ -164,7 +169,8 @@ export function wallClock(timeZone) {
             offset = start === end ? start : NaN;
             days.set(day, offset);
         }
-        return t + (Number.isNaN(offset) ? offsetAt(t) : offset);
+        const wall = t + (Number.isNaN(offset) ? offsetAt(t) : offset);
+        return isDateMs(wall) ? wall : NaN;
     };
 }
 

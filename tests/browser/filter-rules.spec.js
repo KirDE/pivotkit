@@ -4,7 +4,7 @@
 // snapshot with plain JavaScript, relative to today as the browser sees it (the data is in UTC).
 import { readFileSync } from "node:fs";
 import { encodeViewLink } from "pivotkit-core/link";
-import { chipMenu, expect, openLevel, openRules, pickItem, tableRows, test } from "./fixtures.js";
+import { chipMenu, expect, openLevel, openRules, openZones, pickItem, tableRows, test } from "./fixtures.js";
 import { unpack } from "../../examples/playground/data/sources.js";
 
 const eol = unpack(JSON.parse(readFileSync(new URL("../../examples/playground/data/endoflife.json", import.meta.url), "utf8")));
@@ -272,4 +272,30 @@ test.describe("the Filter level of a date field", () => {
         expect(sizes).toMatchObject({ cut: true, overflow: "ellipsis", fits: true });
         await expect(chip.getByTestId("rule-badge")).toContainText("+1");
     });
+});
+
+test("signed expanded-year rules remain visible and editable #97", async ({ page }) => {
+    await page.goto("pages/host.html");
+    await page.evaluate(async () => {
+        const React = await import("react");
+        const { createRoot } = await import("react-dom/client");
+        const { PivotReport } = await import("pivotkit-react");
+        const section = document.createElement("section");
+        section.id = "expanded-rule-report";
+        document.body.append(section);
+        function Example() {
+            const [view, setView] = React.useState({rows:["Date"], values:[{agg:"count"}], filters:[{field:"Date", type:"compare", op:">=", value:"+010000-02-29"}]});
+            return React.createElement(PivotReport, {data:[{Date:"-000001-01-01"},{Date:"+010000-02-29"}], height:640, view, onViewChange:(next) => { window.__expandedRule = next; setView(next); }});
+        }
+        createRoot(section).render(React.createElement(Example));
+    });
+    await openZones(page.locator("#expanded-rule-report"));
+    await page.locator("#expanded-rule-report").getByTestId("chip-menu-Date").click();
+    await page.getByTestId("topic-filter").click();
+    const value = page.getByTestId("rule-item-value");
+    await expect(value).toHaveValue("+010000-02-29");
+    await page.getByTestId("rule-item-op").selectOption("<=");
+    await expect.poll(() => page.evaluate(() => window.__expandedRule?.filters[0]?.op)).toBe("<=");
+    await value.fill("-000001-01-01");
+    await expect.poll(() => page.evaluate(() => window.__expandedRule?.filters[0]?.value)).toBe("-000001-01-01");
 });

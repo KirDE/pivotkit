@@ -6,6 +6,11 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep signed expanded-year date rules visible and editable, using ISO text where the native
+  calendar cannot represent the year (#97).
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

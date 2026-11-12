@@ -25,7 +25,9 @@ reader's zone.
 
 - ISO dates also accept ECMAScript expanded years (a sign and six digits, such as
   `+010000-01-01` or `-000001-01-01`), within the range a `Date` holds. Compare filters
-  preserve these dates when a view is saved and loaded.
+  preserve these dates when a view is saved and loaded. Their date-rule fields use ISO text
+  instead of the browser calendar, so signed years remain visible and editable. An offset-adjusted
+  instant and its converted wall clock must both stay within the range a `Date` holds.
 - An ISO string without an offset (`"2026-03-04T10:00"`, `"2026-03-04"`) is taken as written.
 - A `Date`, epoch milliseconds, or an ISO string with an offset (`"2026-03-04T10:00:00Z"`) is an
   **instant**. It is read at the wall clock of the zone given to `encode(rows, { timeZone })`
