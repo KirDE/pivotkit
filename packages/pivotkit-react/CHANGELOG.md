@@ -9,9 +9,6 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 - Bound cached date-field ranges to 16 least-recently-used fields per data set; non-date
   and missing fields consume no cache entries, even for unlimited host schemas.
 
-- Unused-view warning counts retain the validated view/host locale when pivot computation
-  fails (including work/group limits), with a safe English fallback for invalid locales.
-
 - Timeline Month grouping hints preserve historical years 0–99 rather than shifting them
   to 1900–1999, including localized calendar and BCE endpoint labels.
 
