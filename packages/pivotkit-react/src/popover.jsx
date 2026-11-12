@@ -184,7 +184,7 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
         const t = requestAnimationFrame(() => {
             if (!el?.isConnected) return;
             const now = activeIn(el);
-            if (now && now !== el && el.contains(now)) return;
+            if (now && now !== el && (el.contains(now) || now.closest(".pk-popover")?.getAttribute("data-pk-parent") === elId)) return;
             const shown = (/** @type {Element} */ o) => o.getClientRects().length > 0;
             const first =
                 el.querySelector("[data-autofocus]") ??
