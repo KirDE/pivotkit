@@ -52,4 +52,3 @@ export function dateContext(result, labels) {
     });
     return { result: decorated, labels: { ...labels, core: { ...labels.core, fields } }, ranges };
 }
-
