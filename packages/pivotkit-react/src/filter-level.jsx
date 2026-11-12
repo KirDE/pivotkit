@@ -25,11 +25,11 @@ import { Icon } from "./icons.jsx";
 import { fill, plural } from "./labels.js";
 import { useAppliedText, useLater } from "./levels.jsx";
 import { MeasurePick, NumberField, choiceIndex, fieldKeys, measuresOf, readNumber } from "./menu-fields.jsx";
-import { dayText, isoDay, periodText, rangeShare, refLabel, relativeDays, relativeText } from "./names.js";
+import { dayText, isoDay, periodText, plainRange, rangeShare, refLabel, relativeDays, relativeText } from "./names.js";
 import { numberText, parseNumber } from "./numbers.js";
 import { LayerContext, Popover } from "./popover.jsx";
-import { dateSpan, filtersOf, sameRef, selectedItems, sourceOf } from "./view-ops.js";
-import { RULES_MAX, RULE_TYPES, conditionKind, itemTotals, quickChoice, removeRules, resetFilter, ruleKind, ruleText, setAnchor, setItemFilter, setQuickRange, setRule, setYearsCombined } from "./menu-ops.js";
+import { RULE_OPS, dateSpan, filtersOf, hiddenNot, opOf, ruleOp, sameRef, searchItems, selectedItems, sourceOf } from "./view-ops.js";
+import { RULES_MAX, RULE_TYPES, conditionKind, itemTotals, quickChoice, relativeRule, removeRules, resetFilter, ruleKind, ruleText, setAnchor, setItemFilter, setQuickRange, setRule, setYearsCombined, textOn, textRule } from "./menu-ops.js";
 
 const twin = (op) => op === "between" || op === "notBetween";
 /** The first letter as a sentence starts: "last {count} years" in a list of choices is "Last …". */
@@ -37,7 +37,15 @@ const capital = (text, locale) => text.charAt(0).toLocaleUpperCase(locale) + tex
 /** Rules as a text that does not depend on the order of their keys (normalize() writes its own order). */
 const rulesKeyOf = (rules) => JSON.stringify(rules, (_k, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : 1))) : v));
 /** The kind of row a rule is: the item itself (a comparison or a relative range), its total, its name. */
-const rowKind = (f) => (f.type === "value" ? "total" : f.type === "label" ? "name" : "item");
+const rowKind = (f) => (!editable(f) ? "fixed" : f.type === "value" ? "total" : f.type === "text" ? "name" : "item");
+/**
+ * Whether the rows can edit a rule: not one whose `not` they have no word for, not a relative range
+ * they do not write (next, this, before, rolling, hours, weeks, quarters; a loaded view's), not a
+ * comparison of dates by another precision than the day.
+ */
+const editable = (f) => !hiddenNot(f) && (f.type !== "relative" || plainRange(f)) && (f.type !== "compare" || (f.precision ?? "day") === "day");
+/** The units of the quick choices and of a rule's relative range. */
+const RANGE_UNITS = Object.freeze(["year", "month", "day"]);
 /** The most years, months and days a quick choice reaches back by itself to the data's latest record. */
 const REACH = Object.freeze({ year: 10, month: 24, day: 90 });
 /** A grouping's items above this many are picked from a searchable list, not a native select. */
@@ -234,7 +242,7 @@ function QuickChoices({ ctx, quick, anchor, setAnchorLocal, span, column, counts
     if (quickKey !== seen) {
         setSeen(quickKey);
         const synced = { ...texts };
-        for (const unit of CATALOG.relativeUnits) {
+        for (const unit of RANGE_UNITS) {
             if (unit !== editing) {
                 synced[unit] = numberText(counted[unit], locale);
             }
@@ -435,8 +443,7 @@ function ItemPicker({ items, value, onChange, label, testId, labels, locale }) {
     const anchor = useRef(/** @type {HTMLButtonElement | null} */ (null));
     const listId = useId();
     const searchName = useFormName();
-    const q = query.trim().toLocaleLowerCase();
-    const found = q ? items.filter((i) => i.label.toLocaleLowerCase().includes(q)) : items;
+    const found = searchItems(items, query);
     const matching = found.slice(0, FILTER_LIST_MAX);
     const current = items.find((i) => String(i.value) === value);
     const show = () => {
@@ -543,12 +550,12 @@ function ItemRule({ rule, ctx, apply, first }) {
     const { field, labels, locale, fk, items } = ctx;
     const narrow = useContext(LayerContext).size === "narrow";
     const words = fk.dates ? labels.dateOps : labels.valueOps;
-    const ops = fk.dates ? [...CATALOG.valueOps, "last"] : CATALOG.valueOps;
+    const ops = fk.dates ? [...RULE_OPS.compare, "last"] : RULE_OPS.compare;
     const textOf = (v) => (v === undefined ? "" : fk.item === "number" ? numberText(v, locale) : String(v));
     const compared = rule?.type === "compare" ? rule : null;
     const ranged = rule?.type === "relative" ? rule : null;
     const [s, setS] = useState(() => ({
-        op: ranged ? "last" : compared?.op ?? ">=",
+        op: ranged ? "last" : compared ? ruleOp(compared) : ">=",
         a: textOf(compared?.value),
         b: textOf(compared?.value2),
         count: numberText(ranged?.count ?? 5, locale),
@@ -560,10 +567,11 @@ function ItemRule({ rule, ctx, apply, first }) {
     const entryOf = (x) => {
         if (x.op === "last") {
             const n = readNumber(x.count, { kind: "count", max: CATALOG.relativeMaxCount, labels, locale }).value;
-            return n !== null ? { field, type: "relative", unit: x.unit, count: n, ...(ranged?.anchor === "latest" ? { anchor: "latest" } : {}) } : null;
+            // a loaded range's not and blanks stay as they are
+            return n !== null ? { ...relativeRule(field, { unit: x.unit, count: n, anchor: ranged?.anchor }), ...(ranged ? { not: ranged.not, blanks: ranged.blanks } : {}) } : null;
         }
         const [a, b] = [read(x.a), read(x.b)];
-        return a === null || (twin(x.op) && b === null) ? null : { field, type: "compare", op: x.op, value: a, ...(twin(x.op) ? { value2: b } : {}) };
+        return a === null || (twin(x.op) && b === null) ? null : { field, type: "compare", ...opOf(x.op), value: a, ...(twin(x.op) ? { value2: b } : {}), blanks: compared?.blanks ?? "exclude" };
     };
     const change = (patch, wait = false) => {
         const next = { ...s, ...patch };
@@ -647,7 +655,7 @@ function ItemRule({ rule, ctx, apply, first }) {
                         className="pk-field-label pk-count-input"
                     />
                     <select name={`${formName}-unit`} value={s.unit} onChange={(e) => change({ unit: e.target.value })} aria-label={labels.ruleUnit} data-testid="rule-last-unit">
-                        {CATALOG.relativeUnits.map((u) => (
+                        {RANGE_UNITS.map((u) => (
                             <option key={u} value={u}>
                                 {plural(labels.ruleUnits[u], many, lang)}
                             </option>
@@ -682,7 +690,7 @@ function ItemRule({ rule, ctx, apply, first }) {
 function TotalRule({ rule, ctx, apply, first }) {
     const { view, types, labels, locale } = ctx;
     const { choices, names } = measuresOf(view, types, labels, rule?.by);
-    const [s, setS] = useState(() => ({ by: choiceIndex(choices, rule?.by), op: rule?.op ?? ">", a: numberText(rule?.value, locale), b: numberText(rule?.value2, locale) }));
+    const [s, setS] = useState(() => ({ by: choiceIndex(choices, rule?.by), op: rule ? ruleOp(rule) : ">", a: numberText(rule?.value, locale), b: numberText(rule?.value2, locale) }));
     const later = useLater();
     const formName = useFormName();
     const change = (patch, wait = false) => {
@@ -692,7 +700,7 @@ function TotalRule({ rule, ctx, apply, first }) {
             const [a, b] = [parseNumber(next.a, locale), parseNumber(next.b, locale)];
             if (a !== null && (!twin(next.op) || b !== null)) {
                 const by = choices[next.by];
-                apply({ field: ctx.field, type: "value", by: { field: by.field, agg: by.agg }, op: next.op, value: a, ...(twin(next.op) ? { value2: b } : {}) });
+                apply({ field: ctx.field, type: "value", by: { field: by.field, agg: by.agg }, ...opOf(next.op), value: a, ...(twin(next.op) ? { value2: b } : {}) });
             }
         };
         if (wait) {
@@ -720,7 +728,7 @@ function TotalRule({ rule, ctx, apply, first }) {
             <span className="pk-rule-subject pk-rule-lead">{fill(labels.ruleWhose, { field: fieldLabel(ctx.field, labels.core) })}</span>
             <MeasurePick choices={choices} names={names} index={s.by} onChange={(i) => change({ by: i })} label={labels.valueFilterBy} testId="value-filter-by" />
             <select className="pk-rule-op" name={`${formName}-op`} value={s.op} onChange={(e) => change({ op: e.target.value })} aria-label={labels.valueFilterOp} data-autofocus={first ? "" : undefined} data-testid="value-filter-op">
-                {CATALOG.valueOps.map((o) => (
+                {RULE_OPS.compare.map((o) => (
                     <option key={o} value={o}>
                         {labels.valueOps[o] ?? o}
                     </option>
@@ -735,10 +743,10 @@ function TotalRule({ rule, ctx, apply, first }) {
 /** A rule on the item's name: "The name [contains] [an]"; the text applies a moment after the typing stops. */
 function NameRule({ rule, ctx, apply, first }) {
     const { field, labels } = ctx;
-    const [op, setOp] = useState(rule?.op ?? "contains");
+    const [op, setOp] = useState(rule ? ruleOp(rule) : "contains");
     const send = (o, value) => {
         if (value !== "") {
-            apply({ field, type: "label", op: o, value });
+            apply({ ...textRule(field, { op: o, value, on: ctx.textOn }), ...(rule ? { blanks: rule.blanks } : {}) });
         }
     };
     const text = useAppliedText(rule?.value ?? "", (value) => send(op, value));
@@ -758,7 +766,7 @@ function NameRule({ rule, ctx, apply, first }) {
                 data-autofocus={first ? "" : undefined}
                 data-testid="filter-condition-op"
             >
-                {CATALOG.labelOps.map((o) => (
+                {RULE_OPS.text.map((o) => (
                     <option key={o} value={o}>
                         {labels.labelOps[o] ?? o}
                     </option>
@@ -774,14 +782,26 @@ function NameRule({ rule, ctx, apply, first }) {
                 clearLabel={labels.clearText}
                 aria-label={labels.conditionValue}
                 placeholder={labels.conditionValue}
-                maxLength={1000}
+                maxLength={LIMITS.textValue}
                 data-testid="filter-condition-text"
             />
         </>
     );
 }
 
-const ROWS = { item: ItemRule, total: TotalRule, name: NameRule };
+/** A rule the rows cannot edit (a loaded view's): its words, and that it is kept as it is; its × removes it. */
+function FixedRule({ rule, ctx }) {
+    return (
+        <>
+            <span className="pk-rule-subject">{ctx.say(rule)}</span>
+            <span className="pk-hint pk-rule-note" data-testid="rule-fixed">
+                {ctx.labels.ruleFixed}
+            </span>
+        </>
+    );
+}
+
+const ROWS = { item: ItemRule, total: TotalRule, name: NameRule, fixed: FixedRule };
 
 /**
  * The rules of a field, all together ("and"): one row each with its "i" (what it compares, with an
@@ -1067,7 +1087,7 @@ export function FilterLevel({ view, field, encoded, types, labels, locale, commi
     const picked = selectedItems(view, field, all);
     const selected = new Set(picked.map(keyOf));
     // a rule on the names the type has none for (a loaded view's) still shows, so it can be taken off
-    const nameKind = conditionKind(encoded, view, field) ?? (rules.some((r) => r.type === "label") ? "text" : null);
+    const nameKind = conditionKind(encoded, view, field) ?? (rules.some((r) => r.type === "text") ? "text" : null);
     const labelOf = (v) => info.items.find((i) => i.value === v)?.label;
     const say = (f) => ruleText(view, f, { labels, locale, timeZone, date: fk.dates, labelOf, span });
     const number = (n) => n.toLocaleString(locale);
@@ -1098,7 +1118,7 @@ export function FilterLevel({ view, field, encoded, types, labels, locale, commi
     /** A rule on the total in words: "Average of Mean °C that is greater than 25". */
     const totalWords = (r) => {
         const measure = refLabel(view, r.by, labels);
-        const op = labels.valueOps[r.op] ?? r.op;
+        const op = labels.valueOps[ruleOp(r)] ?? ruleOp(r);
         const num = (x) => (typeof x === "number" ? x.toLocaleString(locale, { maximumFractionDigits: 6 }) : "");
         return twin(r.op) ? fill(labels.totalWordsTwo, { measure, op, from: num(Math.min(r.value, r.value2)), to: num(Math.max(r.value, r.value2)) }) : fill(labels.totalWords, { measure, op, number: num(r.value) });
     };
@@ -1151,7 +1171,7 @@ export function FilterLevel({ view, field, encoded, types, labels, locale, commi
             }
         });
     };
-    const ctx = { view, field, types, labels, locale, commit, note, back, fk, nameKind, timeZone, hint, items: info.items, noun, scope, quickFilters: quick.filters, focusQuick, act };
+    const ctx = { view, field, types, labels, locale, commit, note, back, fk, nameKind, say, textOn: textOn(encoded, field), timeZone, hint, items: info.items, noun, scope, quickFilters: quick.filters, focusQuick, act };
     const picksOpen = openPicks ?? !anyRule;
     const rulesOpen = openRules ?? anyRule;
     // on a phone one section at a time

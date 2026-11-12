@@ -6,6 +6,43 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Changed
+
+- The report reads and writes pivotkit-core's view version 2 ([#165](https://github.com/eizedev/pivotkit/issues/165)):
+  the picks of a field are an `in` filter with `not: true` and `blanks`, a rule on the names a `text`
+  filter (case and runs of whitespace ignored, `on: "label"` for a field that is not text), "is not",
+  "does not contain" and "is not between" the positive operator with `not: true`. Views of version 1
+  (stored, shared, the host's) load with the same result. A rule the menus have no word for (a
+  loaded view's "does not begin with") is said as "not (…)"; the menus offer no rule for blanks and
+  the new operators yet.
+- A relative range the menus do not write (a loaded view's: next, this, before, rolling, without the
+  current period, hours, weeks, quarters, counted from the first record or a date) says what it keeps
+  in words, in English and German, and stays as it is: its row in the Filter level can only be
+  removed. The quick choices and the rules offer years, months and days, as they did.
+- A comparison of dates by another precision (a loaded view's) says its unit ("Feb 2026", "from Q2
+  2026") and stays as it is.
+- The view files and links the report writes are of format version 2, with the `$schema`
+  `https://pivotkit.eize.dev/schema/view-file-2.json` by default; files and links of version 1 load as
+  before. The link's place in the fragment is pivotkit-core's (`linkFragment`, `withLinkFragment`).
+- A view read from a link, a file, pasted JSON or the tab's storage keeps at most 50 filters and is
+  at most 1,000,000 characters long (pivotkit-core's `outsideLimits`), or the host's lower limits.
+
+### Added
+
+- The warning about a view's unused parts says when a filter's item is in the data in another case
+  (“north”, but “North”), and names a key inside a part of the view by itself. It says when an item
+  is longer than 10,000 characters, and how many more problems it does not list.
+
+### Fixed
+
+- A rule on the names ("begins with “ACTIVE DIRECTORY”") keeps the items whose names hold a no-break
+  space or other whitespace, and a space typed at the end does not matter
+  ([#159](https://github.com/eizedev/pivotkit/issues/159)).
+- The search of a field's item list and of a grouping's item picker finds an item whose label holds
+  a no-break space or another run of whitespace when a plain space is typed, and ignores spaces
+  typed at the ends ([#159](https://github.com/eizedev/pivotkit/issues/159)). Both searches fold
+  text with pivotkit-core's `foldText`.
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

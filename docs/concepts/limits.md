@@ -73,6 +73,27 @@ over it and reports it as an issue.
 | `sort` | 64 | Sort entries. | In `normalize`. |
 | `collapsed` | 10,000 | Collapsed groups. | In `normalize`. |
 | `topCount` | 1,000,000 | The `count` of a top N filter. | In `normalize`. |
+| `textValue` | 1,000 | Characters of the text a text filter compares with. | In `normalize`. |
+| `srcParams` | 16 | Parameters of a link's data source reference (`source.params`). | When a link is read. |
+| `srcParamLength` | 256 | Characters of each name and value of those parameters. | When a link is read. |
+
+### Views from outside
+
+A person builds a view of a few filters in the UI; a view with dozens was most likely generated, and
+each filter is a pass over the rows. A view that comes from outside the host's own code (a link,
+pasted or loaded JSON, the tab's stored view, a request to an API, an LLM) is therefore normalized
+with tighter limits: `OUTSIDE_LIMITS` (`{ filters: 50, json: 1000000 }`, at most 50 filters and a
+view as large as a link or a view file may be) over the host's. `outsideLimits(limits)` in
+pivotkit-core gives them: each key of `OUTSIDE_LIMITS` at most its preset value, a host's lower value
+stays lower, the host's other limits as they are (`items` and `collapsed` among them: a person's
+picks of a large field are that many). pivotkit-react uses it for every view it reads from a link, a
+file, pasted JSON or the tab's storage; a host that takes views from an API passes
+`{ limits: outsideLimits(myLimits) }` to `normalize`.
+
+The issues of one view are capped too, whatever its limits: at most 100 of one code and 1,000 in all
+(`ISSUE_CAP`), the rest counted in one last warning `tooManyIssues`, so a small hostile view cannot
+make a list of issues larger than itself. The generated JSON Schemas carry the default `LIMITS`; a
+host with other limits checks those with `normalize`.
 
 The defaults are sized for a browser tab and the about 100,000 rows the engine is designed for;
 [why the defaults are what they are](#why-the-defaults-are-what-they-are) is below. `groups` can be raised to 2^27 at most. A host
