@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { toViewFile } from "pivotkit-core";
 import { encodeViewLink } from "pivotkit-core/link";
 import { test, expect, openZones } from "./fixtures.js";
@@ -24,4 +25,26 @@ test("a single weather year labels cyclic items, not combined years #109", async
     await expect(page.getByTestId("pivot-table")).toContainText("Jan 2025");
     await expect(page.getByTestId("pivot-table")).not.toContainText("combined");
     await expect(page.getByTestId("date-range")).toContainText("2023");
+});
+
+test("cyclic chip IDs stay stable and downloaded headers keep year context #109", async ({page}) => {
+    await page.goto("?data=weather&preset=0");
+    await openZones(page);
+    await page.getByTestId("chip-menu-Date by month of year").click();
+    await expect(page.locator(".pk-chip-menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByTestId("export").click();
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-csv").click()]);
+    const text = await readFile(await download.path(), "utf8");
+    expect(text).toContain("2023–2025 combined");
+});
+
+test("field information and footer use the loaded view locale #109", async ({page}) => {
+    const view = {rows:["Date"], values:[{agg:"count"}], formatting:{locale:"de-DE"}};
+    const hash = encodeViewLink(toViewFile(view, {}, {link:true}));
+    await page.goto(`?data=weather&empty#pivot-playground=${hash}`);
+    const expected = new Intl.DateTimeFormat("de-DE", {year:"numeric", month:"short", day:"numeric", timeZone:"UTC"}).format(Date.UTC(2023,0,1));
+    await expect(page.getByTestId("date-range")).toContainText(expected);
+    await page.locator('.pk-field[data-field="Date"]').getByTestId("field-info").click();
+    await expect(page.locator(".pk-popover")).toContainText(expected);
 });

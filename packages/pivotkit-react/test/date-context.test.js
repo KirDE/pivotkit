@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { computePivot, encode, toGrid } from "pivotkit-core";
-import { dateContext, dateRangeText, yearsOf } from "../src/date-context.js";
-import { groupHint } from "../src/group-context.js";
+import { dateContext, dateRangeText, yearSetText, yearsOf } from "../src/date-context.js";
+import { calendarDays, groupHint, groupStats } from "../src/group-context.js";
 import { LABELS } from "../src/labels.js";
 import { en } from "../src/menu-labels.js";
 import { de } from "../src/menu-labels-de.js";
@@ -31,4 +31,17 @@ test("empty/non-date fields have no fabricated range; German range and Group hin
     assert.match(groupHint(data, "Date", "month", "de-DE", {...LABELS.de, ...de}), /2 Jahre zusammen/);
     assert.match(dateContext(computePivot(data, view), LABELS.de).labels.core.fields.Month, /zusammengefasst/);
     assert.deepEqual(dateContext(computePivot(data, {values: [{field: "Amount", agg: "sum"}]}), LABELS.en).ranges, []);
+});
+
+test("year sets preserve gaps and day counts normalize both endpoints", () => {
+    assert.equal(yearSetText([2023, 2025]), "2023, 2025");
+    assert.equal(yearSetText([2022, 2023, 2025, 2026]), "2022–2023, 2025–2026");
+    assert.equal(calendarDays({min: Date.UTC(2025, 0, 1, 23), max: Date.UTC(2025, 0, 2, 1)}), 2);
+});
+test("one Group dictionary scan supplies every unit's hints", () => {
+    let reads = 0;
+    const counted = {...data, column: (field) => { reads++; return data.column(field); }};
+    const stats = groupStats(counted, "Date");
+    for (const unit of ["year", "yearQuarter", "yearMonth", "yearWeek", "day", "quarter", "month", "week", "weekday", "hour"]) groupHint(counted, "Date", unit, "en-US", {...LABELS.en, ...en}, stats);
+    assert.equal(reads, 1);
 });

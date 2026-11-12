@@ -11,7 +11,7 @@
 import { CATALOG, aggregatorsFor, fieldLabel, formatter, isFormat } from "pivotkit-core";
 import { fill, plural } from "./labels.js";
 import { dateRangeText } from "./date-context.js";
-import { groupHint } from "./group-context.js";
+import { calendarDays, groupHint, groupStats } from "./group-context.js";
 import { groupingName, refLabel, relativeText, sortText, valueLabel } from "./names.js";
 import { ZONES, dateSpan, filterZoneFields, filtersOf, groupField, groupingOf, moveField, numericResult, reorder, sameRef, setSort, sortEntry, sortOf, sourceOf } from "./view-ops.js";
 import { TOTALS, filterState, measureChoices, ruleKind, setQuickRange, setRule, setTopFilter, totalNoEffect, updateValue, withMeasure } from "./menu-ops.js";
@@ -135,17 +135,19 @@ export function axisTopics({ view, zone, index, field, types, labels, locale, st
         filterTopic({ view, field, labels, locale, state, encoded })
     ];
     if (date) {
-        const span = encoded ? dateSpan(encoded, source) : null;
+        const stats = groupStats(encoded, source);
+        const span = stats?.span;
+        const dateLocale = view.formatting?.locale || locale;
         const regroup = (unit) => () => {
             const sourceName = fieldLabel(source, labels.core);
             const grouped = unit ? groupingName(sourceName, unit, labels) : null;
             return { view: groupField(view, field, unit, { name: grouped ?? undefined }).view, note: { step: "group", field: sourceName } };
         };
         // the field is replaced by its grouping (another chip): the menu closes
-        const unit = (u) => ({ id: `group-${u}`, text: labels.units[u] ?? u, hint: groupHint(encoded, source, u, locale, labels), checked: grouping?.by === u, closes: true, change: regroup(u) });
+        const unit = (u) => ({ id: `group-${u}`, text: labels.units[u] ?? u, hint: groupHint(encoded, source, u, dateLocale, labels, stats), checked: grouping?.by === u, closes: true, change: regroup(u) });
         topics.push({
             id: "group",
-            intro: span ? fill(labels.groupDataRange, { range: dateRangeText(span, locale), days: Math.floor((span.max - span.min) / 86400000) + 1 }) : undefined,
+            intro: span ? fill(labels.groupDataRange, { range: dateRangeText(span, dateLocale), days: calendarDays(span) }) : undefined,
             title: labels.groupTopic,
             kind: "menu",
             icon: "date",

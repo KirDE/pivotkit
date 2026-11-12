@@ -159,7 +159,7 @@ function Chip({ id, zone, index, count, field, text, typeName, view, types, labe
                 role="dialog"
                 popoverClass="pk-chip-menu"
                 fill
-                testId={`chip-menu-${text}`}
+                testId={`chip-menu-${zone !== "values" && view.derived.some((d) => d.name === field) ? field : text}`}
             >
                 {(close) =>
                     zone === "values" ? (

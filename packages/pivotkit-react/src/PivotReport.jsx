@@ -770,11 +770,11 @@ function Report(props) {
                 return undefined;
             }
             const entry = info.get(sourceOf(view, field).toLowerCase());
-            const range = dateRangeText(dateSpan(encoded, sourceOf(view, field)), locale);
+            const range = dateRangeText(dateSpan(encoded, sourceOf(view, field)), result?.locale ?? locale);
             const description = [entry?.description, range].filter(Boolean).join(" · ");
             return description ? { ...entry, description } : undefined;
         },
-        [info, view, encoded, locale]
+        [info, view, encoded, locale, result?.locale]
     );
     const fieldInfo = useMemo(() => {
         const entries = new Map(info);
@@ -962,7 +962,7 @@ function Report(props) {
         [result, encodedProp, imported, data, drillDownLimit, onCellClick, drillDown, defaultsOf, nameOf, infoOf]
     );
 
-    const doExport = useExport({ fileName, result, locale, labels, limits, root, chartRef, announce, onExport });
+    const doExport = useExport({ fileName, result, locale, labels: context.labels, limits, root, chartRef, announce, onExport });
 
     // loading data (allowImport): the import UI (import-host.jsx) loads on first use (the Data menu, a
     // file dragged over the report, the empty report's button) and renders the file input, the drop
@@ -1203,11 +1203,11 @@ function Report(props) {
             return null;
         }
         try {
-            return toSeries(chartResult, { labels: labels.core, maxCategories: MAX_CATEGORIES });
+            return toSeries(chartResult, { labels: chartContext.labels.core, maxCategories: MAX_CATEGORIES });
         } catch {
             return null;
         }
-    }, [chartResult, view.display, view.values.length, labels]);
+    }, [chartResult, view.display, view.values.length, chartContext.labels]);
 
     // tips: the host allows some or all, the user dismisses them (remembered per storageKey)
     const allowedKey = JSON.stringify(allowedTips(tipsProp));

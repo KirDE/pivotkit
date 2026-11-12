@@ -24,6 +24,17 @@ export function yearsOf(result, field) {
     return [...years].sort((a, b) => a - b);
 }
 
+/** List only years actually included, coalescing consecutive runs. @param {number[]} years */
+export function yearSetText(years) {
+    const runs = [];
+    for (let i = 0; i < years.length; i++) {
+        const first = years[i];
+        while (i + 1 < years.length && years[i + 1] === years[i] + 1) i++;
+        runs.push(first === years[i] ? String(first) : `${first}–${years[i]}`);
+    }
+    return runs.join(", ");
+}
+
 /** @param {import("pivotkit-core").PivotResult | null} result @param {import("./labels.js").UiLabels} labels
  * @returns {{result: import("pivotkit-core").PivotResult | null, labels: import("./labels.js").UiLabels, ranges: {field: string, text: string}[]}} */
 export function dateContext(result, labels) {
@@ -35,7 +46,7 @@ export function dateContext(result, labels) {
         if (!CATALOG.cyclicUnits.includes(d.by)) continue;
         const years = yearsOf(result, d.field);
         if (years.length > 1) {
-            const span = `${years[0]}–${years[years.length - 1]}`;
+            const span = yearSetText(years);
             fields[d.name] = `${fieldLabel(d.name, labels.core)} · ${fill(labels.dateYearsCombined, { years: span })}`;
         } else if (years.length === 1) single.set(d.name, years[0]);
     }
