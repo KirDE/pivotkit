@@ -285,7 +285,7 @@ export function yearRules(field, years, all) {
     if (!years.length || years.length === all.length) {
         return [];
     }
-    const day = (y, last) => `${String(y).padStart(4, "0")}-${last ? "12-31" : "01-01"}`;
+    const day = (y, last) => `${y >= 0 && y <= 9999 ? String(y).padStart(4, "0") : `${y < 0 ? "-" : "+"}${String(Math.abs(y)).padStart(6, "0")}`}-${last ? "12-31" : "01-01"}`;
     const rule = (op, from, to) => ({ field, type: "compare", op, value: day(from, false), value2: day(to, true) });
     const rules = [rule("between", years[0], years[years.length - 1])];
     for (let i = 1; i < years.length; i++) {

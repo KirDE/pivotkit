@@ -20,7 +20,12 @@ const utcDay = (year, month, day) => { const date = new Date(0); date.setUTCFull
 const remainder = (value, base) => ((value % base) + base) % base;
 
 export function isoWeek(ms) {
-    const d = new Date(ms);
+    // Gregorian weekdays repeat every 400 years. Work in a representable cycle so
+    // January 4 and a neighbouring Thursday exist even at either Date boundary.
+    const original = new Date(ms);
+    const sourceYear = original.getUTCFullYear();
+    const shift = sourceYear <= -271821 || sourceYear >= 275760 ? 2000 + remainder(sourceYear, 400) - sourceYear : 0;
+    const d = shift ? new Date(utcDay(sourceYear + shift, original.getUTCMonth(), original.getUTCDate())) : original;
     const day = (d.getUTCDay() + 6) % 7; // Monday = 0
     const thursday = utcDay(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day + 3);
     const year = new Date(thursday).getUTCFullYear();
@@ -28,7 +33,7 @@ export function isoWeek(ms) {
     const jan4 = new Date(utcDay(year, 0, 4));
     const firstThursday = jan4.getTime() + (3 - ((jan4.getUTCDay() + 6) % 7)) * MS_PER_DAY;
     const week = 1 + Math.round((thursday - firstThursday) / (7 * MS_PER_DAY));
-    return { year, week };
+    return { year: year - shift, week };
 }
 
 const monthName = (month, locale) =>
@@ -37,7 +42,9 @@ const monthName = (month, locale) =>
 /** "Jan 2025" in English, "Jan. 2025" in German: the month of a year, as the locale writes it. */
 const yearMonthName = (v, locale) => {
     const year = Math.floor(v / 100);
-    const date = new Date(utcDay(year, remainder(v, 100) - 1, 1));
+    const start = utcDay(year, remainder(v, 100) - 1, 1);
+    // The first representable month starts on April 20, not April 1.
+    const date = new Date(Number.isNaN(start) && year < 0 ? -8.64e15 : start);
     return dateTimeFormat(locale, { month: "short", year: "numeric", timeZone: "UTC", ...(year <= 0 ? {era: "short"} : {}) }).format(date);
 };
 

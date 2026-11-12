@@ -302,3 +302,32 @@ for (const theme of ["light", "dark"]) for (const width of [1280, 390]) test(`si
     await expect.poll(() => page.evaluate(() => window.__expandedRule?.filters[0]?.value)).toBe("-000001-01-01");
     await page.locator(".pk-chip-menu").screenshot({path:testInfo.outputPath("expanded-year-rule.png")});
 });
+
+for (const theme of ["light", "dark"]) for (const width of [1280, 390]) test(`saved year-zero rules remain visible without year-zero data #97: ${theme}, ${width}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({width, height:900});
+    await page.emulateMedia({colorScheme: theme});
+    await page.goto("pages/host.html");
+    await page.evaluate(async () => {
+        const React = await import("react");
+        const { createRoot } = await import("react-dom/client");
+        const { PivotReport } = await import("pivotkit-react");
+        const section = document.createElement("section");
+        section.id = "expanded-rule-report";
+        document.body.append(section);
+        function Example() {
+            const [view, setView] = React.useState({rows:["Date"], values:[{agg:"count"}], filters:[{field:"Date", type:"compare", op:">=", value:"0000-01-01"}]});
+            return React.createElement(PivotReport, {data:[{Date:"2026-01-01"}], height:640, view, onViewChange:(next) => { window.__expandedRule = next; setView(next); }});
+        }
+        createRoot(section).render(React.createElement(Example));
+    });
+    await openZones(page.locator("#expanded-rule-report"));
+    await page.locator("#expanded-rule-report").getByTestId("chip-menu-Date").click();
+    await page.getByTestId("topic-filter").click();
+    const value = page.getByTestId("rule-item-value");
+    await expect(value).toHaveValue("0000-01-01");
+    await page.getByTestId("rule-item-op").selectOption("<=");
+    await expect.poll(() => page.evaluate(() => window.__expandedRule?.filters[0]?.op)).toBe("<=");
+    await value.fill("-000001-01-01");
+    await expect.poll(() => page.evaluate(() => window.__expandedRule?.filters[0]?.value)).toBe("-000001-01-01");
+    await page.locator(".pk-chip-menu").screenshot({path:testInfo.outputPath("year-zero-rule.png")});
+});

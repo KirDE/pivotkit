@@ -547,7 +547,7 @@ function ItemRule({ rule, ctx, apply, first }) {
     const textOf = (v) => (v === undefined ? "" : fk.item === "number" ? numberText(v, locale) : String(v));
     const compared = rule?.type === "compare" ? rule : null;
     const ranged = rule?.type === "relative" ? rule : null;
-    const [expandedDates] = useState(() => [compared?.value, compared?.value2].some((v) => /^[+-]/.test(String(v))) || (fk.item === "date" && items.some((i) => typeof i.value === "number" && (new Date(i.value).getUTCFullYear() < 1 || new Date(i.value).getUTCFullYear() > 9999))));
+    const [expandedDates] = useState(() => [compared?.value, compared?.value2].some((v) => /^(?:[+-]|0000-)/.test(String(v))) || (fk.item === "date" && items.some((i) => typeof i.value === "number" && (new Date(i.value).getUTCFullYear() < 1 || new Date(i.value).getUTCFullYear() > 9999))));
     const [s, setS] = useState(() => ({
         op: ranged ? "last" : compared?.op ?? ">=",
         a: textOf(compared?.value),

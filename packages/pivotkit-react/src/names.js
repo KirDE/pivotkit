@@ -207,7 +207,7 @@ function periodEnd(iso, unit) {
     }
     const date = new Date(`${iso}T00:00Z`);
     date.setUTCFullYear(date.getUTCFullYear(), unit === "year" ? 11 : date.getUTCMonth() + 1, unit === "year" ? 31 : 0);
-    return isoDay(date.getTime());
+    return isoDay(Number.isNaN(date.getTime()) ? 8.64e15 : date.getTime());
 }
 
 /**
@@ -268,8 +268,9 @@ export function compareText(f, labels, locale, { date, labelOf }) {
     const shown = (v) => (typeof v === "string" ? dayText(v, locale) : labelOf?.(v) ?? (date ? String(v) : v.toLocaleString(locale, { maximumFractionDigits: 6 })));
     const forms = labels.compareShort;
     if (f.op === "between" || f.op === "notBetween") {
-        // the smaller first, as the engine reads them (ISO days sort as text)
-        const [from, to] = f.value2 !== undefined && f.value2 < f.value ? [f.value2, f.value] : [f.value, f.value2];
+        // Signed expanded ISO years must be ordered by day, not their leading sign.
+        const order = (v) => typeof v === "string" ? Date.parse(`${v}T00:00Z`) : v;
+        const [from, to] = f.value2 !== undefined && order(f.value2) < order(f.value) ? [f.value2, f.value] : [f.value, f.value2];
         // whole years of days (Years combined): "2024 to 2025", "2025", "not 2025"
         const years = wholeYears(from, to);
         if (years) {

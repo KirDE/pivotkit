@@ -8,3 +8,8 @@ test("date summaries preserve the complete ISO day and year",()=>{
     assert.deepEqual(wholeYears("-000001-01-01","0002-12-31"),["-000001","0002"]);
     assert.equal(rangeShare({from:"9999-01-01",to:"+010000-12-31"},"year",{min:Date.parse("9999-01-01"),max:Date.parse("+010000-12-31")},"en-US"),null);
 });
+
+test("maximum partial year/month share does not overflow Date (#97)", () => {
+    const range = {from: "+275760-09-01", to: "+275760-09-13"};
+    for (const unit of ["year", "month"]) assert.equal(rangeShare(range, unit, {min: Date.parse(range.from), max: 8.64e15}, "en-US"), null);
+});

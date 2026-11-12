@@ -163,7 +163,7 @@ export function csvText(grid, options) {
                 }
                 if (isNumberCell(source)) {
                     const showAs = source.valueIndex !== undefined && Boolean(grid.showAs?.[source.valueIndex]);
-                    return source.valueType === "date" ? isoOf(source.value) : numberText(source.value, source.format, mark, showAs, locale);
+                    return source.valueType === "date" ? quote(isoOf(source.value)) : numberText(source.value, source.format, mark, showAs, locale);
                 }
                 return quote(source.text);
             })

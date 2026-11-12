@@ -8,6 +8,8 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Fixed
 
+- Preserve saved year-zero edits, signed Years combined rules, maximum-date menus and chronological expanded-date summaries (#97).
+
 - Keep signed expanded-year date rules visible and editable, using ISO text where the native
   calendar cannot represent the year (#97).
 
