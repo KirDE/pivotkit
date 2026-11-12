@@ -10,7 +10,7 @@
 
 import { CATALOG, aggregatorsFor, fieldLabel, formatter, isFormat } from "pivotkit-core";
 import { fill, plural } from "./labels.js";
-import { dateRangeText } from "./date-context.js";
+import { dateRangeText, dateDisplayLocale } from "./date-context.js";
 import { calendarDays, groupHint, groupStats } from "./group-context.js";
 import { groupingName, refLabel, relativeText, sortText, valueLabel } from "./names.js";
 import { ZONES, dateSpan, filterZoneFields, filtersOf, groupField, groupingOf, moveField, numericResult, reorder, sameRef, setSort, sortEntry, sortOf, sourceOf } from "./view-ops.js";
@@ -137,7 +137,7 @@ export function axisTopics({ view, zone, index, field, types, labels, locale, st
     if (date) {
         const stats = groupStats(encoded, source);
         const span = stats?.span;
-        const dateLocale = view.formatting?.locale || locale;
+        const dateLocale = dateDisplayLocale(view.formatting?.locale || locale);
         const regroup = (unit) => () => {
             const sourceName = fieldLabel(source, labels.core);
             const grouped = unit ? groupingName(sourceName, unit, labels) : null;

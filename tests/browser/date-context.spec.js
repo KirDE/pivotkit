@@ -131,3 +131,25 @@ test("combined cyclic months display Gregorian grouping keys in other calendars 
     expect(text).toContain("Jan");
     expect(text).toContain("Aug");
 });
+
+test("drill title retains combined cyclic field context #109", async ({page}) => {
+    await page.goto("?data=weather&preset=0");
+    await page.locator('[data-testid="pivot-table"] td.pk-clickable').first().click();
+    await expect(page.getByTestId("drill-panel")).toContainText("2023–2025 combined");
+});
+
+test("invalid host locale keeps date Group menus usable after controlled failure #109", async ({page}) => {
+    await page.goto("pages/element-views.html");
+    const host = page.locator("#views");
+    await expect(host.locator(".pk-root")).toBeVisible();
+    await host.evaluate(el => {
+        el.defaultView = {rows:["Date"],values:[{field:"Amount",agg:"sum"}]};
+        el.data = [{Date:"2024-01-01",Amount:1}];
+        el.locale = "invalid_locale";
+    });
+    await expect(host.getByRole("alert")).toBeVisible();
+    await openZones(page);
+    await host.getByTestId("chip-menu-Date").click();
+    await host.getByTestId("topic-group").click();
+    await expect(host.getByTestId("group-year")).toBeVisible();
+});

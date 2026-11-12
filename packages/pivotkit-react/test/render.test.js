@@ -123,3 +123,9 @@ test("invalid locale with date fields renders the controlled error instead of th
     const {html} = render({data:[{Date:"2024-01-01",Amount:1}], locale:"invalid_locale", defaultView:{rows:["Date"],values:[{field:"Amount",agg:"sum"}]}});
     assert.match(html, /role="alert"/);
 });
+
+test("layout limit failures retain computed date field metadata", () => {
+    const {html} = render({data:[{Date:"2024-01-01",Amount:1}], limits:{work:1}, defaultView:{rows:["Date"],values:[{field:"Amount",agg:"sum"}]}});
+    assert.match(html, /role="alert"/);
+    assert.match(html, /data-testid="field-info"/);
+});

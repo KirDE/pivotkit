@@ -6,6 +6,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+- Keep date field ranges after layout errors and validate display locales before date Group
+  menus render. Drill-down titles retain combined-year context; repeated localized years
+  coalesce across Gregorian boundaries. Timeline year/quarter examples match grouping labels.
+
 - Historical date-context year labels include BCE eras; cyclic month hints use the
   Gregorian grouping calendar with localized month names. Single-year month items in other
   calendars describe observed month-year endpoints, never synthetic dates. Range/year formatters

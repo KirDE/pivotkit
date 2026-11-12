@@ -21,6 +21,14 @@ export function dateFormatter(locale, options) {
     return fmt;
 }
 
+/** Safe locale for display-only metadata, independent of pivot success.
+ * Invalid input still reaches computePivot's controlled error path.
+ * @param {string} locale */
+export function dateDisplayLocale(locale) {
+    try { dateFormatter(locale, {year: "numeric", timeZone: "UTC"}); return locale; }
+    catch { return "en-US"; }
+}
+
 /** @param {{min: number, max: number} | null} span @param {string} locale */
 export function dateRangeText(span, locale) {
     if (!span || !Number.isFinite(span.min) || !Number.isFinite(span.max) || Math.abs(span.min) > 8.64e15 || Math.abs(span.max) > 8.64e15) return "";
@@ -108,9 +116,11 @@ function observedYears(result, field) {
         if (!span) continue;
         const first = fmt.format(span.min), last = fmt.format(span.max);
         combined ||= first !== last;
-        parts.push(first === last ? first : `${first}–${last}`);
+        const previous = parts[parts.length - 1];
+        if (previous && previous.last === first) previous.last = last;
+        else parts.push({first, last});
     }
-    return {text: parts.join(", ") + suffix, combined};
+    return {text: parts.map(({first, last}) => first === last ? first : `${first}–${last}`).join(", ") + suffix, combined};
 }
 
 /** @param {import("pivotkit-core").PivotResult | null} result @param {import("./labels.js").UiLabels} labels

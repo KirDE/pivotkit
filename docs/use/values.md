@@ -259,3 +259,8 @@ examples use Gregorian month names in your language, matching the grouping keys 
 when your locale uses another calendar for full dates. For a single-year cyclic month in another
 calendar, table, chart and export labels show the observed localized month and year; if the
 Gregorian month contains dates in two calendar months, both endpoint month-years are shown.
+
+Date field information keeps its data range even when a layout exceeds a limit.
+Combined-year context also appears in the drill-down title. Equal localized years across a
+Gregorian year boundary are shown once; year and quarter Group examples match their
+Gregorian grouping labels, including in locales with other calendars or digit systems.

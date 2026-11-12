@@ -96,13 +96,12 @@ test("combined and single-year context follows the effective calendar and digits
     }
 });
 
-test("timeline Group endpoint years follow calendar and digits", () => {
+test("timeline Group endpoint years follow core Gregorian labels", () => {
     for (const locale of ["th-TH", "ar-EG", "ja-JP-u-ca-japanese"]) {
-        const fmt = new Intl.DateTimeFormat(locale, {year: "numeric", timeZone: "UTC"});
         for (const unit of ["year", "yearQuarter"]) {
             const hint = groupHint(data,"Date",unit,locale,{...LABELS.en,...en});
-            assert.ok(hint.includes(fmt.format(Date.UTC(2024,0,1))));
-            assert.ok(hint.includes(fmt.format(Date.UTC(2025,11,31))));
+            assert.ok(hint.includes("2024"));
+            assert.ok(hint.includes("2025"));
         }
     }
 });
@@ -180,7 +179,7 @@ test("historical cyclic year context distinguishes BCE and CE including year zer
     assert.match(combined.ranges[0].text, /BC/);
     const single = dateContext(computePivot(typed([values[0]]), view), LABELS.en);
     assert.match(JSON.stringify(toGrid(single.result)), /Jan 1 BC/);
-    assert.match(groupHint(typed(values), "Date", "year", "en-US", {...LABELS.en,...en}), /BC/);
+    assert.equal(groupHint(typed(values), "Date", "year", "en-US", {...LABELS.en,...en}), "0 … 1 (2)");
 });
 
 test("cyclic month hints use Gregorian grouping semantics in non-Gregorian locales", () => {
@@ -246,4 +245,21 @@ test("unused derived definitions never traverse surviving rows", () => {
     const result = computePivot(data, {...view, rows:[], cols:[], filters:[]});
     const counted = {...result, rows: new Proxy(result.rows, {get(target, key) { if (key === Symbol.iterator) throw new Error("unused source year scan"); return Reflect.get(target,key); }})};
     assert.doesNotThrow(() => dateContext(counted, LABELS.en));
+});
+
+test("localized context coalesces the same calendar year across Gregorian boundaries", () => {
+    const locale = "en-US-u-ca-islamic-civil";
+    const result = computePivot(encode(["2024-12-31", "2025-01-01"].map(Date => ({Date, Amount:1}))), {...view, formatting:{locale}});
+    const year = new Intl.DateTimeFormat(locale,{year:"numeric",timeZone:"UTC"}).format(Date.UTC(2024,11,31));
+    assert.equal(dateContext(result,LABELS.en).labels.core.fields.Month, `Month · ${year} combined`);
+});
+
+test("timeline year and quarter hints match actual derived labels for calendar and digits", () => {
+    for (const locale of ["ar-EG", "th-TH-u-ca-buddhist"]) {
+        for (const unit of ["year", "yearQuarter"]) {
+            const r = computePivot(data, {rows:["Period"], derived:[{name:"Period",field:"Date",by:unit}],values:[{agg:"count"}],formatting:{locale}});
+            const hint = groupHint(data,"Date",unit,locale,{...LABELS.en,...en});
+            for (const value of unit === "year" ? [2024, 2025] : [20241, 20254]) assert.ok(hint.includes(r.rowColumns[0].labeler(value,locale)), hint);
+        }
+    }
 });

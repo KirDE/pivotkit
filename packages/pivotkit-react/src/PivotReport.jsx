@@ -18,7 +18,7 @@ import { MAX_CATEGORIES, chartPlan } from "./chart-types.js";
 import { groupingName, layoutSummary, valueLabel } from "./names.js";
 import { PivotDnd } from "./dnd.jsx";
 import { DRILL_LIMIT, drillRows } from "./drill.js";
-import { dateContext, dateRangeText } from "./date-context.js";
+import { dateContext, dateRangeText, dateDisplayLocale } from "./date-context.js";
 import { displayNames, fieldDefaultsFor, fieldInfoOf, typesOf } from "./field-info.js";
 import { FieldPanel } from "./fields.jsx";
 import { Icon, TYPE_ICON } from "./icons.jsx";
@@ -754,6 +754,7 @@ function Report(props) {
     const error = source.error ?? computed.error ?? gridState.error ?? (view.display === "chart" ? chartComputed.error : null);
 
     // fields: the data's columns for the list; the type of a chip is its source field's
+    const dateLocale = useMemo(() => dateDisplayLocale(view.formatting?.locale || locale), [view.formatting?.locale, locale]);
     const fields = encoded.schema.fields;
     const types = useMemo(() => new Map(viewFields(view, encoded).map((f) => [f.name.toLowerCase(), f.type])), [view, encoded]);
     const typeOf = useCallback((field) => types.get(sourceOf(view, field ?? "").toLowerCase()) ?? "string", [types, view]);
@@ -770,11 +771,11 @@ function Report(props) {
                 return undefined;
             }
             const entry = info.get(sourceOf(view, field).toLowerCase());
-            const range = result ? dateRangeText(dateSpan(encoded, sourceOf(view, field)), result.locale) : "";
+            const range = dateRangeText(dateSpan(encoded, sourceOf(view, field)), dateLocale);
             const description = [entry?.description, range].filter(Boolean).join(" · ");
             return description ? { ...entry, description } : undefined;
         },
-        [info, view, encoded, result]
+        [info, view, encoded, dateLocale]
     );
     const fieldInfo = useMemo(() => {
         const entries = new Map(info);
@@ -1440,7 +1441,7 @@ function Report(props) {
                                 labels={context.labels}
                                 commit={commit}
                                 encoded={encoded}
-                                locale={locale}
+                                locale={dateLocale}
                                 onSwap={() => commit(swapAxes(view), { step: "swap" })}
                                 id={zonesId}
                                 folded={layoutFolded}
@@ -1556,7 +1557,7 @@ function Report(props) {
                             </div>
                         </div>
                         {/* inside the layout: clipped to the report's box with it (its slide-in too) */}
-                        {drill ? <MenuPanel name="DrillPanel" props={{ drill, onClose: () => setDrill(null), labels, locale, exportContext: { encoded, onExport, announce, root } }} /> : null}
+                        {drill ? <MenuPanel name="DrillPanel" props={{ drill, onClose: () => setDrill(null), labels: context.labels, locale, exportContext: { encoded, onExport, announce, root } }} /> : null}
                     </div>
                     {/* the filter and the drill-down load with the menus (lazy-menus.jsx) */}
                     {filterTarget ? <MenuPanel name="FilterPopover" props={{ target: filterTarget, onClose: closeFilter, view, encoded, locale, labels, commit }} /> : null}
