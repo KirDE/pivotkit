@@ -6,6 +6,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep pending controlled-host undo steps across delayed and intermediate acknowledgements (#141).
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
