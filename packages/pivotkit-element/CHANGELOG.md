@@ -6,6 +6,10 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 
 ## [Unreleased]
 
+### Changed
+
+- Generate bundled license notices with the shared third-party license helper (#125); output stays byte-identical.
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
