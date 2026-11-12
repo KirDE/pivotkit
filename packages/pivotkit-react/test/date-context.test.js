@@ -120,14 +120,14 @@ test("Japanese calendar context uses observed eras within a Gregorian year", () 
     assert.match(transition.labels.core.fields.Month, /combined/);
 });
 
-test("date spans scan once per immutable dataset, including empty/non-date fields", async () => {
+test("date spans reuse date scans per immutable dataset without caching non-date fields", async () => {
     const {dateSpan} = await import("../src/view-ops.js");
     let reads = 0;
     const counted = {...data, column: (field) => { reads++; return data.column(field); }};
     const span = dateSpan(counted, "Date");
     assert.strictEqual(dateSpan(counted, "date"), span);
     dateSpan(counted, "Amount"); dateSpan(counted, "Amount");
-    assert.equal(reads, 2);
+    assert.equal(reads, 3);
     const next = encode([{Date: "2030-01-01"}]);
     assert.equal(dateSpan(next, "Date").min, Date.UTC(2030,0,1));
 });
@@ -276,4 +276,22 @@ test("timeline month hints preserve historical years zero through 99 and BCE end
             assert.equal(groupHint(historical,"Date","yearMonth",locale,{...LABELS.en,...en}),`${expected[0]} … ${expected[1]} (${count})`);
         }
     }
+});
+
+test("date-span LRU remains bounded across unlimited host columns", async () => {
+    const {dateSpan} = await import("../src/view-ops.js");
+    const {LIMITS} = await import("pivotkit-core");
+    const columns = Array.from({length: LIMITS.cacheEntries + 1}, (_, i) => `Date${i}`);
+    const dates = encode({columns, types: columns.map(() => "date"), data: columns.map(() => [0])});
+    const first = dateSpan(dates, columns[0]);
+    const second = dateSpan(dates, columns[1]);
+    for (let i = 2; i < LIMITS.cacheEntries; i++) dateSpan(dates, columns[i]);
+    // Arbitrarily many non-date/missing fields must not consume retained entries.
+    for (let i = 0; i < 1000; i++) assert.equal(dateSpan(dates, `Missing${i}`), null);
+    assert.strictEqual(dateSpan(dates, columns[0].toLowerCase()), first, "a hit refreshes LRU recency");
+    dateSpan(dates, columns[LIMITS.cacheEntries]);
+    assert.strictEqual(dateSpan(dates, columns[0]), first, "recent date remains cached");
+    const rescanned = dateSpan(dates, columns[1]);
+    assert.deepEqual(rescanned, second, "eviction preserves the computed span");
+    assert.notStrictEqual(rescanned, second, "least recently used date was evicted and rescanned");
 });

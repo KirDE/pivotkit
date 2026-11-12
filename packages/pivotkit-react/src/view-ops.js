@@ -279,10 +279,14 @@ export function dateSpan(encoded, field) {
     let spans = dateSpans.get(encoded);
     if (!spans) dateSpans.set(encoded, spans = new Map());
     const key = field.toLowerCase();
-    if (spans.has(key)) return spans.get(key) ?? null;
+    if (spans.has(key)) {
+        const span = spans.get(key) ?? null;
+        spans.delete(key);
+        spans.set(key, span);
+        return span;
+    }
     const column = encoded.column(field);
     if (!column || column.type !== "date") {
-        spans.set(key, null);
         return null;
     }
     let min = Infinity;
@@ -295,6 +299,10 @@ export function dateSpan(encoded, field) {
     }
     const span = min <= max ? { min, max } : null;
     spans.set(key, span);
+    if (spans.size > LIMITS.cacheEntries) {
+        const oldest = spans.keys().next().value;
+        if (oldest !== undefined) spans.delete(oldest);
+    }
     return span;
 }
 
