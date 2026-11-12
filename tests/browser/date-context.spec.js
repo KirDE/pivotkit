@@ -153,3 +153,19 @@ test("invalid host locale keeps date Group menus usable after controlled failure
     await host.getByTestId("topic-group").click();
     await expect(host.getByTestId("group-year")).toBeVisible();
 });
+
+test("historical Month grouping hints retain the actual century #109", async ({page}) => {
+    await page.goto("pages/element-views.html");
+    const host = page.locator("#views");
+    await expect(host.locator(".pk-root")).toBeVisible();
+    await host.evaluate(el => {
+        el.defaultView = {rows:["Date"],values:[{field:"Amount",agg:"sum"}]};
+        el.data = [{Date:"0001-02-15",Amount:1},{Date:"0099-11-20",Amount:2}];
+        el.locale = "en-US";
+    });
+    await openZones(page);
+    await host.getByTestId("chip-menu-Date").click();
+    await host.getByTestId("topic-group").click();
+    await expect(host.getByTestId("group-yearMonth")).toContainText("Feb 1 … Nov 99 (1186)");
+    await expect(host.getByTestId("group-yearMonth")).not.toContainText("1901");
+});

@@ -6,6 +6,9 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+- Timeline Month grouping hints preserve historical years 0–99 rather than shifting them
+  to 1900–1999, including localized calendar and BCE endpoint labels.
+
 - Keep date field ranges after layout errors and validate display locales before date Group
   menus render. Drill-down titles retain combined-year context; repeated localized years
   coalesce across Gregorian boundaries. Timeline year/quarter examples match grouping labels.

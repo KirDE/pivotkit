@@ -63,7 +63,10 @@ export function groupHint(encoded, field, unit, locale, labels, stats = groupSta
     if (unit === "year") return `${firstYear} … ${lastYear} (${y2 - y1 + 1})`;
     if (unit === "yearMonth") {
         const fmt = dateFormatter(locale, { year: "numeric", month: "short", timeZone: "UTC", era });
-        return `${fmt.format(Date.UTC(y1, first.getUTCMonth(), 1))} … ${fmt.format(Date.UTC(y2, last.getUTCMonth(), 1))} (${(y2 - y1) * 12 + last.getUTCMonth() - first.getUTCMonth() + 1})`;
+        const start = new Date(0), end = new Date(0);
+        start.setUTCFullYear(y1, first.getUTCMonth(), 1);
+        end.setUTCFullYear(y2, last.getUTCMonth(), 1);
+        return `${fmt.format(start)} … ${fmt.format(end)} (${(y2 - y1) * 12 + last.getUTCMonth() - first.getUTCMonth() + 1})`;
     }
     return dateRangeText(span, locale);
 }

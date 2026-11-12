@@ -263,3 +263,17 @@ test("timeline year and quarter hints match actual derived labels for calendar a
         }
     }
 });
+
+test("timeline month hints preserve historical years zero through 99 and BCE endpoints", () => {
+    for (const days of [["0001-02-15", "0099-11-20"], ["0000-01-15", "0001-12-20"], ["-000001-03-15", "0000-08-20"]]) {
+        const values = days.map(day => Date.parse(`${day}T00:00Z`));
+        const historical = encode({columns:["Date"],types:["date"],data:[values]});
+        for (const locale of ["en-US", "de-DE", "en-US-u-ca-islamic-civil"]) {
+            const dates = values.map(value => new Date(value));
+            const fmt = new Intl.DateTimeFormat(locale,{year:"numeric",month:"short",timeZone:"UTC",era:dates[0].getUTCFullYear() <= 0 ? "short" : undefined});
+            const expected = dates.map(date => { date.setUTCDate(1); return fmt.format(date); });
+            const count = (dates[1].getUTCFullYear()-dates[0].getUTCFullYear())*12 + dates[1].getUTCMonth()-dates[0].getUTCMonth()+1;
+            assert.equal(groupHint(historical,"Date","yearMonth",locale,{...LABELS.en,...en}),`${expected[0]} … ${expected[1]} (${count})`);
+        }
+    }
+});

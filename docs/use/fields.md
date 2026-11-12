@@ -156,4 +156,5 @@ explain whether each year stays separate or matching periods are combined.
 
 The footer names each date source when more than one range is shown. Group hints list only
 observed months and quarters (for example, Jan–Feb, Nov–Dec), including gaps across years.
-Year context follows the report's calendar and digits.
+Year context follows the report's calendar and digits. Timeline Month examples retain the actual
+historical century, including years 0–99 and BCE dates, rather than shifting them to the 1900s.
