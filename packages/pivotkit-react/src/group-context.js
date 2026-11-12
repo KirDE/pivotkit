@@ -1,7 +1,7 @@
 // Group-level hints load only with the menus.
 import { CATALOG } from "pivotkit-core";
 import { plural } from "./labels.js";
-import { dateRangeText } from "./date-context.js";
+import { dateFormatter, dateRangeText } from "./date-context.js";
 
 /** Scan the dictionary once for all Group choices, not once per choice.
  * @param {import("pivotkit-core").Encoded | undefined} encoded @param {string} field */
@@ -38,12 +38,12 @@ export function groupHint(encoded, field, unit, locale, labels, stats = groupSta
     const {first, last, months, years} = stats;
     const y1 = first.getUTCFullYear(), y2 = last.getUTCFullYear();
     const era = y1 <= 0 ? "short" : undefined;
-    const yearFormat = new Intl.DateTimeFormat(locale, {year: "numeric", timeZone: "UTC", era});
+    const yearFormat = dateFormatter(locale, {year: "numeric", timeZone: "UTC", era});
     const firstYear = yearFormat.format(first), lastYear = yearFormat.format(last);
     if (CATALOG.cyclicUnits.includes(unit)) {
         let example = labels.unitHints[unit];
         if (unit === "month" || unit === "quarter") {
-            const name = (m) => unit === "quarter" ? `Q${Math.floor(m / 3) + 1}` : new Intl.DateTimeFormat(locale, {calendar: "gregory", month: "short", timeZone: "UTC"}).format(new Date(Date.UTC(2000, m, 1)));
+            const name = (m) => unit === "quarter" ? `Q${Math.floor(m / 3) + 1}` : dateFormatter(locale, {calendar: "gregory", month: "short", timeZone: "UTC"}).format(new Date(Date.UTC(2000, m, 1)));
             const periods = [...new Set(months.map((m) => unit === "quarter" ? Math.floor(m / 3) : m))];
             const runs = [];
             const text = (p) => name(unit === "quarter" ? p * 3 : p);
@@ -62,7 +62,7 @@ export function groupHint(encoded, field, unit, locale, labels, stats = groupSta
     }
     if (unit === "year") return `${firstYear} … ${lastYear} (${y2 - y1 + 1})`;
     if (unit === "yearMonth") {
-        const fmt = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", timeZone: "UTC", era });
+        const fmt = dateFormatter(locale, { year: "numeric", month: "short", timeZone: "UTC", era });
         return `${fmt.format(span.min)} … ${fmt.format(span.max)} (${(y2 - y1) * 12 + last.getUTCMonth() - first.getUTCMonth() + 1})`;
     }
     return dateRangeText(span, locale);

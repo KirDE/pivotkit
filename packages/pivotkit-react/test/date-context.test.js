@@ -218,3 +218,32 @@ test("date ranges reuse formatters for large date schemas and distinguish era op
         assert.ok(constructions <= 2, `${constructions} formatters constructed`);
     } finally { Intl.DateTimeFormat = Original; }
 });
+
+
+test("combined cyclic month keys use localized Gregorian names", () => {
+    const locale = "en-US-u-ca-islamic-civil";
+    const result = computePivot(encode(["2024-01-15", "2024-08-15"].map(Date => ({Date, Amount:1}))), {...view, formatting:{locale}});
+    const context = dateContext(result, LABELS.en);
+    assert.match(context.labels.core.fields.Month, /combined/);
+    const grid = JSON.stringify(toGrid(context.result));
+    const fmt = new Intl.DateTimeFormat(locale, {calendar:"gregory", month:"short", timeZone:"UTC"});
+    for (const month of [0,7]) assert.ok(grid.includes(fmt.format(Date.UTC(2024,month,15))), grid);
+});
+
+test("Group navigation reuses bounded shared date formatters", () => {
+    const Original = Intl.DateTimeFormat;
+    let constructions = 0;
+    Intl.DateTimeFormat = function(...args) { constructions++; return new Original(...args); };
+    try {
+        const stats = groupStats(data, "Date");
+        for (let i=0;i<10;i++) for (const unit of ["year","yearQuarter","yearMonth","yearWeek","day","quarter","month","week","weekday","hour"])
+            groupHint(data,"Date",unit,"en-GB-u-nu-deva",{...LABELS.en,...en},stats);
+        assert.ok(constructions <= 4, `${constructions} formatters constructed`);
+    } finally { Intl.DateTimeFormat = Original; }
+});
+
+test("unused derived definitions never traverse surviving rows", () => {
+    const result = computePivot(data, {...view, rows:[], cols:[], filters:[]});
+    const counted = {...result, rows: new Proxy(result.rows, {get(target, key) { if (key === Symbol.iterator) throw new Error("unused source year scan"); return Reflect.get(target,key); }})};
+    assert.doesNotThrow(() => dateContext(counted, LABELS.en));
+});

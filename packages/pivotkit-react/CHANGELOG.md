@@ -9,7 +9,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 - Historical date-context year labels include BCE eras; cyclic month hints use the
   Gregorian grouping calendar with localized month names. Single-year month items in other
   calendars describe observed month-year endpoints, never synthetic dates. Range/year formatters
-  are shared in a bounded cache across date fields.
+  are shared in a bounded cache across date fields and Group hints. Combined month items
+  use localized Gregorian grouping keys, and unused saved definitions skip year scans.
+- Invalid locale options with date fields keep the report’s controlled error message instead
+  of throwing during computed field-info rendering.
 
 ### Added
 

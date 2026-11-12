@@ -243,6 +243,9 @@ number of days, followed by examples from your data.
 are combined; if filters leave only one year, the items carry that year instead (Jan 2025). Week numbers omit this suffix: an ISO week-year
 can differ from the calendar year. Long year lists show up to 32 observed calendar years,
 followed by an ellipsis when more are included; gaps are never filled in.
+For other calendars, a single-year month item describes its observed month-year endpoints.
+Combined month items use localized Gregorian month names, matching the grouping keys.
+Unused saved groupings add no year-context scan.
 This context does not rename your saved fields or change the grouping.
 
 ![Date range and combined years](../assets/screenshots/date-context-light.png#only-light)

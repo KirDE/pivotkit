@@ -770,11 +770,11 @@ function Report(props) {
                 return undefined;
             }
             const entry = info.get(sourceOf(view, field).toLowerCase());
-            const range = dateRangeText(dateSpan(encoded, sourceOf(view, field)), result?.locale ?? locale);
+            const range = result ? dateRangeText(dateSpan(encoded, sourceOf(view, field)), result.locale) : "";
             const description = [entry?.description, range].filter(Boolean).join(" · ");
             return description ? { ...entry, description } : undefined;
         },
-        [info, view, encoded, locale, result?.locale]
+        [info, view, encoded, result]
     );
     const fieldInfo = useMemo(() => {
         const entries = new Map(info);
@@ -1471,7 +1471,7 @@ function Report(props) {
                                     }
                                 }}
                                 labels={labels}
-                                locale={locale}
+                                locale={result?.locale ?? "en-US"}
                                 narrow={size === "narrow"}
                                 // the status note "View loaded; some parts did not fit this data" said it
                                 quiet={unusedSaid && !fromHost}

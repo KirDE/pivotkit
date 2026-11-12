@@ -7,7 +7,7 @@ import { fill } from "./labels.js";
 /** @type {Map<string, Intl.DateTimeFormat>} */
 const formatters = new Map();
 /** @param {string} locale @param {Intl.DateTimeFormatOptions} options */
-function dateFormatter(locale, options) {
+export function dateFormatter(locale, options) {
     const key = JSON.stringify([locale, options]);
     let fmt = formatters.get(key);
     if (!fmt) {
@@ -122,11 +122,14 @@ export function dateContext(result, labels) {
     const single = new Map();
     /** @type {Map<string, Map<number, {min: number, max: number}>>} */
     const observedMonths = new Map();
+    const used = new Set([...view.rows, ...view.cols, ...filterZoneFields(view)]);
+    const combinedMonths = new Set();
     for (const d of view.derived) {
-        if (!CATALOG.cyclicUnits.includes(d.by)) continue;
+        if (!used.has(d.name) || !CATALOG.cyclicUnits.includes(d.by)) continue;
         const years = yearsOf(result, d.field);
         const observed = observedYears(result, d.field);
         if (observed.combined) {
+            if (d.by === "month") combinedMonths.add(d.name);
             const span = observed.text;
             Object.defineProperty(fields, d.name, {value: `${fieldLabel(d.name, labels.core)} · ${fill(labels.dateYearsCombined, { years: span })}`, enumerable: true, configurable: true, writable: true});
             // ISO week numbers can span two week-years within one calendar year.
@@ -142,6 +145,9 @@ export function dateContext(result, labels) {
     const decorated = { ...result, label: (axis, node, core) => {
         const text = result.label(axis, node, core);
         const field = (axis === "rows" ? result.rowFields : result.colFields)[node.depth - 1];
+        if (node.parent && typeof node.key === "number" && combinedMonths.has(field)) {
+            return dateFormatter(locale, {calendar: "gregory", month: "short", timeZone: "UTC"}).format(Date.UTC(2000, node.key - 1, 1));
+        }
         const span = typeof node.key === "number" ? observedMonths.get(field)?.get(node.key) : undefined;
         if (node.parent && span) {
             const fmt = dateFormatter(locale, {month: "short", year: "numeric", timeZone: "UTC", era: new Date(span.min).getUTCFullYear() <= 0 ? "short" : undefined});
