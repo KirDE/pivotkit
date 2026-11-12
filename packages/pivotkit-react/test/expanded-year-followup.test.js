@@ -24,3 +24,27 @@ test("Years combined emits canonical signed dates and reads the selection back (
     assert.equal(filters[0].value2,"+010000-12-31");
     assert.deepEqual(quickChoice({filters},"Date",{cyclic:true},all).years,[-1,10000]);
 });
+
+
+test("Years combined clamps partial Date boundary years and survives normalization (#97)", async () => {
+    const {encode, normalize, computePivot} = await import("pivotkit-core");
+    const {setYearsCombined} = await import("../src/menu-ops.js");
+    const all = [-271821, 2024, 275760];
+    const field = "Date (Month)";
+    const {groupField} = await import("../src/view-ops.js");
+    const data = encode({columns:["Date"], types:["date"], data:[[-8.64e15, Date.UTC(2024,0,1), 8.64e15]]});
+    for (const [years, from, to] of [
+        [[-271821], "-271821-04-20", "-271821-12-31"],
+        [[275760], "+275760-01-01", "+275760-09-13"],
+        [[-271821,275760], "-271821-04-20", "+275760-09-13"]
+    ]) {
+        const base = normalize(groupField(normalize({rows:["Date"],values:[{agg:"count"}]},data).view,"Date","month",{name:field}).view,data).view;
+        const view = {...base, filters:yearRules(field,years,all)};
+        assert.equal(view.filters[0].value,from);
+        assert.equal(view.filters[0].value2,to);
+        assert.deepEqual(normalize(view,data).issues,[]);
+        assert.deepEqual(quickChoice(view,field,{cyclic:true},all).years,years);
+        assert.equal(computePivot(data,view).rowRoot.children.length,years.length);
+        assert.deepEqual(setYearsCombined(view,field,all,all).filters,[]);
+    }
+});

@@ -7,7 +7,7 @@
 
 import { CATALOG, computePivot, isFormat } from "pivotkit-core";
 import { fill } from "./labels.js";
-import { itemRuleText, valueConditionText, wholeYears } from "./names.js";
+import { isoDay, itemRuleText, valueConditionText, wholeYears } from "./names.js";
 import { axisOf, clone, filterZoneFields, filtersOf, groupingOf, numericResult, same, sameRef, sourceOf } from "./view-ops.js";
 
 /** Aggregators whose result counts rows or items instead of being a value of the field (its unit). */
@@ -285,7 +285,13 @@ export function yearRules(field, years, all) {
     if (!years.length || years.length === all.length) {
         return [];
     }
-    const day = (y, last) => `${y >= 0 && y <= 9999 ? String(y).padStart(4, "0") : `${y < 0 ? "-" : "+"}${String(Math.abs(y)).padStart(6, "0")}`}-${last ? "12-31" : "01-01"}`;
+    const day = (y, last) => {
+        // The first and last supported years contain only part of a calendar year.
+        if (y === -271821 && !last) return isoDay(-8.64e15);
+        if (y === 275760 && last) return isoDay(8.64e15);
+        const year = y >= 0 && y <= 9999 ? String(y).padStart(4, "0") : `${y < 0 ? "-" : "+"}${String(Math.abs(y)).padStart(6, "0")}`;
+        return `${year}-${last ? "12-31" : "01-01"}`;
+    };
     const rule = (op, from, to) => ({ field, type: "compare", op, value: day(from, false), value2: day(to, true) });
     const rules = [rule("between", years[0], years[years.length - 1])];
     for (let i = 1; i < years.length; i++) {

@@ -249,12 +249,12 @@ export function relativeText(f, labels, locale, timeZone, now, span) {
 }
 
 /**
- * The years two calendar days bound as whole years (Jan 1 to Dec 31), or null: the days a comparison
+ * The years two calendar days bound as whole years (Jan 1 to Dec 31, clamped at Date limits), or null: the days a comparison
  * on a date grouping's source dates gets from Years combined.
  * @returns {[string, string] | null}
  */
 export function wholeYears(from, to) {
-    const whole = typeof from === "string" && typeof to === "string" && /^(?:\d{4}|[+-]\d{6})-01-01$/.test(from) && /^(?:\d{4}|[+-]\d{6})-12-31$/.test(to);
+    const whole = typeof from === "string" && typeof to === "string" && (/^(?:\d{4}|[+-]\d{6})-01-01$/.test(from) || from === "-271821-04-20") && (/^(?:\d{4}|[+-]\d{6})-12-31$/.test(to) || to === "+275760-09-13");
     return whole ? [from.slice(0, -6), to.slice(0, -6)] : null;
 }
 
