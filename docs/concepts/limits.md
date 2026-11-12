@@ -165,3 +165,8 @@ try {
     }
 }
 ```
+
+Date-context labels retain at most 32 observed calendar-year spans per source field and
+pivot result. Further years are indicated by an ellipsis, not expanded into DOM/export
+labels. Group hints count distinct representable years in a fixed 68 KiB bitmap.
+Nonrepresentable date values have no computed date range or year context.
