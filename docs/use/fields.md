@@ -158,3 +158,5 @@ The footer names each date source when more than one range is shown. Group hints
 observed months and quarters (for example, Jan–Feb, Nov–Dec), including gaps across years.
 Year context follows the report's calendar and digits. Timeline Month examples retain the actual
 historical century, including years 0–99 and BCE dates, rather than shifting them to the 1900s.
+The grouped table, chart and export use these same historical month labels, including the era
+for BCE dates; timeline quarters retain quarter numbers Q1–Q4 even before year zero.
