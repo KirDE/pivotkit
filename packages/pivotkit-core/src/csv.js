@@ -55,7 +55,7 @@ export function neutralizeFormula(text) {
 
 function isoOf(wallMs) {
     const d = new Date(wallMs);
-    const date = `${pad(d.getUTCFullYear(), 4)}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const date = d.toISOString().split("T")[0];
     return wallMs % MS_PER_DAY === 0 ? date : `${date} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 }
 

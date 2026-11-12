@@ -274,7 +274,9 @@ test.describe("the Filter level of a date field", () => {
     });
 });
 
-test("signed expanded-year rules remain visible and editable #97", async ({ page }) => {
+for (const theme of ["light", "dark"]) for (const width of [1280, 390]) test(`signed expanded-year rules remain visible and editable #97: ${theme}, ${width}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({width, height:900});
+    await page.emulateMedia({colorScheme: theme});
     await page.goto("pages/host.html");
     await page.evaluate(async () => {
         const React = await import("react");
@@ -298,4 +300,5 @@ test("signed expanded-year rules remain visible and editable #97", async ({ page
     await expect.poll(() => page.evaluate(() => window.__expandedRule?.filters[0]?.op)).toBe("<=");
     await value.fill("-000001-01-01");
     await expect.poll(() => page.evaluate(() => window.__expandedRule?.filters[0]?.value)).toBe("-000001-01-01");
+    await page.locator(".pk-chip-menu").screenshot({path:testInfo.outputPath("expanded-year-rule.png")});
 });
