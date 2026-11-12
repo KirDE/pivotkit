@@ -257,8 +257,8 @@ export const en = {
     groupNone: "No grouping (every date and time)",
     groupTimeline: "One item per period",
     groupCyclic: "Same period, years combined",
-    groupDataRange: "Data: {range} ({days} days)",
-    groupYearsTogether: "{years} years together",
+    groupDataRange: {one: "Data: {range} ({count} day)", other: "Data: {range} ({count} days)"},
+    groupYearsTogether: {one: "{count} year together", other: "{count} years together"},
     unitHints: {
         year: "2025", yearQuarter: "Q1 2025", yearMonth: "Jan 2025", yearWeek: "2025-W03", day: "Jan 15, 2025",
         quarter: "Q1 of every year", month: "Jan of every year", week: "W03 of every year", weekday: "Mon to Sun", hour: "00:00 to 23:00",

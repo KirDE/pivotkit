@@ -10,27 +10,52 @@ export function dateRangeText(span, locale) {
     return `${fmt.format(span.min)} – ${fmt.format(span.max)}`;
 }
 
+/** Cached by immutable pivot result; shared by derived fields and table/chart decoration.
+ * @type {WeakMap<import("pivotkit-core").PivotResult, Map<string, number[]>>} */
+const yearCache = new WeakMap();
+
 /** Distinct years actually left after all filters, not the interval between their endpoints.
  * @param {import("pivotkit-core").PivotResult} result @param {string} field */
 export function yearsOf(result, field) {
+    let cached = yearCache.get(result);
+    if (!cached) yearCache.set(result, cached = new Map());
+    const previous = cached.get(field);
+    if (previous) return previous;
     const column = result.encoded.column(field);
     const years = new Set();
     if (column?.type === "date") {
+        const seen = new Set(), date = new Date(0);
         for (const row of result.rows) {
-            const value = column.dict[column.codes[row]];
-            if (typeof value === "number" && Number.isFinite(value)) years.add(new Date(value).getUTCFullYear());
+            const code = column.codes[row];
+            if (seen.has(code)) continue;
+            seen.add(code);
+            const value = column.dict[code];
+            if (typeof value === "number" && Number.isFinite(value)) {
+                date.setTime(value);
+                years.add(date.getUTCFullYear());
+            }
         }
     }
-    return [...years].sort((a, b) => a - b);
+    const sorted = [...years].sort((a, b) => a - b);
+    cached.set(field, sorted);
+    return sorted;
 }
 
-/** List only years actually included, coalescing consecutive runs. @param {number[]} years */
-export function yearSetText(years) {
+/** @param {number} year @param {string} locale */
+export function contextYear(year, locale) {
+    const date = new Date(0);
+    date.setUTCFullYear(year, 0, 1);
+    return new Intl.DateTimeFormat(locale, {year: "numeric", timeZone: "UTC"}).format(date);
+}
+
+/** List only years actually included, coalescing consecutive runs.
+ * @param {number[]} years @param {string} [locale] */
+export function yearSetText(years, locale = "en-US") {
     const runs = [];
     for (let i = 0; i < years.length; i++) {
         const first = years[i];
         while (i + 1 < years.length && years[i + 1] === years[i] + 1) i++;
-        runs.push(first === years[i] ? String(first) : `${first}–${years[i]}`);
+        runs.push(first === years[i] ? contextYear(first, locale) : `${contextYear(first, locale)}–${contextYear(years[i], locale)}`);
     }
     return runs.join(", ");
 }
@@ -46,9 +71,9 @@ export function dateContext(result, labels) {
         if (!CATALOG.cyclicUnits.includes(d.by)) continue;
         const years = yearsOf(result, d.field);
         if (years.length > 1) {
-            const span = yearSetText(years);
-            fields[d.name] = `${fieldLabel(d.name, labels.core)} · ${fill(labels.dateYearsCombined, { years: span })}`;
-        } else if (years.length === 1) single.set(d.name, years[0]);
+            const span = yearSetText(years, locale);
+            Object.defineProperty(fields, d.name, {value: `${fieldLabel(d.name, labels.core)} · ${fill(labels.dateYearsCombined, { years: span })}`, enumerable: true, configurable: true, writable: true});
+        } else if (years.length === 1) single.set(d.name, contextYear(years[0], locale));
     }
     /** @type {import("pivotkit-core").PivotResult} */
     const decorated = { ...result, label: (axis, node, core) => {

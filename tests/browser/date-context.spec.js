@@ -48,3 +48,18 @@ test("field information and footer use the loaded view locale #109", async ({pag
     await page.locator('.pk-field[data-field="Date"]').getByTestId("field-info").click();
     await expect(page.locator(".pk-popover")).toContainText(expected);
 });
+
+for (const theme of ["light", "dark"]) {
+    for (const width of [1280, 390]) {
+        test(`date context review screenshot ${theme} ${width} #109`, async ({page}, info) => {
+            test.skip(info.project.name !== "chromium", "Layout captures only; behaviour covered in all engines");
+            await page.setViewportSize({width, height:900});
+            await page.goto(`?data=weather&preset=0&theme=${theme}`);
+            await openZones(page);
+            await page.locator('[data-zone="cols"] [data-testid^="chip-menu-"]').click();
+            await page.getByTestId("topic-group").click();
+            await expect(page.locator(".pk-chip-menu")).toContainText("3 years together");
+            await page.screenshot({path:info.outputPath(`group-${theme}-${width}.png`),fullPage:true});
+        });
+    }
+}

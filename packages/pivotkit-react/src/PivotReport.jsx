@@ -738,7 +738,7 @@ function Report(props) {
             return { result: null, error };
         }
     }, [plan.swap, view, encoded, locale, limits, computed, result]);
-    const chartContext = useMemo(() => dateContext(chartComputed.result, labels), [chartComputed.result, labels]);
+    const chartContext = useMemo(() => chartComputed.result === computed.result ? context : dateContext(chartComputed.result, labels), [chartComputed.result, computed.result, context, labels]);
     const chartResult = chartContext.result;
     const empty = isEmptyView(view);
     const gridState = useMemo(() => {
@@ -1542,7 +1542,7 @@ function Report(props) {
                             </section>
                             <div className="pk-status">
                                 <span data-testid="row-count">{result ? plural(labels.rowsCount, result.rows.length, { lang: labels.lang, locale }) : ""}</span>
-                                {context.ranges.map(({ field, text }) => <span key={field} data-testid="date-range" title={field}>{" · "}{text}</span>)}
+                                {context.ranges.map(({ field, text }) => <span key={field} data-testid="date-range" title={field}>{" · "}{context.ranges.length > 1 ? `${fieldLabel(field, labels.core)}: ` : ""}{text}</span>)}
                                 {importMod ? <importMod.SourceLine api={api} /> : null}
                                 {rowLabel && showTable ? (
                                     <span className="pk-row-label" data-testid="row-label">

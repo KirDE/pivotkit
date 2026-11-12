@@ -147,7 +147,7 @@ export function axisTopics({ view, zone, index, field, types, labels, locale, st
         const unit = (u) => ({ id: `group-${u}`, text: labels.units[u] ?? u, hint: groupHint(encoded, source, u, dateLocale, labels, stats), checked: grouping?.by === u, closes: true, change: regroup(u) });
         topics.push({
             id: "group",
-            intro: span ? fill(labels.groupDataRange, { range: dateRangeText(span, dateLocale), days: calendarDays(span) }) : undefined,
+            intro: span ? fill(plural(labels.groupDataRange, calendarDays(span), {lang: labels.lang, locale: dateLocale}), { range: dateRangeText(span, dateLocale) }) : undefined,
             title: labels.groupTopic,
             kind: "menu",
             icon: "date",

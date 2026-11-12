@@ -153,3 +153,7 @@ The menu of a value is on [Values and formats](values.md#the-menu-of-a-value).
 A date field's **i** shows the first and last date in the data, alongside any description supplied
 by the page. In its Group level, the first line also shows the number of days covered; the choices
 explain whether each year stays separate or matching periods are combined.
+
+The footer names each date source when more than one range is shown. Group hints list only
+observed months and quarters (for example, Jan–Feb, Nov–Dec), including gaps across years.
+Year context follows the report's calendar and digits.

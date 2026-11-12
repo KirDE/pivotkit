@@ -45,3 +45,51 @@ test("one Group dictionary scan supplies every unit's hints", () => {
     for (const unit of ["year", "yearQuarter", "yearMonth", "yearWeek", "day", "quarter", "month", "week", "weekday", "hour"]) groupHint(counted, "Date", unit, "en-US", {...LABELS.en, ...en}, stats);
     assert.equal(reads, 1);
 });
+
+test("year scans are reused across derived fields and table/chart contexts", () => {
+    const result = computePivot(data, {...view, derived: [...view.derived, {name:"Quarter", field:"Date", by:"quarter"}]});
+    let reads = 0;
+    const counted = {...result, encoded: {...result.encoded, column: (field) => { if (field === "Date") reads++; return result.encoded.column(field); }}};
+    const first = yearsOf(counted, "Date");
+    assert.strictEqual(yearsOf(counted, "Date"), first);
+    assert.equal(reads, 1);
+    dateContext(counted, LABELS.en);
+    dateContext(counted, LABELS.en);
+    // dateSpan still reads the dictionary for footer ranges; only the year scan is cached.
+    assert.strictEqual(yearsOf(counted, "Date"), first);
+});
+
+test("cyclic hints preserve gaps and cross-year month/quarter coverage", () => {
+    const season = encode(["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"].map(Date => ({Date})));
+    const labels = {...LABELS.en, ...en};
+    assert.equal(groupHint(season, "Date", "month", "en-US", labels), "Jan–Feb, Nov–Dec · 2 years together");
+    assert.equal(groupHint(season, "Date", "quarter", "en-US", labels), "Q1, Q4 · 2 years together");
+});
+
+test("one-day/year Group labels use singular forms in English and German", async () => {
+    const {plural, fill} = await import("../src/labels.js");
+    const single = encode([{Date:"2024-01-01"}]);
+    for (const [labels, locale, day, year] of [[{...LABELS.en,...en},"en-US","day","year together"],[{...LABELS.de,...de},"de-DE","Tag","Jahr zusammen"]]) {
+        assert.match(groupHint(single,"Date","month",locale,labels), new RegExp(`1 ${year}$`));
+        assert.match(fill(plural(labels.groupDataRange,1,{lang:labels.lang,locale}),{range:"R"}),new RegExp(`1 ${day}\\)`));
+    }
+});
+
+test("view-derived __proto__ is an own display label, not a prototype setter", () => {
+    const result = computePivot(data, {...view, rows:["__proto__"], derived:[{name:"__proto__",field:"Date",by:"month"}]});
+    const context = dateContext(result,LABELS.en);
+    assert.ok(Object.hasOwn(context.labels.core.fields,"__proto__"));
+    assert.match(context.labels.core.fields.__proto__, /2024–2025 combined/);
+    assert.equal(Object.getPrototypeOf(context.labels.core.fields),Object.prototype);
+});
+
+test("combined and single-year context follows the effective calendar and digits", () => {
+    for (const locale of ["th-TH", "ar-EG"]) {
+        const fmt = new Intl.DateTimeFormat(locale,{year:"numeric",timeZone:"UTC"});
+        const result = computePivot(data, {...view,formatting:{locale}});
+        const context = dateContext(result,LABELS.en);
+        assert.ok(context.labels.core.fields.Month.includes(fmt.format(Date.UTC(2024,0,1))));
+        const single = computePivot(data, {...view,formatting:{locale},filters:[{field:"Date",type:"compare",op:">=",value:"2025-01-01"}]});
+        assert.ok(JSON.stringify(toGrid(dateContext(single,LABELS.en).result)).includes(fmt.format(Date.UTC(2025,0,1))));
+    }
+});
