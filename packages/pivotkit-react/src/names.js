@@ -198,7 +198,10 @@ export function rangeShare(range, unit, span, locale) {
 }
 
 /** The first day of the year, month or day an ISO day falls in. */
-const periodStart = (iso, unit) => (unit === "year" ? `${iso.slice(0, -6)}-01-01` : unit === "month" ? `${iso.slice(0, -3)}-01` : iso);
+function periodStart(iso, unit) {
+    const first = unit === "year" ? `${iso.slice(0, -6)}-01-01` : unit === "month" ? `${iso.slice(0, -3)}-01` : iso;
+    return Number.isNaN(Date.parse(`${first}T00:00Z`)) ? isoDay(-8.64e15) : first;
+}
 
 /** The last day of the year, month or day an ISO day falls in. */
 function periodEnd(iso, unit) {
