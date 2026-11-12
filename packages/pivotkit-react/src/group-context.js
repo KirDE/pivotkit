@@ -31,6 +31,8 @@ export function groupHint(encoded, field, unit, locale, labels, stats = groupSta
     if (!span || !stats) return labels.unitHints[unit] || undefined;
     const {first, last, months, years} = stats;
     const y1 = first.getUTCFullYear(), y2 = last.getUTCFullYear();
+    const yearFormat = new Intl.DateTimeFormat(locale, {year: "numeric", timeZone: "UTC"});
+    const firstYear = yearFormat.format(first), lastYear = yearFormat.format(last);
     if (CATALOG.cyclicUnits.includes(unit)) {
         let example = labels.unitHints[unit];
         if (unit === "month" || unit === "quarter") {
@@ -49,9 +51,9 @@ export function groupHint(encoded, field, unit, locale, labels, stats = groupSta
     }
     if (unit === "yearQuarter") {
         const q1 = Math.floor(first.getUTCMonth() / 3) + 1, q2 = Math.floor(last.getUTCMonth() / 3) + 1;
-        return `Q${q1} ${y1} … Q${q2} ${y2} (${(y2 - y1) * 4 + q2 - q1 + 1})`;
+        return `Q${q1} ${firstYear} … Q${q2} ${lastYear} (${(y2 - y1) * 4 + q2 - q1 + 1})`;
     }
-    if (unit === "year") return `${y1} … ${y2} (${y2 - y1 + 1})`;
+    if (unit === "year") return `${firstYear} … ${lastYear} (${y2 - y1 + 1})`;
     if (unit === "yearMonth") {
         const fmt = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", timeZone: "UTC" });
         return `${fmt.format(span.min)} … ${fmt.format(span.max)} (${(y2 - y1) * 12 + last.getUTCMonth() - first.getUTCMonth() + 1})`;

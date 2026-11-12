@@ -24,11 +24,9 @@ export function yearsOf(result, field) {
     const column = result.encoded.column(field);
     const years = new Set();
     if (column?.type === "date") {
-        const seen = new Set(), date = new Date(0);
+        const date = new Date(0);
         for (const row of result.rows) {
             const code = column.codes[row];
-            if (seen.has(code)) continue;
-            seen.add(code);
             const value = column.dict[code];
             if (typeof value === "number" && Number.isFinite(value)) {
                 date.setTime(value);

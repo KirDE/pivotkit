@@ -93,3 +93,14 @@ test("combined and single-year context follows the effective calendar and digits
         assert.ok(JSON.stringify(toGrid(dateContext(single,LABELS.en).result)).includes(fmt.format(Date.UTC(2025,0,1))));
     }
 });
+
+test("timeline Group endpoint years follow calendar and digits", () => {
+    for (const locale of ["th-TH", "ar-EG", "ja-JP-u-ca-japanese"]) {
+        const fmt = new Intl.DateTimeFormat(locale, {year: "numeric", timeZone: "UTC"});
+        for (const unit of ["year", "yearQuarter"]) {
+            const hint = groupHint(data,"Date",unit,locale,{...LABELS.en,...en});
+            assert.ok(hint.includes(fmt.format(Date.UTC(2024,0,1))));
+            assert.ok(hint.includes(fmt.format(Date.UTC(2025,11,31))));
+        }
+    }
+});

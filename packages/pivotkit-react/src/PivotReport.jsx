@@ -1323,7 +1323,7 @@ function Report(props) {
         [fromHost, given, loads, result, empty]
     );
     // while enlarged, the fields in one line: what the result shows, without the zones
-    const summaryParts = big.enlarged ? layoutSummary(zoneEntries(view, types, labels), labels) : [];
+    const summaryParts = big.enlarged ? layoutSummary(zoneEntries(view, types, context.labels), context.labels) : [];
     const summaryText = summaryParts.length ? summaryParts.map((p) => `${p.title}: ${p.fields}`).join(" · ") : labels.layoutEmpty;
 
     return (

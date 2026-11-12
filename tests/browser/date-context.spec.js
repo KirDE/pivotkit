@@ -63,3 +63,17 @@ for (const theme of ["light", "dark"]) {
         });
     }
 }
+
+test("enlarged summary retains cyclic context and Group introduction describes its menu #109", async ({page}) => {
+    await page.goto("?data=weather&preset=0");
+    await page.getByTestId("enlarge").click();
+    await expect(page.getByTestId("enlarged-fields")).toContainText("2023–2025 combined");
+    await page.getByTestId("enlarge").click();
+    await openZones(page);
+    await page.getByTestId("chip-menu-Date by month of year").click();
+    await page.getByTestId("topic-group").click();
+    const menu = page.getByTestId("level-group").getByRole("menu");
+    await expect(menu).toHaveAttribute("aria-describedby", /intro$/);
+    await expect(menu.locator(":scope > p.pk-field-desc")).toHaveCount(0);
+    await expect(menu).toHaveAccessibleDescription(/2023/);
+});

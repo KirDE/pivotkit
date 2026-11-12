@@ -85,6 +85,8 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Fixed
 
+- Avoid distinct-date scratch allocations, localize Group timeline years, keep cyclic context in enlarged summaries, and describe Group menus with valid ARIA ownership (#109).
+
 - A loaded file shown again after a new mount lost its view when the host mounted the report twice in
   a row (PowerShell Universal's `Sync-UDElement`, two mounts within about 30 ms) or mounted it again
   before it passed back a view it was told: the report now starts on the kept view history at once,
