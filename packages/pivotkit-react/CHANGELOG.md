@@ -6,6 +6,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Fixed
+
+- Reposition open popovers when their anchor resizes or moves during a report transition or animation (#120).
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

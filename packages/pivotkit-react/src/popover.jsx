@@ -157,11 +157,18 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
         const ro = typeof ResizeObserver === "function" && el ? new ResizeObserver(place) : null;
         if (ro && el) {
             ro.observe(el);
+            if (anchor.current) ro.observe(anchor.current);
         }
+        // Position-only changes (the zones opening, for example) do not resize the anchor.
+        const root = anchor.current?.closest(".pk-root");
+        root?.addEventListener("transitionend", place, true);
+        root?.addEventListener("animationend", place, true);
         window.addEventListener("resize", place);
         window.addEventListener("scroll", place, true);
         return () => {
             ro?.disconnect();
+            root?.removeEventListener("transitionend", place, true);
+            root?.removeEventListener("animationend", place, true);
             window.removeEventListener("resize", place);
             window.removeEventListener("scroll", place, true);
         };
