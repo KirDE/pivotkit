@@ -6,6 +6,9 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+- Unused-view warning counts retain the validated view/host locale when pivot computation
+  fails (including work/group limits), with a safe English fallback for invalid locales.
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

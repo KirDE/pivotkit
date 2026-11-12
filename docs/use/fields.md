@@ -147,3 +147,6 @@ The menu of a value is on [Values and formats](values.md#the-menu-of-a-value).
 !!! note "For developers"
     How the layout follows the report's width, and the least heights, are in the
     [pivotkit-react reference](../reference/react.md#layout).
+
+Timeline Month grouping preserves historical years 0–99 and BCE dates in tables, charts and
+exports, including era labels. Timeline quarters retain quarter numbers Q1–Q4 before year zero.

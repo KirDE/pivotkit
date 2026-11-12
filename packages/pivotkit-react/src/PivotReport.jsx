@@ -723,6 +723,12 @@ function Report(props) {
         }
     }, [encoded, view, locale, limits]);
     const result = computed.result;
+    // Computation may fail before providing a locale; warning counts still follow the view.
+    const unusedLocale = useMemo(() => {
+        const requested = view.formatting?.locale || locale;
+        try { new Intl.NumberFormat(requested); return requested; }
+        catch { return "en-US"; }
+    }, [view.formatting?.locale, locale]);
     // what the chart draws: the user's type, or the one the data suggests ("auto"), for which rows and
     // columns may be swapped for the chart alone (dates on Columns run along the axis)
     const plan = useMemo(() => chartPlan(view, encoded), [view, encoded]);
@@ -1458,7 +1464,7 @@ function Report(props) {
                                     }
                                 }}
                                 labels={labels}
-                                locale={locale}
+                                locale={result?.locale ?? unusedLocale}
                                 narrow={size === "narrow"}
                                 // the status note "View loaded; some parts did not fit this data" said it
                                 quiet={unusedSaid && !fromHost}
