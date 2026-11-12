@@ -6,6 +6,12 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ## [Unreleased]
 
+### Fixed
+
+- Timeline month grouping preserves wall-clock years 0–99 and BCE month keys, with era labels
+  matching the Group hints. BCE quarter labels use positive quarter numbers. Tables, charts and
+  exports share these corrected labels.
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

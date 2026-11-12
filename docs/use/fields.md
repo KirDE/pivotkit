@@ -147,3 +147,16 @@ The menu of a value is on [Values and formats](values.md#the-menu-of-a-value).
 !!! note "For developers"
     How the layout follows the report's width, and the least heights, are in the
     [pivotkit-react reference](../reference/react.md#layout).
+
+### Date range
+
+A date field's **i** shows the first and last date in the data, alongside any description supplied
+by the page. In its Group level, the first line also shows the number of days covered; the choices
+explain whether each year stays separate or matching periods are combined.
+
+The footer names each date source when more than one range is shown. Group hints list only
+observed months and quarters (for example, Jan–Feb, Nov–Dec), including gaps across years.
+Year context follows the report's calendar and digits. Timeline Month examples retain the actual
+historical century, including years 0–99 and BCE dates, rather than shifting them to the 1900s.
+The grouped table, chart and export use these same historical month labels, including the era
+for BCE dates; timeline quarters retain quarter numbers Q1–Q4 even before year zero.
