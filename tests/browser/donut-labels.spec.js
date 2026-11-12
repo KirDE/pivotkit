@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js";
 
-for (const theme of ["light", "dark"]) for (const width of [1280, 390]) test(`outside donut labels at first draw and after value changes: ${theme}, ${width}px`, async ({ page }) => {
+for (const theme of ["light", "dark"]) for (const width of [1280, 390]) test(`outside donut labels at first draw and after value changes: ${theme}, ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("pages/host.html");
     await page.evaluate(async (theme) => {
@@ -37,7 +37,7 @@ for (const theme of ["light", "dark"]) for (const width of [1280, 390]) test(`ou
         // On phones ECharts truncates the names, but still draws both slice labels.
         await expect.poll(async () => (await texts()).length).toBe(5);
     }
-    await chart.screenshot({ path: `/home/openclaw/.openclaw/workspace/reports/pivotkit-issues-20261112/donut-${theme}-${width}.png` });
+    await chart.screenshot({ path: testInfo.outputPath(`donut-${theme}-${width}.png`) });
     await page.evaluate(() => window.__donutLabels("off"));
     await expect.poll(async () => (await texts()).length).toBe(3);
 });
