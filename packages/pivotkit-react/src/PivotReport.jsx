@@ -18,6 +18,7 @@ import { MAX_CATEGORIES, chartPlan } from "./chart-types.js";
 import { groupingName, layoutSummary, valueLabel } from "./names.js";
 import { PivotDnd } from "./dnd.jsx";
 import { DRILL_LIMIT, drillRows } from "./drill.js";
+import { dateContext, dateRangeText } from "./date-context.js";
 import { displayNames, fieldDefaultsFor, fieldInfoOf, typesOf } from "./field-info.js";
 import { FieldPanel } from "./fields.jsx";
 import { Icon, TYPE_ICON } from "./icons.jsx";
@@ -46,7 +47,7 @@ import { forgetData, hostIdentity, keepData, keptData } from "./data-keep.js";
 import { tagFor } from "./view-history.js";
 import { useBigResult, useFitHeight } from "./use-big-result.js";
 import {
-    addField, filterZoneFields, groupField, isEmptyView, moveField, removeAt, rowFolding, setChart, setChartDisplay, setCollapsed, setDisplay, setSort, setTotal, sourceOf, swapAxes, toggleCollapsed, zoneOverLimit
+    addField, dateSpan, filterZoneFields, groupField, isEmptyView, moveField, removeAt, rowFolding, setChart, setChartDisplay, setCollapsed, setDisplay, setSort, setTotal, sourceOf, swapAxes, toggleCollapsed, zoneOverLimit
 } from "./view-ops.js";
 import { Zones, zoneEntries } from "./zones.jsx";
 
@@ -722,7 +723,8 @@ function Report(props) {
             return { result: null, error };
         }
     }, [encoded, view, locale, limits]);
-    const result = computed.result;
+    const context = useMemo(() => dateContext(computed.result, labels), [computed.result, labels]);
+    const result = context.result;
     // what the chart draws: the user's type, or the one the data suggests ("auto"), for which rows and
     // columns may be swapped for the chart alone (dates on Columns run along the axis)
     const plan = useMemo(() => chartPlan(view, encoded), [view, encoded]);
@@ -736,18 +738,19 @@ function Report(props) {
             return { result: null, error };
         }
     }, [plan.swap, view, encoded, locale, limits, computed, result]);
-    const chartResult = chartComputed.result;
+    const chartContext = useMemo(() => dateContext(chartComputed.result, labels), [chartComputed.result, labels]);
+    const chartResult = chartContext.result;
     const empty = isEmptyView(view);
     const gridState = useMemo(() => {
         if (!result || view.display !== "table" || empty) {
             return { grid: null, error: null };
         }
         try {
-            return { grid: measured("toGrid", () => toGrid(result, { locale, labels: labels.core, limits })), error: null };
+            return { grid: measured("toGrid", () => toGrid(result, { locale, labels: context.labels.core, limits })), error: null };
         } catch (error) {
             return { grid: null, error };
         }
-    }, [result, view.display, empty, locale, labels, limits]);
+    }, [result, view.display, empty, locale, context.labels, limits]);
     const error = source.error ?? computed.error ?? gridState.error ?? (view.display === "chart" ? chartComputed.error : null);
 
     // fields: the data's columns for the list; the type of a chip is its source field's
@@ -763,14 +766,24 @@ function Report(props) {
     /** A field's description and link (of its source field for a grouping), or undefined. */
     const infoOf = useCallback(
         (field) => {
-            if (!field || info.size === 0) {
+            if (!field) {
                 return undefined;
             }
             const entry = info.get(sourceOf(view, field).toLowerCase());
-            return entry && entry.description ? entry : undefined;
+            const range = dateRangeText(dateSpan(encoded, sourceOf(view, field)), locale);
+            const description = [entry?.description, range].filter(Boolean).join(" · ");
+            return description ? { ...entry, description } : undefined;
         },
-        [info, view]
+        [info, view, encoded, locale]
     );
+    const fieldInfo = useMemo(() => {
+        const entries = new Map(info);
+        for (const field of encoded.schema.fields) {
+            const entry = infoOf(field.name);
+            if (entry) entries.set(field.name.toLowerCase(), entry);
+        }
+        return entries;
+    }, [info, infoOf, encoded]);
     const placed = useMemo(() => {
         const map = new Map();
         const mark = (name, zone) => {
@@ -1364,7 +1377,7 @@ function Report(props) {
                                 onNote={(text) => announce(text)}
                                 onFilter={filterNew}
                                 nameOf={nameOf}
-                                info={info}
+                                info={fieldInfo}
                                 showInfo={fieldSwitch.on}
                                 drawer={size === "narrow"}
                                 open={drawerOpen}
@@ -1424,7 +1437,7 @@ function Report(props) {
                             <Zones
                                 view={view}
                                 types={types}
-                                labels={labels}
+                                labels={context.labels}
                                 commit={commit}
                                 encoded={encoded}
                                 locale={locale}
@@ -1510,7 +1523,7 @@ function Report(props) {
                                         result={chartResult}
                                         plan={plan}
                                         series={series}
-                                        labels={labels}
+                                        labels={context.labels}
                                         locale={locale}
                                         themeName={themeName}
                                         root={root}
@@ -1524,11 +1537,12 @@ function Report(props) {
                                         onPoint={(p) => openCell({ rowPath: plan.swap ? p.colPath : p.rowPath, colPath: plan.swap ? p.rowPath : p.colPath, value: p.value, valueIndex: p.valueIndex, text: String(p.value ?? "") })}
                                     />
                                 ) : gridState.grid ? (
-                                    <PivotTable grid={gridState.grid} view={view} labels={labels} version={history.viewKey} hintId={view.values.length ? hintId : undefined} onRowLabel={setRowLabel} infoOf={infoOf} showInfo={fieldSwitch.on} typeOf={typeOf} hostOrdered={hostOrdered} onSort={sortFromHeader} onToggle={(axis, path) => commit(toggleCollapsed(view, axis, path), { step: "collapse" })} onCell={(cell) => openCell(cell)} />
+                                    <PivotTable grid={gridState.grid} view={view} labels={context.labels} version={history.viewKey} hintId={view.values.length ? hintId : undefined} onRowLabel={setRowLabel} infoOf={infoOf} showInfo={fieldSwitch.on} typeOf={typeOf} hostOrdered={hostOrdered} onSort={sortFromHeader} onToggle={(axis, path) => commit(toggleCollapsed(view, axis, path), { step: "collapse" })} onCell={(cell) => openCell(cell)} />
                                 ) : null}
                             </section>
                             <div className="pk-status">
                                 <span data-testid="row-count">{result ? plural(labels.rowsCount, result.rows.length, { lang: labels.lang, locale }) : ""}</span>
+                                {context.ranges.map(({ field, text }) => <span key={field} data-testid="date-range" title={field}>{" · "}{text}</span>)}
                                 {importMod ? <importMod.SourceLine api={api} /> : null}
                                 {rowLabel && showTable ? (
                                     <span className="pk-row-label" data-testid="row-label">

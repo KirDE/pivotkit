@@ -231,3 +231,20 @@ says it, "Ranges of 100 from 0"; its level opens filled in, with **Remove ranges
     [Values: aggregators, show as, formats](../concepts/values.md); date units, ranges and time zones
     in [Dates and number ranges](../concepts/dates.md). `fieldDefaults` sets what a field gets when it
     is added ([React props](../reference/react.md#props)).
+
+### Which dates and years are included?
+
+When a date is in Rows, Columns or Filters, the footer shows the first and last date in the data.
+The date's **i** also shows that range. The Group level starts with the range and its inclusive
+number of days, followed by examples from your data.
+
+**One item per period** keeps each year separate (for example, Jan 2024 and Jan 2025).
+**Same period, years combined** puts matching periods together. The axis title says which years
+are combined; if filters leave only one year, the items carry that year instead (Jan 2025).
+This context does not rename your saved fields or change the grouping.
+
+![Date range and combined years](../assets/screenshots/date-context-light.png#only-light)
+![Date range and combined years](../assets/screenshots/date-context-dark.png#only-dark)
+
+![Date context on a phone](../assets/screenshots/date-context-phone-light.png#only-light)
+![Date context on a phone](../assets/screenshots/date-context-phone-dark.png#only-dark)

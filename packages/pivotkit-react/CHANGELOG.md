@@ -6,6 +6,11 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+
+- Date range in the footer, field descriptions and Group level; data-derived grouping hints and
+  context for cyclic groupings that combine years, in English and German (#109).
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

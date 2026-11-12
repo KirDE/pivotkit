@@ -274,6 +274,7 @@ function TopicRow({ topic, labels, onOpen }) {
 function Groups({ topic, onPick }) {
     return (
         <>
+            {topic.intro ? <p className="pk-field-desc">{topic.intro}</p> : null}
             {(topic.groups ?? []).map((g, i) => (
                 <Group key={i} menu title={g.title} label={g.title ? undefined : topic.title}>
                     {g.choices.map((c) => (
