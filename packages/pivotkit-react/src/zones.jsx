@@ -138,7 +138,7 @@ function Chip({ id, zone, index, count, field, text, typeName, view, types, labe
     const name = words ? `${text}, ${words}` : undefined;
     const remove = () => onRemove(zone, index, text);
     return (
-        <li ref={setNodeRef} style={style} className={`pk-chip pk-chip-${zone}${isDragging ? " pk-dragging" : ""}`} {...itemProps} data-chip={text}>
+        <li ref={setNodeRef} style={style} className={`pk-chip pk-chip-${zone}${isDragging ? " pk-dragging" : ""}`} {...itemProps} data-chip={zone !== "values" && view.derived.some((d) => d.name === field) ? field : text}>
             <span className="pk-handle" {...handleProps} aria-label={fill(labels.dragHandle, { field: text })}>
                 <Icon name="grip" size={16} />
             </span>
