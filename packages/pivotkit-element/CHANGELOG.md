@@ -6,6 +6,11 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 
 ## [Unreleased]
 
+### Changed
+
+- First-load gzip budget is 161.75 KiB for the expanded-year Date-boundary filter
+  summaries (#97); Node 24 measures 161.5 KiB, just above the former unrounded limit.
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

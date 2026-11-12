@@ -224,7 +224,10 @@ answers checked, a plugin's minimal table completed, failed sheets, the host's e
  * the menus 39.7 with the Data menu's panel, within 41.
  * `--size` fails above it; raise it on purpose, with the reason in the commit.
  */
-export const SIZE_BUDGET_KIB = { initial: 161.5, chart: 211, export: 11.5, link: 7.3, menus: 41, texts: 6.8, unused: 5, import: 21 };
+// Expanded-year boundary read-back (#97) adds two clamped endpoints to the shared
+// filter summary. Node 24 measures 161.5 KiB (just above 161.5 before rounding);
+// keep a quarter-KiB allowance rather than omit Date-limit correctness.
+export const SIZE_BUDGET_KIB = { initial: 161.75, chart: 211, export: 11.5, link: 7.3, menus: 41, texts: 6.8, unused: 5, import: 21 };
 
 /**
  * What a page loads, from the build's metafile: the entry with its static imports ("initial"), and

@@ -29,7 +29,7 @@ import { dayText, isoDay, periodText, rangeShare, refLabel, relativeDays, relati
 import { numberText, parseNumber } from "./numbers.js";
 import { LayerContext, Popover } from "./popover.jsx";
 import { dateSpan, filtersOf, sameRef, selectedItems, sourceOf } from "./view-ops.js";
-import { RULES_MAX, RULE_TYPES, conditionKind, itemTotals, quickChoice, removeRules, resetFilter, ruleKind, ruleText, setAnchor, setItemFilter, setQuickRange, setRule, setYearsCombined } from "./menu-ops.js";
+import { RULES_MAX, RULE_TYPES, dateRuleValue, conditionKind, itemTotals, quickChoice, removeRules, resetFilter, ruleKind, ruleText, setAnchor, setItemFilter, setQuickRange, setRule, setYearsCombined } from "./menu-ops.js";
 
 const twin = (op) => op === "between" || op === "notBetween";
 /** The first letter as a sentence starts: "last {count} years" in a list of choices is "Last …". */
@@ -547,6 +547,7 @@ function ItemRule({ rule, ctx, apply, first }) {
     const textOf = (v) => (v === undefined ? "" : fk.item === "number" ? numberText(v, locale) : String(v));
     const compared = rule?.type === "compare" ? rule : null;
     const ranged = rule?.type === "relative" ? rule : null;
+    const [expandedDates] = useState(() => [compared?.value, compared?.value2].some((v) => /^(?:[+-]|0000-)/.test(String(v))) || (fk.item === "date" && items.some((i) => typeof i.value === "number" && (new Date(i.value).getUTCFullYear() < 1 || new Date(i.value).getUTCFullYear() > 9999))));
     const [s, setS] = useState(() => ({
         op: ranged ? "last" : compared?.op ?? ">=",
         a: textOf(compared?.value),
@@ -556,7 +557,7 @@ function ItemRule({ rule, ctx, apply, first }) {
     }));
     const later = useLater();
     const formName = useFormName();
-    const read = (text) => (fk.item === "number" ? parseNumber(text, locale) : fk.item === "date" ? (/^\d{4,}-\d{2}-\d{2}$/.test(text) ? text : null) : text === "" ? null : Number(text));
+    const read = (text) => (fk.item === "number" ? parseNumber(text, locale) : fk.item === "date" ? dateRuleValue(text) : text === "" ? null : Number(text));
     const entryOf = (x) => {
         if (x.op === "last") {
             const n = readNumber(x.count, { kind: "count", max: CATALOG.relativeMaxCount, labels, locale }).value;
@@ -597,7 +598,7 @@ function ItemRule({ rule, ctx, apply, first }) {
             return <NumberField value={s[key]} onChange={(t) => change({ [key]: t }, true)} onKeyDown={keys} onBlur={later.now} problem={problem} label={label} testId={testId} className="pk-field-label pk-narrow-input" />;
         }
         if (fk.item === "date") {
-            return <input type="date" name={`${formName}-${key}`} value={s[key]} onChange={(e) => change({ [key]: e.target.value })} aria-label={label} data-testid={testId} />;
+            return <input type={expandedDates ? "text" : "date"} placeholder={expandedDates ? "+010000-01-01" : undefined} name={`${formName}-${key}`} value={s[key]} onChange={(e) => change({ [key]: e.target.value })} aria-label={label} data-testid={testId} />;
         }
         // a grouping: one of its items ("2022", "Mar 2025"), or the view's own when the data has it no more
         const listed = items.filter((i) => typeof i.value === "number");

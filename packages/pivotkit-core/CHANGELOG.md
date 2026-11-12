@@ -6,6 +6,12 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep Date-boundary ISO week/month groups valid and guard signed aggregate dates in CSV (#97).
+
+- Preserve ISO expanded-year dates through repeated normalization and saved compare filters (#97).
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

@@ -323,3 +323,15 @@ test("compare: a date grouping with a calendar day compares the source dates, no
     assert.deepEqual(computePivot(data, { ...v, filters: [{ field: "Month", type: "compare", op: ">=", value: "3" }] }).rowRoot.children.map((n) => n.key), [3, 4, 12]);
     assert.deepEqual(normalize({ ...v, filters: [{ field: "Month", type: "compare", op: "between", value: "2026-01-01", value2: 3 }] }, data).issues.map((i) => i.code), ["filterCompareValue"]);
 });
+
+test("expanded-year compare days survive normalize and saved-view round trips (#97)", () => {
+    for (const [value, value2] of [[-8.64e15, 8.64e15], ["-000001-02-28", "+010000-02-29"]]) {
+        const first = normalize({ filters: [{ field: "Date", type: "compare", op: "between", value, value2 }] }, data);
+        assert.deepEqual(first.issues, []);
+        const again = normalize(first.view, data);
+        assert.deepEqual(again.issues, []);
+        assert.deepEqual(again.view, first.view);
+        const saved = fromViewFile(viewFileText(toViewFile(first.view)));
+        assert.deepEqual(normalize(saved.view, data).view, first.view);
+    }
+});

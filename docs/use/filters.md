@@ -111,7 +111,7 @@ week of the year, day of the week, hour of the day) has no quick choices: "This 
 lone December. Instead, **Years combined** shows one toggle per year in the data (with two to twelve
 years), each with its rows, all on at first. Switch a year off and the table combines the others; the
 summary's small line says which ("2024–2025 combined", "2025 only") and the chip says the years
-("2024 to 2025"). The last year on cannot go. Under the hood this is a rule on the dates (below), not
+("2024 to 2025"). The last year on cannot go. At the earliest and latest supported dates, selecting a whole year keeps only its representable days (April 20 onward in −271821; through September 13 in +275760). Under the hood this is a rule on the dates (below), not
 a rule of its own: Rules says "No rules" and shows it as a line, "Quick choice: 2024–2025 combined". A rule of your own on the same grouping ("is from Jun") stays when you switch a year.
 
 ![The Filter level of Date by month of year on the weather data: Years combined with 2023, 2024 and 2025, the summary saying 2023–2025 combined, and the months to pick](../assets/screenshots/filter-cyclic-light.png#only-light)
