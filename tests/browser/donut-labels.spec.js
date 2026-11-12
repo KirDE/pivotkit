@@ -37,7 +37,7 @@ for (const theme of ["light", "dark"]) for (const width of [1280, 390]) test(`ou
         // On phones ECharts truncates the names, but still draws both slice labels.
         await expect.poll(async () => (await texts()).length).toBe(5);
     }
-    await page.screenshot({ path: `/home/openclaw/.openclaw/workspace/reports/pivotkit-issues-20261112/donut-${theme}-${width}.png` });
+    await chart.screenshot({ path: `/home/openclaw/.openclaw/workspace/reports/pivotkit-issues-20261112/donut-${theme}-${width}.png` });
     await page.evaluate(() => window.__donutLabels("off"));
     await expect.poll(async () => (await texts()).length).toBe(3);
 });
