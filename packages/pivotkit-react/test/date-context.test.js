@@ -55,7 +55,7 @@ test("year scans are reused across derived fields and table/chart contexts", () 
     assert.equal(reads, 1);
     dateContext(counted, LABELS.en);
     dateContext(counted, LABELS.en);
-    // dateSpan still reads the dictionary for footer ranges; only the year scan is cached.
+    // Footer spans have their own immutable-dataset cache; year scans remain shared.
     assert.strictEqual(yearsOf(counted, "Date"), first);
 });
 
@@ -103,4 +103,30 @@ test("timeline Group endpoint years follow calendar and digits", () => {
             assert.ok(hint.includes(fmt.format(Date.UTC(2025,11,31))));
         }
     }
+});
+
+
+test("Japanese calendar context uses observed eras within a Gregorian year", () => {
+    const locale = "ja-JP-u-ca-japanese";
+    const fmt = new Intl.DateTimeFormat(locale, {year: "numeric", timeZone: "UTC"});
+    const sample = (dates) => computePivot(encode(dates.map(Date => ({Date, Amount: 1}))), {...view, formatting: {locale}});
+    const june = dateContext(sample(["2019-06-01"]), LABELS.en);
+    assert.ok(JSON.stringify(toGrid(june.result)).includes(fmt.format(Date.UTC(2019,5,1))));
+    assert.ok(!JSON.stringify(toGrid(june.result)).includes(fmt.format(Date.UTC(2019,0,1))));
+    const transition = dateContext(sample(["2019-04-01", "2019-06-01"]), LABELS.en);
+    assert.ok(transition.labels.core.fields.Month.includes(fmt.format(Date.UTC(2019,3,1))));
+    assert.ok(transition.labels.core.fields.Month.includes(fmt.format(Date.UTC(2019,5,1))));
+    assert.match(transition.labels.core.fields.Month, /combined/);
+});
+
+test("date spans scan once per immutable dataset, including empty/non-date fields", async () => {
+    const {dateSpan} = await import("../src/view-ops.js");
+    let reads = 0;
+    const counted = {...data, column: (field) => { reads++; return data.column(field); }};
+    const span = dateSpan(counted, "Date");
+    assert.strictEqual(dateSpan(counted, "date"), span);
+    dateSpan(counted, "Amount"); dateSpan(counted, "Amount");
+    assert.equal(reads, 2);
+    const next = encode([{Date: "2030-01-01"}]);
+    assert.equal(dateSpan(next, "Date").min, Date.UTC(2030,0,1));
 });

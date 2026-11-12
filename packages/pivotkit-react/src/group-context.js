@@ -11,10 +11,12 @@ export function groupStats(encoded, field) {
     let min = Infinity, max = -Infinity;
     const months = new Set();
     const years = new Set();
+    const date = new Date(0);
     for (const value of column.dict) {
         if (typeof value !== "number" || !Number.isFinite(value)) continue;
         min = Math.min(min, value); max = Math.max(max, value);
-        const date = new Date(value), month = date.getUTCMonth();
+        date.setTime(value);
+        const month = date.getUTCMonth();
         years.add(date.getUTCFullYear());
         months.add(month);
     }

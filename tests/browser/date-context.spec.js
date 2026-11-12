@@ -77,3 +77,27 @@ test("enlarged summary retains cyclic context and Group introduction describes i
     await expect(menu.locator(":scope > p.pk-field-desc")).toHaveCount(0);
     await expect(menu).toHaveAccessibleDescription(/2023/);
 });
+
+
+test("computed date info alone keeps the user explanation switch available #109", async ({page}) => {
+    await page.goto("pages/element-views.html");
+    const host = page.locator("#views");
+    await expect(host.locator(".pk-root")).toBeVisible();
+    await host.evaluate(el => {
+        el.defaultView = {rows: ["Date"], values: [{field: "Amount", agg: "sum"}]};
+        el.data = [{Date: "2019-06-01", Amount: 1}];
+        el.settingInfo = "on";
+        el.zoneInfo = "on";
+        el.fieldInfo = undefined;
+    });
+    await expect(host.locator('.pk-field[data-field="Date"] .pk-info')).toHaveCount(1);
+    if (await host.getByTestId("options").count()) await host.getByTestId("options").click();
+    else {
+        await host.getByTestId("more").click();
+        await host.getByTestId("more-options").click();
+    }
+    await expect(host.getByTestId("show-explanations")).toBeVisible();
+    await host.getByTestId("show-explanations").click();
+    await page.keyboard.press("Escape");
+    await expect(host.locator('.pk-field[data-field="Date"] .pk-info')).toHaveCount(0);
+});

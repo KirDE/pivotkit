@@ -1236,7 +1236,7 @@ function Report(props) {
     );
     const tipsOn = allowed !== "off" && !dismissed.includes(ALL_TIPS);
     // the i of the field descriptions and of the zones: the host forces them, else the user's switch
-    const describedFields = [...info.values()].some((i) => i.description);
+    const describedFields = [...fieldInfo.values()].some((i) => i.description);
     // one switch of the user's ("Show explanations") for the three kinds; a host's prop forces its kind
     const fieldSwitch = helpSwitch(fieldInfoProp, dismissed);
     const zoneSwitch = helpSwitch(zoneInfoProp, dismissed);

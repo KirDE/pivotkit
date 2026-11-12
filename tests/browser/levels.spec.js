@@ -84,7 +84,8 @@ test.describe("a field's menu by keyboard", () => {
         await expect(hint).toHaveText("Q1–Q4 · 2 years together");
         expect(parseFloat(await hint.evaluate((el) => getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(14);
         await menu.getByTestId("group-quarter").click();
-        await expect.poll(() => chips(page, "rows")).toEqual(["Created by quarter of the year · 2025–2026 combined"]);
+        await expect.poll(() => chips(page, "rows")).toEqual(["Created by quarter of the year"]);
+        await expect(page.locator('[data-zone="rows"]')).toContainText("2025–2026 combined");
     });
 });
 

@@ -11,7 +11,7 @@ export function dateRangeText(span, locale) {
 }
 
 /** Cached by immutable pivot result; shared by derived fields and table/chart decoration.
- * @type {WeakMap<import("pivotkit-core").PivotResult, Map<string, number[]>>} */
+ * @type {WeakMap<import("pivotkit-core").PivotResult, Map<string, {years: number[], spans: Map<number, {min: number, max: number}>}>>} */
 const yearCache = new WeakMap();
 
 /** Distinct years actually left after all filters, not the interval between their endpoints.
@@ -20,9 +20,10 @@ export function yearsOf(result, field) {
     let cached = yearCache.get(result);
     if (!cached) yearCache.set(result, cached = new Map());
     const previous = cached.get(field);
-    if (previous) return previous;
+    if (previous) return previous.years;
     const column = result.encoded.column(field);
     const years = new Set();
+    const spans = new Map();
     if (column?.type === "date") {
         const date = new Date(0);
         for (const row of result.rows) {
@@ -30,12 +31,16 @@ export function yearsOf(result, field) {
             const value = column.dict[code];
             if (typeof value === "number" && Number.isFinite(value)) {
                 date.setTime(value);
-                years.add(date.getUTCFullYear());
+                const year = date.getUTCFullYear();
+                years.add(year);
+                const span = spans.get(year);
+                if (span) { span.min = Math.min(span.min, value); span.max = Math.max(span.max, value); }
+                else spans.set(year, {min: value, max: value});
             }
         }
     }
     const sorted = [...years].sort((a, b) => a - b);
-    cached.set(field, sorted);
+    cached.set(field, {years: sorted, spans});
     return sorted;
 }
 
@@ -58,6 +63,25 @@ export function yearSetText(years, locale = "en-US") {
     return runs.join(", ");
 }
 
+/** Year context uses observed dates, never a fabricated January 1 in another era/calendar.
+ * @param {import("pivotkit-core").PivotResult} result @param {string} field */
+function observedYears(result, field) {
+    const years = yearsOf(result, field);
+    const fmt = new Intl.DateTimeFormat(result.locale, {year: "numeric", timeZone: "UTC"});
+    if (["gregory", "iso8601"].includes(fmt.resolvedOptions().calendar)) return {text: yearSetText(years, result.locale), combined: years.length > 1};
+    const spans = yearCache.get(result)?.get(field)?.spans;
+    const parts = [];
+    let combined = years.length > 1;
+    for (const year of years) {
+        const span = spans?.get(year);
+        if (!span) continue;
+        const first = fmt.format(span.min), last = fmt.format(span.max);
+        combined ||= first !== last;
+        parts.push(first === last ? first : `${first}–${last}`);
+    }
+    return {text: parts.join(", "), combined};
+}
+
 /** @param {import("pivotkit-core").PivotResult | null} result @param {import("./labels.js").UiLabels} labels
  * @returns {{result: import("pivotkit-core").PivotResult | null, labels: import("./labels.js").UiLabels, ranges: {field: string, text: string}[]}} */
 export function dateContext(result, labels) {
@@ -68,10 +92,11 @@ export function dateContext(result, labels) {
     for (const d of view.derived) {
         if (!CATALOG.cyclicUnits.includes(d.by)) continue;
         const years = yearsOf(result, d.field);
-        if (years.length > 1) {
-            const span = yearSetText(years, locale);
+        const observed = observedYears(result, d.field);
+        if (observed.combined) {
+            const span = observed.text;
             Object.defineProperty(fields, d.name, {value: `${fieldLabel(d.name, labels.core)} · ${fill(labels.dateYearsCombined, { years: span })}`, enumerable: true, configurable: true, writable: true});
-        } else if (years.length === 1) single.set(d.name, contextYear(years[0], locale));
+        } else if (years.length === 1) single.set(d.name, observed.text);
     }
     /** @type {import("pivotkit-core").PivotResult} */
     const decorated = { ...result, label: (axis, node, core) => {

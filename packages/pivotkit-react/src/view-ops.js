@@ -264,6 +264,9 @@ export function numberRange(encoded, field) {
     return min <= max ? { min, max } : null;
 }
 
+/** @type {WeakMap<import("pivotkit-core").Encoded, Map<string, {min: number, max: number} | null>>} */
+const dateSpans = new WeakMap();
+
 /**
  * The first and the last date of a date column (wall-clock ms, as the column holds them), or null
  * for another type or a column without dates: the data's span, which a relative range is measured
@@ -273,8 +276,13 @@ export function numberRange(encoded, field) {
  * @returns {{ min: number, max: number } | null}
  */
 export function dateSpan(encoded, field) {
+    let spans = dateSpans.get(encoded);
+    if (!spans) dateSpans.set(encoded, spans = new Map());
+    const key = field.toLowerCase();
+    if (spans.has(key)) return spans.get(key) ?? null;
     const column = encoded.column(field);
     if (!column || column.type !== "date") {
+        spans.set(key, null);
         return null;
     }
     let min = Infinity;
@@ -285,7 +293,9 @@ export function dateSpan(encoded, field) {
             max = Math.max(max, v);
         }
     }
-    return min <= max ? { min, max } : null;
+    const span = min <= max ? { min, max } : null;
+    spans.set(key, span);
+    return span;
 }
 
 /**
