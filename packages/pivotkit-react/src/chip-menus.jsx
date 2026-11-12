@@ -52,7 +52,7 @@ function TopLevel({ view, field, types, labels, locale, commit, back }) {
     const groupName = useFormName();
     const radio = (id, text, checked, onPick) => (
         <label className="pk-radio">
-            <input type="radio" name={groupName} checked={checked} onChange={onPick} data-autofocus={checked ? "" : undefined} data-testid={`top-${id}`} />
+            <input type="radio" name={groupName} checked={checked} onClick={(e) => e.currentTarget.focus()} onChange={onPick} data-autofocus={checked ? "" : undefined} data-testid={`top-${id}`} />
             <span>{text}</span>
         </label>
     );

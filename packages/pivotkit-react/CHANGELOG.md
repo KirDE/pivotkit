@@ -6,6 +6,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep keyboard focus on a picked Top items radio even where mouse clicks do not focus radios (#119).
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
