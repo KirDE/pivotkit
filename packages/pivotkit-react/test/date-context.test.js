@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { computePivot, encode, toGrid } from "pivotkit-core";
-import { dateContext, dateRangeText, groupHint, yearsOf } from "../src/date-context.js";
+import { dateContext, dateRangeText, yearsOf } from "../src/date-context.js";
+import { groupHint } from "../src/group-context.js";
 import { LABELS } from "../src/labels.js";
 import { en } from "../src/menu-labels.js";
 import { de } from "../src/menu-labels-de.js";
