@@ -122,7 +122,11 @@
  *   (the page scrolls); with it the report stays inside that height and its result scrolls
  * @property {"on" | "off"} [grow]  whether the report grows past its height to keep the result's
  *   least height: "on" by default without `height`, "off" with it
- * @property {Partial<import("pivotkit-core").Limits>} [limits]
+ * @property {Partial<import("pivotkit-core").Limits>} [limits]  pivotkit-core's limits for the host's data
+ *   (and for a loaded file, where `importLimits` leaves a key out)
+ * @property {Partial<import("pivotkit-core").Limits>} [importLimits]  the limits a file loaded with
+ *   `allowImport` is read and shown with, merged key by key over `limits` (default: `limits`), so a
+ *   host can keep uploads small without capping its own data
  * @property {string} [label]  the name of the report's region landmark (default the labels' `report`);
  *   several reports on one page each need their own
  * @property {string} [className]
@@ -162,8 +166,8 @@
  * @property {ViewSource[]} [sources]  the other data the host can show: a view made for one of them
  *   offers "Switch to <name> and load" (with `onSourceSwitch`)
  * @property {string | null} [schemaUrl]  the `$schema` of the view files the report writes: by default
- *   https://pivotkit.eize.dev/schema/view-file-1.json, a host's own copy of the schema (it ships in
- *   pivotkit-core as "pivotkit-core/schema/view-file-1.json"), or null or "" to leave it out; loading a
+ *   https://pivotkit.eize.dev/schema/view-file-2.json, a host's own copy of the schema (it ships in
+ *   pivotkit-core as "pivotkit-core/schema/view-file-2.json"), or null or "" to leave it out; loading a
  *   view never depends on it
  * @property {(request: SourceSwitch) => void} [onSourceSwitch]  the user chose to switch to the data a
  *   view was made for and load it there: the host shows that data and the view (as its start view)
