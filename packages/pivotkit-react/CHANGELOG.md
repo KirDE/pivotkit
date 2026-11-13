@@ -81,6 +81,9 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Fixed
 
+- An open menu or popover follows its anchor when the anchor moves or changes size while it is open
+  (the zones' open animation, a transition of the host page)
+  ([#120](https://github.com/eizedev/pivotkit/issues/120)).
 - A delayed popover autofocus frame no longer steals focus from a control already in use
   ([#139](https://github.com/eizedev/pivotkit/issues/139)).
 - Outside pie and donut labels appear on the first draw, including their chosen values
