@@ -142,6 +142,9 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ### Fixed
 
+- Date groupings along the time line keep the years 0–99 and dates before year 1: Month labels
+  name the era, Quarter labels keep Q1–Q4 before year zero; tables, charts and exports alike
+  ([#162](https://github.com/eizedev/pivotkit/pull/162)).
 - `toCsv`, `toCsvBytes`, `rowsToCsv`, `toTsv`, the copies and `toXlsx` leave out the characters that change the
   direction of text (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069), as the import does:
   in rows a host passed in, `invoice\u202Etxt.exe` read as another name, and a control before `=` hid

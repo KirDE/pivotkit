@@ -204,7 +204,8 @@ not take the focus; one opened later in the tab is a step Undo takes back once l
   open with one line per part in plain words, until you dismiss it with its **×** or load another
   view; a line goes once you change its part by hand ([details](behaviour.md#parts-of-a-view-that-were-not-used)).
   A saved view from **Views** that the data cannot fully use (a field that is gone) shows the same
-  warning, as does one that has more fields in a zone than the limits allow.
+  warning, as does one that has more fields in a zone than the limits allow. Warning counts
+  keep the report’s number formatting even when a calculation limit prevents the result.
 - Real errors (a damaged link, an application that could not save) stay in the status line until
   you close them.
 

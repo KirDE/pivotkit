@@ -148,6 +148,9 @@ What a host checks; the [upgrade page](https://pivotkit.eize.dev/getting-started
 
 ### Fixed
 
+- The warning about unused view parts keeps the view's or host's locale when the pivot fails
+  (including the work and group limits), and falls back to English for an invalid locale
+  ([#162](https://github.com/eizedev/pivotkit/pull/162)).
 - A workbook and an HTML report exported from the dark theme carry the host's light colours
   (`--pk-scale-*`, `--pk-heat-*`, `--pk-chart-1` and the rest of the light theme): the report reads
   its light theme for the export, without a transition or a frame in between, also inside
