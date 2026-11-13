@@ -1,6 +1,6 @@
 // pivotkit-react as hosts load it: its own dist file with React from the page (import map), the
 // React version of the CI job, a host that renders again all the time, and a shadow root.
-import { chips, drag, expect, test, toolbar } from "./fixtures.js";
+import { chips, drag, expect, openZones, test, toolbar } from "./fixtures.js";
 
 const wanted = process.env.PIVOTKIT_REACT === "19" ? /^19\./ : /^18\./;
 
@@ -27,6 +27,7 @@ test.describe("a host page that provides React", () => {
     test("controlled and rendered again every 200 ms: undo keeps its steps, the rows are encoded once", async ({ page }) => {
         await page.goto("pages/host.html");
         await expect(page.locator(".pk-root")).toBeVisible();
+        await openZones(page);
         await page.getByRole("button", { name: "Remove Country" }).click();
         await page.getByRole("button", { name: "Remove Category" }).click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
@@ -48,6 +49,7 @@ test.describe("a host page that provides React", () => {
 
 test("a host that renders again does not move the focus inside an open popover", async ({ page }) => {
     await page.goto("pages/host.html");
+    await openZones(page);
     await page.getByTestId("chip-menu-Region").click();
     await page.getByTestId("topic-filter").click();
     await expect(page.locator(".pk-chip-menu input[type=search]").last()).toBeFocused();
@@ -63,6 +65,7 @@ test.describe("inside a shadow root", () => {
         await page.goto("pages/shadow.html");
         const root = page.locator(".pk-root");
         await expect(root).toBeVisible();
+        await openZones(page);
         expect(await root.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe("solid");
         await page.evaluate(() => document.getElementById("shadow-host").setAttribute("data-theme", "dark"));
         await expect(root).toHaveAttribute("data-pk-theme", "dark");
@@ -110,3 +113,70 @@ test.describe("server rendering", () => {
         await expect(page.getByTestId("cell-hint")).toHaveCount(1);
     });
 });
+
+// Explicit host acknowledgements test the pending window without relying on machine speed.
+for (const intermediate of [false, true]) {
+    test(`delayed controlled history keeps two steps (intermediate echo: ${intermediate}) #141`, async ({ page }) => {
+        await page.goto("pages/host.html?manualecho");
+        await openZones(page);
+        await page.getByRole("button", { name: "Remove Country" }).click();
+        await expect.poll(() => page.evaluate(() => window.__order.length)).toBe(1);
+        await page.getByRole("button", { name: "Remove Category" }).click();
+        await expect.poll(() => page.evaluate(() => window.__order.length)).toBe(2);
+        // Assert the actual outgoing views, not only the history notes (#153 review).
+        const sent = await page.evaluate(() => window.__reportedViews);
+        expect(sent[0].rows).toEqual(["Region"]);
+        expect(sent[0].cols).toEqual(["Category"]);
+        expect(sent[1].rows).toEqual(["Region"]);
+        expect(sent[1].cols).toEqual([]);
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+        await expect.poll(() => chips(page, "cols")).toEqual([]);
+        if (intermediate) {
+            await page.evaluate(() => window.__echoNext());
+            await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+            await expect.poll(() => chips(page, "cols")).toEqual([]);
+        }
+        await page.locator(".pk-status").click();
+        await page.keyboard.press("ControlOrMeta+z");
+        await expect(page.locator(".pk-toasts")).toContainText("Undone: Category removed");
+        // Drain pending host messages, including the Undo acknowledgement.
+        if (!intermediate) await page.evaluate(() => window.__echoNext());
+        await page.evaluate(() => window.__echoNext());
+        await page.evaluate(() => window.__echoNext());
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+        await expect.poll(() => chips(page, "cols")).toEqual(["Category"]);
+        await page.keyboard.press("ControlOrMeta+z");
+        await expect(page.locator(".pk-toasts")).toContainText("Undone: Country removed");
+        await page.evaluate(() => window.__echoNext());
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region", "Country"]);
+        await page.keyboard.press("ControlOrMeta+Shift+z");
+        await page.evaluate(() => window.__echoNext());
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+    });
+}
+
+for (const outside of [false, true]) {
+    test(`pending controlled view accepts ${outside ? "outside changes" : "only the latest echo"} #141`, async ({ page }) => {
+        await page.goto("pages/host.html?manualecho");
+        await openZones(page);
+        await page.getByRole("button", { name: "Remove Country" }).click();
+        await page.getByRole("button", { name: "Remove Category" }).click();
+        // Unrelated host renders do not discard an unacknowledged edit (#142).
+        const before = Number(await page.getByTestId("host-renders").textContent());
+        await expect.poll(async () => Number(await page.getByTestId("host-renders").textContent())).toBeGreaterThan(before + 2);
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+        await expect.poll(() => chips(page, "cols")).toEqual([]);
+        if (outside) {
+            await page.evaluate(() => window.__setHostView({ ...window.__reportedViews.at(-1), rows: ["Country"] }));
+            await expect.poll(() => chips(page, "rows")).toEqual(["Country"]);
+        } else {
+            await page.evaluate(() => window.__echoLatest());
+            await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+        }
+        await page.locator(".pk-status").click();
+        await page.keyboard.press("ControlOrMeta+z");
+        await expect(page.locator(".pk-toasts")).toContainText(`Undone: ${outside ? "change from outside the report" : "Category removed"}`);
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+        await expect.poll(() => chips(page, "cols")).toEqual(outside ? [] : ["Category"]);
+    });
+}

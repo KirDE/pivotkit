@@ -1,7 +1,7 @@
 /*
  * The view of a report and its undo history (view-history.js), controlled or not:
  *
- * - controlled: `view` + `onViewChange`. The report shows the view the host passes. A change calls
+ * - controlled: `view` + `onViewChange`. The report shows its pending view until acknowledged. A change calls
  *   onViewChange; the history stays inside the report and keeps its steps when the host passes back
  *   the view it got, however often it renders. A view the host changes on its own becomes a step
  *   ("change from outside") the next time the user acts, so undo goes back over it too.
@@ -15,8 +15,8 @@
  * `initial` starts the report on such a history (a report mounted again, data-keep.js); it tells the
  * host with replace(initial) in a layout effect. A controlled host that has not passed back the view
  * it was told yet (onViewChange; a host whose view goes through its server, or one that renders once
- * more after the report is gone) shows the view it had a moment longer: snapshot() keeps the view the
- * report told, not that one as a change from outside.
+ * more after the report is gone) keeps the report on its pending view: snapshot() keeps it too,
+ * not the old host view as a change from outside.
  *
  * Every step carries a tag (view-history.js): the saved view it shows. commit(next, note, tag) sets
  * it (undefined: the tag of the view before), `tag` is the present one, setTag(tag) changes it
@@ -72,30 +72,38 @@ export function useViewHistory({ encoded, view, defaultView, onViewChange, limit
     const [state, setState] = useState(() => initialState ?? createState(schema, start));
 
     const viewKey = controlled ? JSON.stringify(view) : null;
-    // the host's view (controlled) when the report last told it one: while the host still passes that
-    // one, it has not passed the report's view back yet (a history to start on is told on mount). Gone
-    // once the host passes another view, so the same view passed again later is the host's own.
-    const [toldOver, setToldOver] = useState(() => (initialState ? viewKey : null));
-    if (toldOver !== null && toldOver !== viewKey) {
-        setToldOver(null);
+    // Keep every outgoing view until the host acknowledges it. Intermediate echoes belong to
+    // this sequence, not to a new outside edit. Menus must build on the pending view too.
+    const [echo, setEcho] = useState(() => ({ over: viewKey, pending: initialState ? [initialState.present] : [] }));
+    let pending = echo.pending;
+    if (viewKey !== echo.over) {
+        const index = viewKey === null ? -1 : pending.indexOf(json(JSON.parse(viewKey)));
+        pending = index < 0 ? [] : pending.slice(index + 1);
+        setEcho({ over: viewKey, pending });
     }
+    const waiting = viewKey !== null && pending.length > 0 && state.schema === schema;
     const shown = useMemo(() => {
+        if (waiting) {
+            return state.present;
+        }
         if (viewKey !== null) {
             return json(JSON.parse(viewKey));
         }
         return state.schema === schema ? state.present : json(JSON.parse(state.present));
-    }, [viewKey, json, state, schema]);
+    }, [waiting, viewKey, json, state, schema]);
     const current = useMemo(() => /** @type {import("pivotkit-core").View} */ (JSON.parse(shown)), [shown]);
     // the history a step works on (pure: a new schema or an outside change, settled)
-    const live = useMemo(() => settle(state, { schema, start, shown, outside: outsideNote }), [state, schema, start, shown, outsideNote]);
+    const live = useMemo(() => waiting ? state : settle(state, { schema, start, shown, outside: outsideNote }), [waiting, state, schema, start, shown, outsideNote]);
 
     const apply = useCallback(
         (next) => {
             setState(next);
-            setToldOver(viewKey);
+            if (viewKey !== null) {
+                setEcho((previous) => ({ over: viewKey, pending: [...(previous.over === viewKey ? previous.pending : pending), next.present] }));
+            }
             onViewChange?.(JSON.parse(next.present));
         },
-        [onViewChange, viewKey]
+        [onViewChange, viewKey, pending]
     );
     /** Records a change; false when the view stays (a new tag alone is kept, without a step). */
     const commit = useCallback(
@@ -145,9 +153,7 @@ export function useViewHistory({ encoded, view, defaultView, onViewChange, limit
      * The history as it is now (settled), to keep while other data is shown or for a new mount; while
      * the host has not passed back the view it was told, the history as the report made it.
      */
-    const waiting = viewKey !== null && viewKey === toldOver && state.schema === schema;
-    const made = waiting ? state : live;
-    const snapshot = useCallback(() => made, [made]);
+    const snapshot = useCallback(() => live, [live]);
 
     /** The views before this one, oldest first (a value's earlier colours, for its Highlight). */
     const earlier = useCallback(() => live.past.map((p) => JSON.parse(p.view)), [live.past]);

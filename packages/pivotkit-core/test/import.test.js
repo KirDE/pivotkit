@@ -7,6 +7,8 @@ import { readFileSync } from "node:fs";
 import { BUILT_IN_READERS, PLUGIN_API_VERSION, csvReader, jsonReader, loadReader, readFile, readerFor, retype, validatePlugin } from "pivotkit-core/import";
 import { LIMITS, PivotkitError, computePivot, encode, toGrid } from "pivotkit-core";
 
+import { fileName } from "../src/import-table.js";
+
 const fixture = (name) => readFileSync(new URL(`./import-fixtures/${name}`, import.meta.url));
 const fileOf = (name, bytes = fixture(name)) => new File([bytes], name);
 const text = (name, content) => new File([new TextEncoder().encode(content)], name);
@@ -243,7 +245,7 @@ test("limits: the file size before reading, rows, columns and cells while readin
     await rejects(readFile(big), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "fileBytes" && e.details.file === "huge.csv");
     assert.equal(read, false, "the bytes were not read");
     const rows = "A\n" + "1\n".repeat(11);
-    await rejects(readFile(text("rows.csv", rows), { limits: { rows: 10 } }), (e) => e.details.limit === "rows" && e.message === '"rows.csv" has more than 10 rows (limits.rows): load a smaller extract of it, or a host can raise limits.rows');
+    await rejects(readFile(text("rows.csv", rows), { limits: { rows: 10 } }), (e) => e.details.limit === "rows" && e.message === '"rows.csv" has more than 10 rows (limits.rows): load a smaller extract of it, or a host can raise this limit');
     await rejects(readFile(text("cols.csv", "A,B,C\n1,2,3\n"), { limits: { columns: 2 } }), (e) => e.details.limit === "columns");
     await rejects(readFile(text("cells.csv", "A,B\n1,2\n3,4\n5,6\n"), { limits: { importCells: 5 } }), (e) => e.details.limit === "importCells");
     await rejects(readFile(text("j.json", JSON.stringify(Array.from({ length: 11 }, (_, i) => ({ i })))), { limits: { rows: 10 } }), (e) => e.details.limit === "rows");
@@ -350,4 +352,15 @@ test("a JSON key in a note is cleaned and cut", async () => {
     const p = t.notes.find((n) => n.code === "JSON_PROPERTY").params.property;
     assert.ok(!p.includes("\u{202E}"));
     assert.equal(p.length, 256);
+});
+
+test("file names capped at 256 units keep complete Unicode characters", () => {
+    for (const prefix of [254, 255, 256]) {
+        const name = "a".repeat(prefix) + "😀.csv";
+        const expected = prefix === 254 ? "a".repeat(254) + "😀" : "a".repeat(Math.min(prefix, 256));
+        assert.equal(fileName({ name }), expected);
+        assert.equal(fileName(null, { name }), expected);
+        assert.equal(new TextDecoder().decode(new TextEncoder().encode(expected)), expected);
+    }
+    assert.equal(fileName({ name: "" }), "file");
 });

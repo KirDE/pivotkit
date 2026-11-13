@@ -58,8 +58,8 @@ export function SalesReport() {
   (`Date` objects or ISO strings such as `"2026-01-05"`) are recognised by themselves.
 - `defaultView` is the start: a [view](../concepts/views.md), plain JSON. Leave it out and the report
   starts empty with a short guide.
-- Import `pivotkit-react/styles.css` once. Every colour and size is a `--pk-*` token you can
-  [override](../reference/theming.md).
+- Import `pivotkit-react/styles.css` once. Every colour, size and font weight is a `--pk-*` token you
+  can [override](../reference/theming.md).
 - `height` is the report's height (default 640 px); the table and the field list scroll inside it.
 
 ## 3. Keep the view in your app { #keep-the-view-in-your-app }
@@ -151,7 +151,8 @@ All props are listed in the [pivotkit-react reference](../reference/react.md).
 `pivotkit-core/import` (with [`allowImport`](../reference/react.md#prop-allowimport), on the first
 use of loading data), `@dnd-kit/core` and `@dnd-kit/sortable`. On the first chart it loads
 `./echarts.js` next to it, which imports `echarts/core`, `echarts/charts`, `echarts/components` and
-`echarts/renderers` by name, so a bundler keeps only the four chart types the report draws. Any
+`echarts/renderers` by name, so a bundler keeps only the four chart types the report draws, and
+`pivotkit-core/chart` (the chart's marks and label layout). Any
 bundler that understands ES modules resolves them. A page without a bundler maps each bare name to a
 file with an [import map](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script/type/importmap);
 the browser tests load the package that way.

@@ -17,7 +17,9 @@
 // as a host whose view goes through its server; a view not passed back yet is dropped when the report
 // is mounted again, as a remounted PowerShell Universal component starts with its own state. window.__order logs
 // onDataLoad ("data:<cause>") and onViewChange ("view") in their order. window.__chartOption() reads the option
-// the chart draws, from the ECharts the report loaded (the same module through the import map).
+// the chart draws, from the ECharts the report loaded (the same module through the import map). ?importlimits
+// sets importLimits rows 1,000 and cells 100 and limits columns 4: the host's 2,000 rows and its grid of more
+// than 100 cells stay, a file gets all three.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { PivotReport } from "pivotkit-react";
@@ -40,6 +42,21 @@ function Host() {
     const [empty, setEmpty] = useState(false);
     // ?asyncecho: the views on their way back
     const echoes = useRef(new Set());
+    const manual = useRef([]);
+    useEffect(() => {
+        window.__echoNext = () => setView(manual.current.shift());
+        window.__echoLatest = () => {
+            const latest = manual.current.at(-1);
+            manual.current = [];
+            setView(latest);
+        };
+        window.__setHostView = setView;
+        return () => {
+            delete window.__echoNext;
+            delete window.__echoLatest;
+            delete window.__setHostView;
+        };
+    }, []);
     const remount = () => {
         echoes.current.forEach(clearTimeout);
         echoes.current.clear();
@@ -65,7 +82,10 @@ function Host() {
     }, [empty]);
     const onViewChange = (next) => {
         window.__order.push("view");
-        if (query.has("asyncecho")) {
+        (window.__reportedViews ??= []).push(next);
+        if (query.has("manualecho")) {
+            manual.current.push(next);
+        } else if (query.has("asyncecho")) {
             const t = setTimeout(() => {
                 echoes.current.delete(t);
                 setView(next);
@@ -88,7 +108,9 @@ function Host() {
         ...(query.has("options") ? { chartOptions: { title: { textStyle: { fontSize: 20 } }, series: { barMaxWidth: 12 }, grid: { left: 40 } } } : {}),
         ...(query.has("xss") ? { chartOptions: { tooltip: { formatter: '<img src="x" onerror="window.__xss = true">' }, series: { barMaxWidth: 10 } } } : {}),
         ...(query.has("import") ? { allowImport: true, plugins: [xlsxReader], onDataLoad: (d) => (window.__loads.push(d), window.__order.push(`data:${d.cause}`)), templateStore: "browser", storageKey: "host-import", source: { id: "sales", name: "Sales" } } : {}),
-        ...(query.has("nokey") ? { storageKey: undefined } : {})
+        ...(query.has("nokey") ? { storageKey: undefined } : {}),
+        // a host that keeps uploads small without capping its own 2,000 rows (new objects on every render)
+        ...(query.has("importlimits") ? { importLimits: { rows: 1000, cells: 100 }, limits: { columns: 4 } } : {})
     };
     const shown = loading || empty ? [] : other ? otherRows : rows;
     const dataKey = loading || empty ? "none" : other ? "sales-500" : "sales-2000";

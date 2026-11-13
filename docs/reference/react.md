@@ -40,7 +40,7 @@ Installation and a first example are in [Getting started with React](../getting-
 | `height` | `number` or `string` | `640` | The report's height: a number of pixels or a CSS length (`"100%"`, `"calc(100svh - 24px)"`); the table and the field list scroll inside it. [More](#prop-height) |
 | `grow` | `"on"` or `"off"` |  | Whether the report grows past its height to keep the result's least height: `"on"` by default without `height`, `"off"` with one (the report stays in its box, the result scrolls). See [Layout](#layout). |
 | `fieldList` | `"open"` or `"collapsed"` |  | The field list of a wide or medium report: `"open"` or `"collapsed"` to a rail of about 40 px (`--pk-rail-w`). [More](#prop-fieldlist) |
-| `limits` | `Partial<Limits>` |  | pivotkit-core's [limits](../concepts/limits.md#limits). [More](#prop-limits) |
+| `limits` | `Partial<Limits>` |  | pivotkit-core's [limits](../concepts/limits.md#limits) for the host's data. [More](#prop-limits) |
 | `label` | `string` | `labels.report` | The name of the report's region landmark ("Pivot report"). Several reports on one page need one name each (`label="Tickets per team"`), so a screen reader can tell them apart. |
 | `className` | `string` |  | Added to the root element `.pk-root`. |
 | `fileName` | `string` | `"pivot"` | Name of exported files, without the extension; path separators and characters a file system refuses are replaced. |
@@ -53,7 +53,7 @@ Installation and a first example are in [Getting started with React](../getting-
 | `zoneInfo` | `"on"` or `"off"` |  | The "i" next to each zone's title that says what the zone does, with an example: as `fieldInfo`. |
 | `settingInfo` | `"on"` or `"off"` |  | The "i" next to the settings that need explaining (the totals, Show as, Along, the export formats, the chart's Labels and Group labels): as `fieldInfo`. [More](#prop-settinginfo) |
 | `source` | `{ id, name? }` |  | The data the report shows: its `id` and `name` go into the [view files](view-file.md) and links it shares, and a view made for another `id` asks before it is loaded. [More](#prop-source) |
-| `schemaUrl` | `string` or `null` |  | The `$schema` of the [view files](view-file.md) the report writes: by default `https://pivotkit.eize.dev/schema/view-file-1.json`, a host's own copy of the schema (it ships as `pivotkit-core/schema/view-file-1.json`), or `null` / `""` to leave it out. [More](#prop-schemaurl) |
+| `schemaUrl` | `string` or `null` |  | The `$schema` of the [view files](view-file.md) the report writes: by default `https://pivotkit.eize.dev/schema/view-file-2.json`, a host's own copy of the schema (it ships as `pivotkit-core/schema/view-file-2.json`), or `null` / `""` to leave it out. [More](#prop-schemaurl) |
 | `sources` | `{ id, name? }[]` |  | The other data the host can show: a view made for one of them offers "Switch to “name” and load" (with `onSourceSwitch`). |
 | `onSourceSwitch` | `({ source, view, name }) => void` |  | The user chose to switch to the data a loaded view was made for: show that data and `view` (as the file has it, not normalized) as its start view. [More](#prop-onsourceswitch) |
 | `chartOptions` | `object` |  | Plain JSON merged over the ECharts option the report builds (objects key by key, a list entry by entry, an object given for a list into every entry); it wins over the view's chart settings. [More](#prop-chartoptions) |
@@ -61,6 +61,7 @@ Installation and a first example are in [Getting started with React](../getting-
 | `persistView` | `"session"` |  | `"session"`: the view is kept in `sessionStorage` (`pivotkit:view:<storageKey>`) for this tab and shown again after a reload; read after the first render; a link wins. [More](#prop-persistview) |
 | `loading` | `boolean` | `false` | The host is loading the data: before the report has had data it shows its skeleton (toolbar, zones and table rows in the theme, `role="status"` with "Loading the report…", announced once). [More](#prop-loading) |
 | `allowImport` | `boolean` | `false` | People may load a file into the report in the browser: a **Data** button, a file dropped onto the report, a preview before it replaces the data; nothing is uploaded. [More](#prop-allowimport) |
+| `importLimits` | `Partial<Limits>` | `limits` | The limits of a file people load, merged key by key over `limits`. [More](#prop-importlimits) |
 | `plugins` | `ReaderPlugin[]` |  | Reader plugins for more formats ([pivotkit-xlsx](plugins.md#pivotkit-xlsx) for Excel); CSV, TSV, text and JSON are built in. [More](#prop-plugins) |
 | `onDataLoad` | `({ cause, source, file, sheet, rows, columns, notes }) => unknown` |  | The data shown changed: a file loaded (returning `false` refuses it), the host's data shown again, one of those undone or redone, or the file shown again after a new mount. [More](#prop-ondataload) |
 | `importWorker` | `() => Worker` |  | Starts a module worker that runs `pivotkit-react/import-worker`, so CSV and JSON files are read off the page. [More](#prop-importworker) |
@@ -145,13 +146,14 @@ The field list of a wide or medium report: `"open"` or `"collapsed"` to a rail o
 
 Type: `Partial<Limits>`.
 
-pivotkit-core's [limits](../concepts/limits.md#limits). Data over `limits.rows`, or a layout over `limits.work`, `groups`, `pivotCells` or `cells`, shows a message in place of the result that says what to change; a field beyond `limits.axisFields` or `limits.values` is refused with a note, and a saved view with more loads the fields that fit and says so above the result.
+pivotkit-core's [limits](../concepts/limits.md#limits). Data over `limits.rows`, or a layout over `limits.work`, `groups`, `pivotCells` or `cells`, shows a message in place of the result that says what to change; a field beyond `limits.axisFields` or `limits.values` is refused with a note, and a saved view with more loads the fields that fit and says so above the result. A file people load
+([`allowImport`](#prop-allowimport)) has [`importLimits`](#prop-importlimits) over these.
 
 ### `onExport` { #prop-onexport }
 
 Type: `({ kind, fileName, blob, text, rows }) => unknown`.
 
-Every exported file (`"xlsx"`, `"csv"`, `"png"`, or `"json"` for the [view file](view-file.md) of "Download view" in Views, named `<name>.pivotkit.json`; the name with its extension, the file) before it is downloaded, and every copy before it goes on the clipboard (`"copy-table"`, `"copy-json"` from Export; `"drill-copy"`, `"drill-json"`, `"drill-csv"`, `"drill-xlsx"` from the drill-down panel; a copy has its `text` and the `fileName` it would have as a file, a drill-down export `rows: { shown, count }`); returning `false` skips the download or the copy, so the host can keep the file or the text (upload it, say). An empty report (no field placed) has its Export entries greyed out ("Add a field first."): no call for them.
+Every exported file (`"xlsx"`, `"csv"`, `"html"`, `"png"`, `"svg"`, or `"json"` for the [view file](view-file.md) of "Download view" in Views, named `<name>.pivotkit.json`; the name with its extension, the file) before it is downloaded, and every copy before it goes on the clipboard (`"copy-table"`, `"copy-json"` from Export; `"drill-copy"`, `"drill-json"`, `"drill-csv"`, `"drill-xlsx"` from the drill-down panel; a copy has its `text` and the `fileName` it would have as a file, a drill-down export `rows: { shown, count }`); returning `false` skips the download or the copy, so the host can keep the file or the text (upload it, say). `"print"` is the [HTML report](report.md) before the print dialog opens (`pivot.html`): returning `false` prints nothing, so the host can print it its own way (a PDF of its server, say). An empty report (no field placed) has its Export entries greyed out ("Add a field first."): no call for them.
 
 ### `storageKey` { #prop-storagekey }
 
@@ -193,7 +195,7 @@ The data the report shows: its `id` and `name` go into the [view files](view-fil
 
 Type: `string` or `null`.
 
-The `$schema` of the [view files](view-file.md) the report writes: by default `https://pivotkit.eize.dev/schema/view-file-1.json`, a host's own copy of the schema (it ships as `pivotkit-core/schema/view-file-1.json`), or `null` / `""` to leave it out. Loading a view never depends on it.
+The `$schema` of the [view files](view-file.md) the report writes: by default `https://pivotkit.eize.dev/schema/view-file-2.json`, a host's own copy of the schema (it ships as `pivotkit-core/schema/view-file-2.json`), or `null` / `""` to leave it out. Loading a view never depends on it.
 
 ### `onSourceSwitch` { #prop-onsourceswitch }
 
@@ -268,14 +270,36 @@ on [Load your own data](../use/load-data.md); what the readers do on [Loading fi
 - The import UI is a chunk of its own (`dist/import-ui.js`, with `pivotkit-core/import`), loaded when
   the Data menu opens, a file is dragged over the report or the empty report's **Load data…** is
   clicked. Without `allowImport` nothing of it loads.
-- The limits of the readers are the report's [`limits`](#prop-limits) (`fileBytes`, `rows`,
-  `columns`, `importCells`, ...); a file over one is refused with what to do, and the data stays.
+- A file is read and shown with [`importLimits`](#prop-importlimits) over the report's
+  [`limits`](#prop-limits) (`fileBytes`, `rows`, `columns`, `importCells`, ...); a file over one is
+  refused with what to do, and the data stays.
 - Memory: while the preview is open the page holds the table as read (values and their text) and,
   after a change of a type, a second one; after **Load data** only the encoded columns stay, for the
   file shown and for each data step Undo keeps. A rough, unverified guide from one measurement in
   Node (not a browser): a CSV of 1,000,000 rows and 5 columns (46 MB) took about 650 MB more memory
-  while it was read and loaded. Lower `limits.rows` or `limits.fileBytes` where people's machines are
-  small.
+  while it was read and loaded. Lower `importLimits.rows` or `importLimits.fileBytes` where people's
+  machines are small.
+
+### `importLimits` { #prop-importlimits }
+
+Type: `Partial<Limits>`; default: [`limits`](#prop-limits).
+
+The [limits](../concepts/limits.md#limits) a file loaded with [`allowImport`](#prop-allowimport) is
+read and shown with, merged key by key over `limits`: a key it sets is the file's, a key it leaves out
+is `limits`'s, and both over pivotkit-core's defaults. The host's own `data` keeps `limits`, so a
+host can keep uploads small without capping its own data:
+
+```jsx
+<PivotReport data={rows} allowImport importLimits={{ rows: 1_000, fileBytes: 5_000_000 }} />
+```
+
+Here the host's 50,000 rows show, while a file of 1,001 rows is refused with "… has more than 1,000
+rows (limits.rows) …" and the data shown stays. The import limits hold for everything about the file:
+the readers (also in the [`importWorker`](#prop-importworker)), the preview, and the views, results and
+exports while its data is shown; "Back to original data" goes back to `limits`. A key of
+`importLimits` is not capped by `limits`: a file may get more than the host's data where the host
+says so (`importLimits={{ rows: 200_000 }}` over `limits={{ rows: 1_000 }}`), so set only the keys a
+file should have differently. Compared by value, as `limits`.
 
 ### `plugins` { #prop-plugins }
 
@@ -346,6 +370,7 @@ polite live region. In the order they are shown, and when:
 | `top` | notice | A field on Rows or Columns shows its top or bottom N: totals and percentages cover those items only. | |
 | `chartCapped` | notice | The chart draws the first 50 of more categories. | |
 | `showAs` | tip | A value is shown as a percentage: what 100 % is for that calculation. | |
+| `colSubtotals` | tip | A table with column subtotals on, two or more fields in Columns, a value and an open column group of two or more items (only those get a Total column): a Total column adds up the group before it. The header of each subtotal column has the same text as its tooltip. | Hide column subtotals |
 | `chartOverTime` | tip | A chart type the user chose (not lines, areas or a heatmap) with a date or a grouping of one along the time line on Rows or Columns (where Automatic would draw lines). | Show as lines over time (the automatic type) |
 | `pieSlices` | tip | A pie or donut of more than 7 slices. | Switch to Bars |
 | `pieColumns` | tip | A pie or donut with a field on Columns: it draws one slice per row and adds up the columns. | Switch to Bars |
@@ -374,9 +399,16 @@ tip dismissed earlier goes right after hydration.
   every change through `onViewChange`.
 - **Controlled**: pass `view` and set it from `onViewChange`. The undo history stays in the report
   however often the host renders; a view the host changes on its own becomes one undo step.
+  While a delayed host is acknowledging changes, the report shows the latest pending view, so
+  another action builds on it rather than on the old host view. Earlier acknowledgements do not
+  roll the report back. Pass reported views back in order, or pass only the latest one; a different
+  view supplied by the host replaces the pending view and becomes an outside change. A host that
+  never acknowledges a change leaves the report on that pending view; there is no timer that
+  silently discards an edit. Value-only props cannot distinguish a stale acknowledgement from
+  an intentional outside change to the same value.
 
-A host may render the report on every change of its own state: `labels` and `limits` are compared by
-value, `data` by identity or by `dataKey`.
+A host may render the report on every change of its own state: `labels`, `limits` and `importLimits`
+are compared by value, `data` by identity or by `dataKey`.
 
 What of the host's view (`view`, else the first `defaultView`) the data cannot use (a field it lacks,
 an unknown format) shows above the result as a warning, as for a loaded view
@@ -502,11 +534,11 @@ typed: the quick choices with that count ("last 3 years") and a year compared ("
 runs a hit the arrow keys reached, not the text typed.
 
 The Filter level of a date field shows its quick choices and the days each keeps relative to today
-(the current time read in `encode`'s `timeZone`, through pivotkit-core's `relativeDateRange`) or,
-when the data end before the current period and the person switches "Counted back from", to the
-data's latest date (the filter's `anchor: "latest"`); it offers only the choices with data behind
-them and says the data's share of a range ("2025; 2026 has no data"). The rules write pivotkit-core's
-`relative`, `compare`, `value` and `label` filters ([Filters](../concepts/filters.md#filters-in-the-ui));
+(the current time read in `encode`'s `timeZone`, through pivotkit-core's `relativeDateRange`) or to
+what the person picks under "Counted back from": the data's latest or first date or a day of their
+own (the filter's `anchor`); it offers This only for the units whose current period has data and says
+the data's share of a range ("2025; 2026 has no data"). The rules write pivotkit-core's
+`relative`, `compare`, `value` and `text` filters ([Filters](../concepts/filters.md#filters-in-the-ui));
 a rule's result line and the summary compute the field's totals with pivotkit-core's `computePivot`
 on the field alone (its Grand Total scope). What is typed in a level applies when the level or the menu closes too (a click outside).
 A popover keeps its side of the anchor while its content changes (a level opening), as long as that
@@ -526,7 +558,7 @@ stay on the items. Options, Help, "Show explanations" (or
 `aria-disabled`, so the arrow keys still reach it), and a short line under it says why, only while it
 is disabled: the grand total row needs a field in Rows, the grand total
 column one in Columns, row subtotals two or more fields in Rows, column subtotals two or more in
-Columns; Expand all and Collapse all; the chart image "Switch to Chart first."; a pie's Labels while
+Columns, every total a value (a disabled total shows no tick); Expand all and Collapse all; the chart image "Switch to Chart first."; a pie's Labels while
 value labels are off. The export menu is a dialog, so Tab reaches each format's "i".
 
 ## Form fields
@@ -539,7 +571,7 @@ are not stable across page loads; do not select the fields by them (the `data-te
 
 ## Popovers and the host page
 
-Menus, bottom sheets and the "i" popups opened by a click open in the browser's top layer (`popover="manual"`; a description shown on hover stays in the report's layer): above
+Menus, bottom sheets and the "i" popups opened by a click open in the browser's top layer (`popover="manual"`; a description shown on hover of an "i" outside a menu stays in the report's layer, one inside a menu opens above the menu): above
 the host page's own layout whatever its z-indexes (a fixed navigation drawer at 1200, an app bar), and
 never clipped by its boxes; they stay in the report's DOM and are placed against the window. A
 browser without the Popover API stacks them by `--pk-layer-z`:
@@ -568,6 +600,9 @@ darwin/arm64); no test backs them and other machines differ, in ms:
 | 100,000 | 93-117 | 8-31 | 0-18 | 18-64 |
 | 100,000, 100,000 distinct row labels | 114 | 72 | 29 | 112 |
 
-A change stays within a frame or two, so the engine runs on the main thread; a Web Worker would add
-copying the columns and the grid between threads for no visible gain. The timings are in the
+Up to 100,000 rows a change stays within a frame or two, so the engine runs on the main thread; a Web Worker would add
+copying the columns and the grid between threads for no visible gain. Above 100,000 rows the first
+table takes longer and the page is frozen while it is built: 1 to 2.5 s at 1,000,000 rows, a filter
+or a field then about 0.1 s, the chart up to 0.15 s ([measured in three browsers](../concepts/limits.md#measured-in-the-browser) with
+`npm run bench:browser`). The timings are in the
 browser's performance timeline as `pivotkit:encode`, `pivotkit:computePivot` and `pivotkit:toGrid`.
