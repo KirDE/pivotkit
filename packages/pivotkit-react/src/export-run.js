@@ -1,13 +1,17 @@
 /*
- * The report's exports, loaded with the menus (menus.js): the table as an Excel workbook or a CSV file
- * (pivotkit-core/export, loaded on first use), the chart as a PNG image, and the table on the
- * clipboard: as the table shows it, tab-separated (a spreadsheet takes it as columns), or its data as
- * JSON. The file name is the host's fileName made safe (files.js). The host's onExport sees every file
- * and every copy first and may take it over by returning false. use-export.js calls it.
+ * The report's exports, loaded with the menus (menus.js): the table as an Excel workbook (its colour
+ * scales and data bars in the theme's colours where the view names none) or a CSV file
+ * (pivotkit-core/export, loaded on first use), the chart as a PNG image, an HTML report, the chart as
+ * SVG and the HTML report printed (pivotkit-report with ECharts' SVG renderer, report-run.js, loaded on
+ * first use), and the table on the clipboard: as the table shows it, tab-separated (a spreadsheet
+ * takes it as columns), or its data as JSON. The file name is the host's fileName made safe
+ * (files.js). The host's onExport sees every file, every copy and the report before it is printed
+ * first and may take it over by returning false. use-export.js calls it.
  */
 
 import { toGrid } from "pivotkit-core";
 import { copyText, dataUrlToBlob, safeFileName, saveBlob } from "./files.js";
+import { printHtml } from "./print-frame.js";
 import { fill, messageOf } from "./labels.js";
 import { menuLabels } from "./menu-labels.js";
 
@@ -37,6 +41,22 @@ export function loadExporters() {
         }
     );
     return pending;
+}
+
+/** @type {Promise<[typeof import("./report-run.js"), any]> | null} */
+let reportPending = null;
+
+/**
+ * pivotkit-report with ECharts (the report's chart parts, through the first load's loader, and the SVG
+ * renderer), imported once; a failed import is forgotten, so the next call tries again.
+ * @param {() => Promise<any>} loadECharts  chart.jsx's: dist/echarts.js is a file next to dist/index.js
+ */
+function loadReport(loadECharts) {
+    reportPending ??= Promise.all([import("./report-run.js"), loadECharts()]).catch((error) => {
+        reportPending = null;
+        throw error;
+    });
+    return reportPending;
 }
 
 /** The export module, at once when it is loaded. */
@@ -73,19 +93,72 @@ export async function copyOut(text, { type, container, onExport, ...file }) {
     return (await copyText(text, container)) ? "copied" : "blocked";
 }
 
+/** Whether the browser reads a text as a CSS colour (CSS.supports); false without it. */
+const isColor = (/** @type {string} */ text) => typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("color", text);
+
+/**
+ * A CSS colour as "#rrggbb", or null: through a canvas's fillStyle, which writes an opaque sRGB colour
+ * that way whatever syntax it was given (a name, rgb(), hsl()). A text that is no colour is refused
+ * first (a canvas would keep the colour it had).
+ * @param {string} text
+ * @param {{ fillStyle: unknown } | null} ctx  a 2D context
+ * @param {(text: string) => boolean} [supports]  whether the text is a colour
+ */
+export function hexColor(text, ctx, supports = isColor) {
+    if (!text || !ctx || !supports(text)) {
+        return null;
+    }
+    ctx.fillStyle = text;
+    const hex = String(ctx.fillStyle).toLowerCase();
+    return /^#[0-9a-f]{6}$/.test(hex) ? hex : null;
+}
+
+/**
+ * The colours of the theme the workbook gets for a conditional format whose view names none, as the
+ * report resolves its tokens: the colour scale (--pk-scale-low, the host's --pk-scale-mid, -high) and
+ * the data bars (--pk-chart-1). Each one missing or not a colour stays pivotkit-core's default.
+ * @param {{ getPropertyValue(name: string): string }} style  getComputedStyle of the report's root
+ * @param {(text: string) => string | null} toHex
+ * @returns {{ colorScale?: string[], dataBar?: string }}
+ */
+export function xlsxThemeOf(style, toHex) {
+    const [low, mid, high, bar] = ["--pk-scale-low", "--pk-scale-mid", "--pk-scale-high", "--pk-chart-1"].map((name) => toHex(style.getPropertyValue(name).trim()));
+    return {
+        ...(low && high ? { colorScale: mid ? [low, mid, high] : [low, high] } : {}),
+        ...(bar ? { dataBar: bar } : {})
+    };
+}
+
+/**
+ * The theme of the workbook from the report's root. A dark report gives none: a workbook is light,
+ * with Excel's black text, so it keeps pivotkit-core's defaults (the light theme's colours).
+ * @param {HTMLElement | null} root
+ */
+function xlsxTheme(root) {
+    const view = root?.ownerDocument.defaultView;
+    if (!root || !view || root.getAttribute("data-pk-theme") === "dark") {
+        return undefined;
+    }
+    const ctx = root.ownerDocument.createElement("canvas").getContext("2d");
+    return xlsxThemeOf(view.getComputedStyle(root), (text) => hexColor(text, ctx));
+}
+
 /**
  * @typedef {{ fileName: string, result: import("pivotkit-core").PivotResult | null, locale: string,
  *   labels: import("./labels.js").UiLabels, limits: object | undefined, root: React.RefObject<HTMLElement | null>,
  *   chartRef: React.RefObject<any>, announce: (text: string, extra?: { tone?: "error" }) => void,
- *   onExport?: (file: ExportFile) => unknown }} ExportContext
+ *   onExport?: (file: ExportFile) => unknown, title?: string | null, source?: string | null, loadECharts?: () => Promise<any> }} ExportContext
+ *   `title`: the report's title in an HTML report (the loaded view's name); `source`: the data's name;
+ *   `loadECharts`: chart.jsx's loader of dist/echarts.js (passed in: a module of the menus that
+ *   imported chart.jsx would move it out of the first load into a shared chunk)
  */
 
 /**
  * One export of the Export menu.
- * @param {"xlsx" | "csv" | "png" | "copy-table" | "copy-json"} kind
+ * @param {"xlsx" | "csv" | "png" | "html" | "svg" | "print" | "copy-table" | "copy-json"} kind
  * @param {ExportContext} context
  */
-export async function runExport(kind, { fileName, result, locale, labels, limits, root, chartRef, announce, onExport }) {
+export async function runExport(kind, { fileName, result, locale, labels, limits, root, chartRef, announce, onExport, title, source, loadECharts }) {
     // the menus' texts (the copies' notes) over the report's
     labels = menuLabels(labels);
     const base = safeFileName(fileName);
@@ -105,6 +178,42 @@ export async function runExport(kind, { fileName, result, locale, labels, limits
         if (!result) {
             return;
         }
+        if (kind === "html" || kind === "svg" || kind === "print") {
+            const [report, echarts] = await loadReport(/** @type {() => Promise<any>} */ (loadECharts));
+            const chart = chartRef.current;
+            // the chart's size on the screen, when it is drawn
+            const size = chart ? { width: clampSize(chart.getWidth()), height: clampSize(chart.getHeight()) } : undefined;
+            const rendered = await report.render(result.view, result.encoded, {
+                format: kind === "svg" ? "svg" : "html",
+                echarts,
+                locale,
+                trusted: true,
+                labels: labels.core,
+                ...(limits ? { limits } : {}),
+                timeZone: result.timeZone,
+                ...(title ? { title } : {}),
+                ...(source ? { source } : {}),
+                ...(size ? { size } : {}),
+                tokens: report.reportTokensOf(root.current),
+                chartEmbed: kind === "print" ? "inline" : "image"
+            });
+            const file = `${base}.${kind === "svg" ? "svg" : "html"}`;
+            const blob = new Blob([/** @type {BlobPart} */ (rendered.body)], { type: rendered.mediaType });
+            if (kind !== "print") {
+                if (deliver(blob, { kind, fileName: file, doc, onExport })) {
+                    announce(fill(labels.toastExported, { file }));
+                }
+                return;
+            }
+            // the host may print itself (a PDF on its server): it gets the report first
+            if (onExport?.({ kind, fileName: file, blob }) === false) {
+                return;
+            }
+            if (!root.current || !(await printHtml(/** @type {string} */ (rendered.text), root.current))) {
+                announce(labels.toastPrintBlocked, { tone: "error" });
+            }
+            return;
+        }
         const m = exporters ?? (await loadExporters());
         const grid = toGrid(result, { locale, labels: labels.core, limits });
         if (kind === "copy-table" || kind === "copy-json") {
@@ -116,7 +225,7 @@ export async function runExport(kind, { fileName, result, locale, labels, limits
             return;
         }
         const file = `${base}.${kind}`;
-        const bytes = kind === "xlsx" ? m.toXlsx(grid, { sheetName: base }) : m.toCsvBytes(grid, { bom: true });
+        const bytes = kind === "xlsx" ? m.toXlsx(grid, { sheetName: base, theme: xlsxTheme(root.current) }) : m.toCsvBytes(grid, { bom: true });
         if (deliver(new Blob([/** @type {BlobPart} */ (bytes)], { type: kind === "xlsx" ? XLSX_TYPE : "text/csv;charset=utf-8" }), { kind, fileName: file, doc, onExport })) {
             announce(fill(labels.toastExported, { file }));
         }
@@ -124,3 +233,6 @@ export async function runExport(kind, { fileName, result, locale, labels, limits
         announce(fill(labels.toastExportFailed, { message: messageOf(e) }), { tone: "error" });
     }
     }
+
+/** A chart's size as pivotkit-report takes it: whole px from 100 to 8000. */
+const clampSize = (px) => Math.max(100, Math.min(8000, Math.round(Number(px) || 0)));

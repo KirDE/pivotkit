@@ -153,7 +153,7 @@ pivotkit-core's [limits](../concepts/limits.md#limits). Data over `limits.rows`,
 
 Type: `({ kind, fileName, blob, text, rows }) => unknown`.
 
-Every exported file (`"xlsx"`, `"csv"`, `"png"`, or `"json"` for the [view file](view-file.md) of "Download view" in Views, named `<name>.pivotkit.json`; the name with its extension, the file) before it is downloaded, and every copy before it goes on the clipboard (`"copy-table"`, `"copy-json"` from Export; `"drill-copy"`, `"drill-json"`, `"drill-csv"`, `"drill-xlsx"` from the drill-down panel; a copy has its `text` and the `fileName` it would have as a file, a drill-down export `rows: { shown, count }`); returning `false` skips the download or the copy, so the host can keep the file or the text (upload it, say). An empty report (no field placed) has its Export entries greyed out ("Add a field first."): no call for them.
+Every exported file (`"xlsx"`, `"csv"`, `"html"`, `"png"`, `"svg"`, or `"json"` for the [view file](view-file.md) of "Download view" in Views, named `<name>.pivotkit.json`; the name with its extension, the file) before it is downloaded, and every copy before it goes on the clipboard (`"copy-table"`, `"copy-json"` from Export; `"drill-copy"`, `"drill-json"`, `"drill-csv"`, `"drill-xlsx"` from the drill-down panel; a copy has its `text` and the `fileName` it would have as a file, a drill-down export `rows: { shown, count }`); returning `false` skips the download or the copy, so the host can keep the file or the text (upload it, say). `"print"` is the [HTML report](report.md) before the print dialog opens (`pivot.html`): returning `false` prints nothing, so the host can print it its own way (a PDF of its server, say). An empty report (no field placed) has its Export entries greyed out ("Add a field first."): no call for them.
 
 ### `storageKey` { #prop-storagekey }
 
@@ -566,7 +566,7 @@ are not stable across page loads; do not select the fields by them (the `data-te
 
 ## Popovers and the host page
 
-Menus, bottom sheets and the "i" popups opened by a click open in the browser's top layer (`popover="manual"`; a description shown on hover stays in the report's layer): above
+Menus, bottom sheets and the "i" popups opened by a click open in the browser's top layer (`popover="manual"`; a description shown on hover of an "i" outside a menu stays in the report's layer, one inside a menu opens above the menu): above
 the host page's own layout whatever its z-indexes (a fixed navigation drawer at 1200, an app bar), and
 never clipped by its boxes; they stay in the report's DOM and are placed against the window. A
 browser without the Popover API stacks them by `--pk-layer-z`:

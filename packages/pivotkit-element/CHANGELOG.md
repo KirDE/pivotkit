@@ -22,12 +22,22 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 
 ### Added
 
+- pivotkit-react's font weight tokens ([#201](https://github.com/eizedev/pivotkit/issues/201)): `--pk-weight-normal`, `--pk-weight-medium`,
+  `--pk-weight-strong` and `--pk-weight-bold`, set on the element like every `--pk-*` token.
+- Export → HTML report, Chart image (.svg) and Print or save as PDF (pivotkit-react), loaded as the
+  chunk group "report" on first use (19.9 KiB gzip); `pivot-export` has the kinds `html`, `svg` and
+  `print` ([#165](https://github.com/eizedev/pivotkit/issues/165)). ECharts' SVG renderer comes with
+  the chart chunks (215.8 KiB, budget 222.5) and pivotkit-core's describe module with the first load
+  (170.0 KiB, budget 171.5): esbuild puts a module where any importer of its barrel loads it.
 - The property `importLimits` ([#169](https://github.com/eizedev/pivotkit/issues/169)), as
   pivotkit-react's prop: the limits of a file loaded with `allow-import`, merged key by key over
   `limits`; the page's data keeps `limits`. A property only, as `limits`.
 
 ### Fixed
 
+- The element bundles pivotkit-react's fixes: the Excel export in the report's theme colours, the
+  default colour scale from light to strong blue, a group's label at the top of its rows in the
+  workbook ([#212](https://github.com/eizedev/pivotkit/issues/212)), and an "i" inside a menu explained above the menu ([#213](https://github.com/eizedev/pivotkit/issues/213)).
 - An app whose bundler reads `sideEffects` (Angular's build) no longer warns about, or may drop,
   the chunks `dist/index.js` imports for their effects: `sideEffects` lists `dist/chunks/*.js` too
   ([#174](https://github.com/eizedev/pivotkit/issues/174)).

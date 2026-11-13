@@ -8,6 +8,14 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Changed
 
+- A colour scale in the theme's colours runs from light to strong blue (`--pk-scale-low` and
+  `--pk-scale-high` are `var(--pk-heat-low)` and `var(--pk-heat-high)`, the heatmap's colours), not
+  from red over yellow to green: it says "more", not "good" or "bad". `--pk-scale-mid` is no longer
+  set; a host that sets it gets a three-colour scale ([#212](https://github.com/eizedev/pivotkit/issues/212)).
+- The chart's plan, its colours from the tokens and its marks are pivotkit-core's (`chartPlan`,
+  `chartThemeFrom`, `pivotkit-core/chart`), so an SVG and a printed report of pivotkit-report draw
+  the same chart; the report looks the same. A host page with an import map adds
+  `pivotkit-core/chart` next to `pivotkit-core/export` ([#165](https://github.com/eizedev/pivotkit/issues/165)).
 - The table follows pivotkit-core's totals ([#155](https://github.com/eizedev/pivotkit/issues/155), [#156](https://github.com/eizedev/pivotkit/issues/156)): column subtotals off in a new report,
   no empty column and no total rows for fields in Rows without a value, no subtotal for a group of
   one item (its arrow stays). Labels without a value column next to them take up to 85 % of the
@@ -45,9 +53,23 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Added
 
+- Font weights as tokens ([#201](https://github.com/eizedev/pivotkit/issues/201)):
+  `--pk-weight-normal` (400), `--pk-weight-medium` (500), `--pk-weight-strong` (600) and
+  `--pk-weight-bold` (700), documented in Theming. Every rule uses them, the chart's tooltip, title
+  and group labels too, so a host whose font looks too heavy or too light sets four tokens instead of
+  overriding selectors. The weights 550 (field chips, the drill-down's path) and 650 (titles, table
+  headers) are now 600, to keep the scale at four steps; a font without those faces drew them as 600
+  or 700 anyway. The HTML report and print take the report's weights along, in the dark theme too
+  (its colours only in the light theme, as before). A test fails on a colour or font weight written
+  outside the token blocks.
+- Export → "HTML report (.html)", "Chart image (.svg)" and a group "Print" with "Print or save as
+  PDF…": the table as it is shown (and the chart when it is shown) as a page that opens anywhere and
+  prints well, the chart as SVG, and the same report in the browser's print dialog, from a sandboxed
+  frame a strict Content-Security-Policy allows. `onExport` gets the kinds `html`, `svg` and `print`
+  (with the report's HTML; `false` prints nothing). pivotkit-report is a new dependency, loaded on the
+  first of these exports ([#165](https://github.com/eizedev/pivotkit/issues/165)).
 - The tip `colSubtotals`: while a Total column shows (column subtotals on, two or more fields in
   Columns, a value, an open column group of two or more items), it says that a Total column adds up the group before it, with the button **Hide column subtotals** ([#156](https://github.com/eizedev/pivotkit/issues/156)).
-
 - The prop `importLimits` ([#169](https://github.com/eizedev/pivotkit/issues/169)): the limits a file
   loaded with `allowImport` is read and shown with, merged key by key over `limits`. The host's data
   keeps `limits`, so a host can keep uploads small (`importLimits={{ rows: 1000 }}`) without capping
@@ -90,6 +112,12 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
   goes through its server) builds on the report's own history, also when some of the earlier views
   have come back in between: Undo takes back the user's steps one by one and records no "change
   from outside" ([#141](https://github.com/eizedev/pivotkit/issues/141)).
+- The Excel export writes a colour scale and data bars in the theme's colours the report resolves
+  from its tokens (`--pk-scale-low`, `--pk-scale-mid`, `--pk-scale-high`, `--pk-chart-1`), so a
+  theme of the host's carries over; a dark report writes the light theme's colours. Before, the
+  workbook always had Excel's red, yellow, green ([#212](https://github.com/eizedev/pivotkit/issues/212)).
+- The explanation of an "i" inside a menu (Copy table in Export, a total in Options) is drawn above
+  the menu; at the window's right edge the menu in the browser's top layer covered it ([#213](https://github.com/eizedev/pivotkit/issues/213)).
 - A choice clicked in a field's Top items level keeps the focus, also in Safari, where a click does
   not focus a radio button ([#119](https://github.com/eizedev/pivotkit/issues/119)).
 - The rule between a menu's groups had 1.3:1 contrast in the light theme and 1.2:1 in the dark one,

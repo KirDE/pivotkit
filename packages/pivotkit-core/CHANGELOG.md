@@ -8,6 +8,11 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ### Changed
 
+- `DEFAULT_THEME` holds pivotkit-react's light theme colours: the colour scale runs from light blue to
+  blue (`["#eaf1fb", "#2a78d6"]`, was Excel's red, yellow, green, which said "low is bad" for a
+  temperature or a cost), data bars `"#2a78d6"` (was `"#638ec6"`) ([#212](https://github.com/eizedev/pivotkit/issues/212)). A view's own
+  colours and a `theme` passed to `toXlsx` are unchanged; a host that wants the old colours passes
+  `theme: { colorScale: ["#f8696b", "#ffeb84", "#63be7b"], dataBar: "#638ec6" }`.
 - Column subtotals are off by default (`totals.colSubtotals: false`); row subtotals and both grand
   totals stay on ([#156](https://github.com/eizedev/pivotkit/issues/156)). A view that names `colSubtotals` keeps it, and every view the UI saves,
   shares or stores names all four totals. A host's start view, a template or a view file written by
@@ -47,6 +52,26 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ### Added
 
+- `ChartTheme.strongWeight` ([#201](https://github.com/eizedev/pivotkit/issues/201)): the font weight of a chart's title and group labels
+  (default 600, `DEFAULT_THEME.strongWeight`); `chartThemeFrom` reads it from `--pk-weight-strong`, so
+  a host's font weight reaches the chart.
+- `chartPlan(view, data)`, `swapAxes(view)` and `chartThemeFrom(style)`: what a chart draws for a
+  view (an automatic chart's type, rows and columns swapped for dates on Columns), a view with Rows
+  and Columns swapped, and a chart's colours from the `--pk-*` tokens of any style. They were
+  pivotkit-react's; pivotkit-report draws the same chart in an SVG and a printed report
+  ([#165](https://github.com/eizedev/pivotkit/issues/165)).
+- `pivotkit-core/chart`: `decorateOption` (a report's marks on the chart's option: theme colours,
+  rounded bars, the axis labels laid out for the chart's size) and the label layout functions, moved
+  from pivotkit-react, which adds its DOM tooltip
+  ([#165](https://github.com/eizedev/pivotkit/issues/165)).
+- `scaleColor` in `pivotkit-core/export`: the colour of a colour scale at a point, as the grid
+  computes it ([#165](https://github.com/eizedev/pivotkit/issues/165)).
+- The error code `INVALID_TEMPLATE` for a print template pivotkit-report refuses
+  ([#165](https://github.com/eizedev/pivotkit/issues/165)).
+- `closest(name, candidates)` and `HINT_LIMITS`: the bounded "did you mean" of the view's hints, for
+  pivotkit-report's template check and pivotkit-cli's options. An unknown view key that other pivot
+  tools use (`columns`, `measures`, `filter`) names the view's own (`cols`, `values`, `filters`); a
+  filter without a type lists the types ([#165](https://github.com/eizedev/pivotkit/issues/165)).
 - Relative date ranges ([#165](https://github.com/eizedev/pivotkit/issues/165)): `direction` (`last`,
   `next`, `this`, `before`), `calendar` (whole units, or rolling from now), `includeCurrent`, the
   units `hour`, `week` and `quarter` besides `day`, `month` and `year`, and `anchor` `"first"` or a
@@ -102,6 +127,8 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ### Fixed
 
+- `toXlsx`: a row label merged over its group's rows sits at their top, as in the report; Excel drew
+  it next to the group's last row ([#212](https://github.com/eizedev/pivotkit/issues/212)).
 - A file name longer than 256 UTF-16 code units is cut before a character outside the BMP (an
   emoji), not in the middle of it; the source id of such a file changes
   ([#133](https://github.com/eizedev/pivotkit/issues/133)).
