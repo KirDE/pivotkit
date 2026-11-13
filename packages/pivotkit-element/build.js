@@ -222,9 +222,21 @@ answers checked, a plugin's minimal table completed, failed sheets, the host's e
  * because esbuild splits the modules the import UI shares with the first load into two more files,
  * each compressed on its own. First load 160.0 measured on a Mac (CI about 160.3), budget 161.5;
  * the menus 39.7 with the Data menu's panel, within 41.
+ * View version 2 (#165): normalize() reads every view through migrate() from version 1, checks keys
+ * inside each part with did-you-mean hints, folds text for the filters, and the report reads and
+ * writes the new filter shape: first load 163.8 measured on a Mac; with the words of the new relative
+ * ranges a chip shows for a loaded view (English and German, labels.js) 165.8, budget 167.5. The
+ * plain words of a view's unused parts grow with the new issue codes: 5.1, budget 5.5. With the
+ * describe, precision and ties steps, the cap on a view's issues and the check of long items the first
+ * load is 167.7 measured on a Mac (CI about 0.3 more), budget 169; the unused words 5.4.
+ * The Filter level edits what view version 2 can say: "does not begin with" and "does not end with",
+ * "Also keep items without a value", a date's quick choices with a unit (This, Last, Next, Before the
+ * last, the current period, rolling, counted from the first record or a date) under More choices,
+ * Top items with the items tied with the last one: the menus from 40.0 to 41.8 measured on a Mac (CI
+ * about 0.3 more), budget 43; the first load 168.0 (the chips' words for quarters, weeks and "this").
  * `--size` fails above it; raise it on purpose, with the reason in the commit.
  */
-export const SIZE_BUDGET_KIB = { initial: 161.5, chart: 211, export: 11.5, link: 7.3, menus: 41, texts: 6.8, unused: 5, import: 21 };
+export const SIZE_BUDGET_KIB = { initial: 169, chart: 211, export: 11.5, link: 7.3, menus: 43, texts: 6.8, unused: 5.5, import: 21 };
 
 /**
  * What a page loads, from the build's metafile: the entry with its static imports ("initial"), and
