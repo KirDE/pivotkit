@@ -10,6 +10,9 @@ First release.
 
 ### Added
 
+- `WEIGHT_TOKENS`: pivotkit-react's font weight scale (`--pk-weight-normal`, `-medium`, `-strong`,
+  `-bold`); the report's stylesheet and its chart take their weights from these tokens, so a host's
+  `tokens` change them too ([#201](https://github.com/eizedev/pivotkit/issues/201)).
 - `render(view, data, options)`: a view over rows, columnar or encoded data as JSON, CSV, XLSX, SVG or
   a printable HTML report, with the view's issues, `ok` and a summary; a bad view never throws, a
   limit or a refused template throws `PivotkitError` ([#165](https://github.com/eizedev/pivotkit/issues/165)).
