@@ -148,9 +148,8 @@ test("a popover follows immediate anchor movement with reduced motion (#120)", a
     const menu = page.locator(".pk-chip-menu");
     await expect(menu).toBeVisible();
     const before = await anchor.boundingBox();
+    // no transition at all: no transitionend, and the anchor keeps its size
     await anchor.evaluate((el) => {
-        el.style.transition = "transform 120ms linear";
-        el.getBoundingClientRect();
         el.style.transform = "translateX(40px)";
     });
     await expect.poll(async () => Math.round((await anchor.boundingBox()).x - before.x)).toBe(40);
