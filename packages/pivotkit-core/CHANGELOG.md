@@ -97,7 +97,8 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ### Fixed
 
-- Keep complete Unicode characters when a long imported file name is shortened
+- A file name longer than 256 characters is cut before a character outside the BMP (an emoji), not
+  in the middle of it; the source id of such a file changes
   ([#133](https://github.com/eizedev/pivotkit/issues/133)).
 - `options.limits` given as an array (`[]` was taken as no limits) is refused with `INVALID_OPTION`
   ("options.limits must be an object"), as any other value that is not an object.
