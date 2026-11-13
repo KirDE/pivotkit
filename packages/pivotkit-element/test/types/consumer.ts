@@ -43,7 +43,7 @@ el.templates = [{ file: { format: "pivotkit-view", formatVersion: 1, name: "From
 // composed: a listener on the document knows the detail too
 document.addEventListener("pivot-export", (e) => {
     const file: ExportFile = e.detail;
-    if (file.kind === "csv") e.preventDefault();
+    if (file.kind === "csv" || file.kind === "print") e.preventDefault();
 });
 
 el.addEventListener("pivot-tip-dismiss", (e) => {
@@ -63,8 +63,10 @@ el.addEventListener("pivot-source-switch", (e) => {
     return id;
 });
 
-// loading data: the attribute's property, reader plugins, columnar data, the event of the data shown
+// loading data: the attribute's property, the limits of a loaded file, reader plugins, columnar data, the event of the data shown
 el.allowImport = true;
+el.importLimits = { rows: 1_000 };
+const importRows: number | undefined = el.importLimits?.rows;
 el.plugins = [{ apiVersion: 1, kind: "reader", name: "jsonl", label: "JSON Lines", accept: [".jsonl"], load: () => import("./consumer.js") }];
 el.data = { columns: ["Team", "Hours"], types: ["string", "number"], data: [["A"], [1]] };
 el.addEventListener("pivot-data-load", (e) => {

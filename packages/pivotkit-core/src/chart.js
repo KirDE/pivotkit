@@ -99,15 +99,23 @@ export function toSeries(result, options) {
  * @property {string} [gridColor]         split lines
  * @property {string} [backgroundColor]   default transparent
  * @property {string} [fontFamily]
+ * @property {number} [strongWeight]    font weight of the title and the group labels, default 600
+ * @property {number} [titleSize]       font size of the title in px, default 16
+ * @property {number} [textSize]        font size of every other text (axes, legend, labels) in px, default 14
+ * @property {string[]} [colorScale]     a colour scale whose view names none (low, an optional middle, high), for toXlsx
+ * @property {string} [dataBar]          data bars whose view names no colour, for toXlsx
  * @property {[string, string]} [heatmapColors]  low and high end of the heatmap scale
  * @property {[string, string]} [pieRadius]       inner and outer radius of a pie, default a circle (0%, 70%)
  * @property {[string, string]} [donutRadius]     inner and outer radius of a donut, default a ring (42%, 70%)
  */
 
-/** Room (px) the title takes above the chart. */
-const TITLE_ROOM = 32;
-/** Room (px) a legend takes on its side: one line at the top or bottom, a column on the right. */
-const LEGEND_ROOM = { top: 24, bottom: 32, right: 160 };
+/** Room (px) the title takes above the chart: its line and 16 px below it (32 px at 16 px). */
+const roomOfTitle = (titleSize) => titleSize + 16;
+/**
+ * Room (px) a legend takes on its side for text `textSize` px high: one line at the top or bottom (at
+ * least 24 and 32 px, what a 14 px line takes), a column on the right.
+ */
+const legendRoom = (textSize) => ({ top: Math.max(24, textSize + 10), bottom: Math.max(32, textSize + 18), right: 160 });
 
 /**
  * Where the legend of a chart goes and the room it takes, from `chart.legend`: "auto" above the
@@ -115,25 +123,30 @@ const LEGEND_ROOM = { top: 24, bottom: 32, right: 160 };
  * @param {string | undefined} setting
  * @param {boolean} auto
  * @param {number} top  the room above the legend (the title)
- * @param {object} textStyle
+ * @param {{ fontSize: number }} textStyle
  * @returns {{ legend: object | null, room: { top: number, bottom: number, right: number } }}
  */
 function legendOf(setting, auto, top, textStyle) {
+    const room = legendRoom(textStyle.fontSize);
     const where = setting === "bottom" || setting === "right" || setting === "off" ? setting : auto ? "top" : "off";
     if (where === "off") {
         return { legend: null, room: { top: 0, bottom: 0, right: 0 } };
     }
     if (where === "right") {
-        return { legend: { type: "scroll", orient: "vertical", right: 0, top: top + 8, bottom: 8, textStyle }, room: { top: 0, bottom: 0, right: LEGEND_ROOM.right } };
+        return { legend: { type: "scroll", orient: "vertical", right: 0, top: top + 8, bottom: 8, textStyle }, room: { top: 0, bottom: 0, right: room.right } };
     }
     if (where === "bottom") {
-        return { legend: { type: "scroll", bottom: 0, textStyle }, room: { top: 0, bottom: LEGEND_ROOM.bottom, right: 0 } };
+        return { legend: { type: "scroll", bottom: 0, textStyle }, room: { top: 0, bottom: room.bottom, right: 0 } };
     }
-    return { legend: { type: "scroll", top, textStyle }, room: { top: LEGEND_ROOM.top, bottom: 0, right: 0 } };
+    return { legend: { type: "scroll", top, textStyle }, room: { top: room.top, bottom: 0, right: 0 } };
 }
 
-/** Room (px) between the category axis and the group labels under it (or left of it), before the layout of the UI. */
-export const GROUP_AXIS_OFFSET = 24;
+/**
+ * Room (px) between the category axis and the group labels under it (or left of it), before the
+ * layout of the UI: a line of category labels `textSize` px high and the room around it (as
+ * decorateOption's straight labels).
+ */
+const groupAxisOffset = (textSize) => textSize + 12;
 
 /**
  * The group labels of a category axis with two or more row fields (`chart.groupLabels` "auto" or
@@ -171,11 +184,11 @@ function groupAxisOf(s, rowFields, chart, { separator, axisLine, theme }) {
             type: "category",
             data: outer,
             position: chart.horizontal ? "left" : "bottom",
-            offset: GROUP_AXIS_OFFSET,
+            offset: groupAxisOffset(theme.textSize ?? DEFAULT_THEME.textSize),
             axisLine: { show: false },
             // the separators: from this axis to the main one, at the first category of each group
-            axisTick: { show: true, inside: true, length: GROUP_AXIS_OFFSET, interval: (i) => i > 0 && starts[i] === true, lineStyle: axisLine.lineStyle },
-            axisLabel: { color: theme.textColor, fontWeight: 600, interval: (i) => middles.has(i) },
+            axisTick: { show: true, inside: true, length: groupAxisOffset(theme.textSize ?? DEFAULT_THEME.textSize), interval: (i) => i > 0 && starts[i] === true, lineStyle: axisLine.lineStyle },
+            axisLabel: { color: theme.textColor, fontSize: theme.textSize ?? DEFAULT_THEME.textSize, fontWeight: theme.strongWeight ?? DEFAULT_THEME.strongWeight, interval: (i) => middles.has(i) },
             axisPointer: { show: false },
             splitLine: { show: false },
             groups: true,
@@ -242,7 +255,10 @@ export function toEChartsOption(result, options) {
     const first = s.series[0];
     const fmt = formatterFor(first ? first.format : "number", locale);
     const compact = formatterFor(first && /^percent/.test(first.format) ? first.format : "compact", locale);
-    const textStyle = { color: theme.textColor, fontFamily: theme.fontFamily };
+    // every text but the title at the theme's size: ECharts' own is 12 px, and its axis labels do not
+    // take the option's textStyle, so each one names its size (axisText)
+    const textStyle = { color: theme.textColor, fontFamily: theme.fontFamily, fontSize: theme.textSize ?? DEFAULT_THEME.textSize };
+    const axisText = { color: textStyle.color, fontSize: textStyle.fontSize };
     const axisLine = { lineStyle: { color: theme.axisColor } };
     const base = {
         backgroundColor: theme.backgroundColor ?? "transparent",
@@ -251,8 +267,8 @@ export function toEChartsOption(result, options) {
     };
     const valueFormatter = (v) => (typeof v === "number" ? fmt(v) : "");
     // the title over the chart, and the legend where the view puts it, with the room they take
-    const title = typeof chart.title === "string" && chart.title.trim() ? { title: { text: chart.title.trim(), left: "center", top: 0, textStyle: { ...textStyle, fontSize: 16, fontWeight: 600 } } } : {};
-    const titleRoom = title.title ? TITLE_ROOM : 0;
+    const title = typeof chart.title === "string" && chart.title.trim() ? { title: { text: chart.title.trim(), left: "center", top: 0, textStyle: { ...textStyle, fontSize: theme.titleSize ?? DEFAULT_THEME.titleSize, fontWeight: theme.strongWeight ?? DEFAULT_THEME.strongWeight } } } : {};
+    const titleRoom = title.title ? roomOfTitle(theme.titleSize ?? DEFAULT_THEME.titleSize) : 0;
     const { legend, room } = legendOf(chart.legend, SLICE_CHART_TYPES.includes(chart.type) || s.series.length > 1, titleRoom, textStyle);
     const legendPart = legend ? { legend } : {};
     // what is written next to the marks: "percent" and "both" are a pie's; the other types write the value
@@ -323,8 +339,8 @@ export function toEChartsOption(result, options) {
             // no split areas: ECharts paints them light grey whatever the theme, so the empty cells
             // would be the brightest part of a dark chart; an empty cell shows the background
             // every column is labelled (interval 0): ECharts would otherwise hide every second name
-            xAxis: { type: "category", data: columns.map((c) => c.name), axisLine, axisLabel: { color: theme.textColor, interval: 0 }, splitArea: { show: false } },
-            yAxis: { type: "category", data: s.categories, axisLine, axisLabel: { color: theme.textColor }, splitArea: { show: false } },
+            xAxis: { type: "category", data: columns.map((c) => c.name), axisLine, axisLabel: { ...axisText, interval: 0 }, splitArea: { show: false } },
+            yAxis: { type: "category", data: s.categories, axisLine, axisLabel: { ...axisText }, splitArea: { show: false } },
             visualMap: {
                 min: data.length ? min : 0,
                 max: data.length ? max : 1,
@@ -346,11 +362,11 @@ export function toEChartsOption(result, options) {
     const type = chart.type === "line" || chart.type === "area" ? "line" : "bar";
     const groups = groupAxisOf(s, result.view.rows.length, chart, { separator: options.separator ?? " / ", axisLine, theme });
     // with group labels the axis names each category by its inner levels, the group axis the outer one
-    const categoryAxis = { type: "category", data: groups ? groups.leaves : s.categories, axisLine, axisLabel: { color: theme.textColor } };
+    const categoryAxis = { type: "category", data: groups ? groups.leaves : s.categories, axisLine, axisLabel: { ...axisText } };
     const valueAxis = {
         type: "value",
         axisLine,
-        axisLabel: { color: theme.textColor, formatter: (v) => compact(v) },
+        axisLabel: { ...axisText, formatter: (v) => compact(v) },
         splitLine: { lineStyle: { color: theme.gridColor } }
     };
     // value labels: at the end of a bar, inside a stacked one, above a point of a line

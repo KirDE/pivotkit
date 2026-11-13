@@ -115,11 +115,13 @@ median, minimum or maximum of dates. Such a value keeps Summarize by, Name and M
 
 ## Highlight
 
-- **Colour scale**: each cell coloured from low to high.
+- **Colour scale**: each cell coloured from low to high, in the theme's colours from light (low) to
+  strong (high), so it says "more", not "good" or "bad".
 - **Data bars**: a bar in each cell, its length the cell's place between the smallest and the
   largest cell of that value.
 
-Totals are not highlighted. The Excel export keeps both as Excel's own conditional formats.
+Totals are not highlighted. The Excel export keeps both as Excel's own conditional formats, in the
+colours the report shows.
 
 A value can bring colours of its own (a saved view's colour scale from blue to red). The choice
 that is checked changes nothing, and switching to None or Data bars and back gives the value its own
@@ -161,6 +163,8 @@ every January of the data in one, and the cell summarizes them all (the average 
 the sum of all the Januaries). This is for comparing seasons, months or weekdays with one another;
 the table does not say which years it combined. So three years of data grouped by **Quarter of
 year** are four rows, not twelve.
+It also keeps the years 0–99 and dates before year 1: a month names its era (Jan 100 BC), and a
+quarter keeps Q1–Q4 before year zero.
 
 ??? question "Which grouping do I need?"
     The steps below use the [weather data](../learn.md#weather) of the live demo: fourteen cities,
