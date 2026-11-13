@@ -8,6 +8,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Changed
 
+- A colour scale in the theme's colours runs from light to strong blue (`--pk-scale-low` and
+  `--pk-scale-high` are `var(--pk-heat-low)` and `var(--pk-heat-high)`, the heatmap's colours), not
+  from red over yellow to green: it says "more", not "good" or "bad". `--pk-scale-mid` is no longer
+  set; a host that sets it gets a three-colour scale ([#212](https://github.com/eizedev/pivotkit/issues/212)).
 - The chart's plan, its colours from the tokens and its marks are pivotkit-core's (`chartPlan`,
   `chartThemeFrom`, `pivotkit-core/chart`), so an SVG and a printed report of pivotkit-report draw
   the same chart; the report looks the same. A host page with an import map adds
@@ -104,6 +108,12 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Fixed
 
+- The Excel export writes a colour scale and data bars in the theme's colours the report resolves
+  from its tokens (`--pk-scale-low`, `--pk-scale-mid`, `--pk-scale-high`, `--pk-chart-1`), so a
+  theme of the host's carries over; a dark report writes the light theme's colours. Before, the
+  workbook always had Excel's red, yellow, green ([#212](https://github.com/eizedev/pivotkit/issues/212)).
+- The explanation of an "i" inside a menu (Copy table in Export, a total in Options) is drawn above
+  the menu; at the window's right edge the menu in the browser's top layer covered it ([#213](https://github.com/eizedev/pivotkit/issues/213)).
 - A choice clicked in a field's Top items level keeps the focus, also in Safari, where a click does
   not focus a radio button ([#119](https://github.com/eizedev/pivotkit/issues/119)).
 - The rule between a menu's groups had 1.3:1 contrast in the light theme and 1.2:1 in the dark one,

@@ -14,7 +14,7 @@ import { reportCss } from "./report-css.js";
 import { chartSvg } from "./svg.js";
 import { TEMPLATE_LIMIT, escapeHtml, fillTemplate, parseTemplate } from "./template.js";
 import { fill, textsFor } from "./texts.js";
-import { cleanTokens, tokenStyle } from "./tokens.js";
+import { cleanTokens, conditionalColors, tokenStyle } from "./tokens.js";
 
 const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -214,14 +214,14 @@ export async function render(view, data, options = {}) {
     } else if (format === "csv") {
         body = toCsvBytes(grid, { bom: options.bom !== false });
     } else if (format === "xlsx") {
-        body = toXlsx(grid, { sheetName: title });
+        body = toXlsx(grid, { sheetName: title, theme: conditionalColors(options.tokens) });
     } else if (format === "svg") {
         const chart = chartOf();
         chartCut(chart);
         body = new TextEncoder().encode(chart.svg);
     } else {
         const number = new Intl.NumberFormat(grid.locale);
-        const table = htmlTable(grid, { maxCells: options.tableCells ?? REPORT_LIMITS.tableCells });
+        const table = htmlTable(grid, { maxCells: options.tableCells ?? REPORT_LIMITS.tableCells, ...conditionalColors(options.tokens) });
         let tableNote = "";
         if (table.cut) {
             summary.truncated = true;

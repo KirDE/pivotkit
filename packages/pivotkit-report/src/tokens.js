@@ -20,9 +20,8 @@ export const LIGHT_TOKENS = Object.freeze({
     "--pk-shadow": "0 1px 2px rgb(16 24 40 / 0.06), 0 4px 12px rgb(16 24 40 / 0.08)",
     "--pk-heat-low": "#eaf1fb",
     "--pk-heat-high": "#2a78d6",
-    "--pk-scale-low": "#f8696b",
-    "--pk-scale-mid": "#ffeb84",
-    "--pk-scale-high": "#63be7b",
+    "--pk-scale-low": "var(--pk-heat-low)",
+    "--pk-scale-high": "var(--pk-heat-high)",
     "--pk-chart-1": "#2a78d6",
     "--pk-chart-2": "#eb6834",
     "--pk-chart-3": "#1baf7a",
@@ -48,9 +47,8 @@ export const DARK_TOKENS = Object.freeze({
     "--pk-shadow": "0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.3)",
     "--pk-heat-low": "#1d2735",
     "--pk-heat-high": "#3987e5",
-    "--pk-scale-low": "#c2413f",
-    "--pk-scale-mid": "#b39a2e",
-    "--pk-scale-high": "#3f9a5c",
+    "--pk-scale-low": "var(--pk-heat-low)",
+    "--pk-scale-high": "var(--pk-heat-high)",
     "--pk-chart-1": "#3987e5",
     "--pk-chart-2": "#d95926",
     "--pk-chart-3": "#199e70",
@@ -116,6 +114,31 @@ export function cleanTokens(tokens) {
         }
     }
     return out;
+}
+
+/** A colour a table cell and a workbook take: #rgb or #rrggbb. */
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/**
+ * The colours of a colour scale and of data bars whose view names none, from the host's tokens over
+ * the light ones, as the report on screen resolves them: the scale --pk-scale-low, the host's
+ * --pk-scale-mid and --pk-scale-high (by default the heat tokens), the bars --pk-chart-1. A value
+ * that is no plain hex colour (another token is followed) keeps pivotkit-core's default.
+ * @param {Record<string, string>} [tokens]
+ * @returns {{ colorScale?: string[], dataBar?: string }}
+ */
+export function conditionalColors(tokens = {}) {
+    const all = { ...LIGHT_TOKENS, ...cleanTokens(tokens) };
+    const resolve = (/** @type {string} */ name, depth = 0) => {
+        const value = Object.hasOwn(all, name) ? all[name] : "";
+        const ref = /^var\((--pk-[a-z0-9-]+)\)$/.exec(value);
+        return ref && depth < 4 ? resolve(ref[1], depth + 1) : HEX_COLOR.test(value) ? value : null;
+    };
+    const [low, mid, high, bar] = ["--pk-scale-low", "--pk-scale-mid", "--pk-scale-high", "--pk-chart-1"].map((name) => resolve(name));
+    return {
+        ...(low && high ? { colorScale: mid ? [low, mid, high] : [low, high] } : {}),
+        ...(bar ? { dataBar: bar } : {})
+    };
 }
 
 /** Tokens as CSS declarations. */

@@ -3,6 +3,7 @@
 // a view file's name, strict and lenient, the limits, every format.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { strFromU8, unzipSync } from "fflate";
 import { PivotkitError, encode } from "pivotkit-core";
 import { readFile } from "pivotkit-core/import";
 import xlsxReader from "pivotkit-xlsx";
@@ -100,6 +101,34 @@ test("conditional colours: a colour scale per cell and data bars, as rules witho
     const bars = [...r.text.matchAll(/\.(pk-c\d+)\{--pk-bar:([\d.]+)%;--pk-bar-color:#123456\}/g)];
     assert.equal(bars.length, 4);
     assert.ok(bars.some((b) => b[2] === "100"));
+});
+
+// #212: a scale or bars without colours of the view's own take the host's tokens, as the report on
+// screen does: the HTML table and the workbook alike; without tokens the light theme's heat colours
+test("conditional colours without the view's own: the host's tokens in the HTML table and the workbook", async () => {
+    const view = { rows: ["Region"], values: [{ field: "Units", agg: "sum", conditional: { type: "colorScale" } }, { field: "Price", agg: "sum", conditional: { type: "dataBar" } }] };
+    const ends = (text) => {
+        const scale = [...text.matchAll(/class="pk-td pk-num pk-has-scale (pk-c\d+)">(\d+)</g)].map((m) => [m[2], m[1]]);
+        const ruleOf = (cls) => new RegExp(`\\.${cls}\\{--pk-cell-bg:(#[0-9a-f]{6})\\}`).exec(text)?.[1];
+        return [ruleOf(scale.find(([v]) => v === "4")[1]), ruleOf(scale.find(([v]) => v === "12")[1])];
+    };
+    const workbook = async (options) => {
+        const r = await render(view, SALES, { format: "xlsx", ...FIXED, ...options });
+        const sheet = strFromU8(unzipSync(r.body)["xl/worksheets/sheet1.xml"]);
+        return { scale: /<colorScale>(.*?)<\/colorScale>/.exec(sheet)[1], bar: /<dataBar>.*?<color rgb="FF([0-9A-F]{6})"/.exec(sheet)[1] };
+    };
+    // no tokens: light blue (low) to blue (high), never Excel's red for the lowest value
+    assert.deepEqual(ends((await render(view, SALES, { format: "html", ...FIXED })).text), ["#eaf1fb", "#2a78d6"]);
+    // the heat tokens of a host's theme, or the scale's own over them
+    const heat = { "--pk-heat-low": "#fff5e6", "--pk-heat-high": "#b34700", "--pk-chart-1": "#6b2fa0" };
+    assert.deepEqual(ends((await render(view, SALES, { format: "html", ...FIXED, tokens: heat })).text), ["#fff5e6", "#b34700"]);
+    assert.deepEqual(ends((await render(view, SALES, { format: "html", ...FIXED, tokens: { ...heat, "--pk-scale-low": "#0000ff" } })).text), ["#0000ff", "#b34700"]);
+    assert.match((await render(view, SALES, { format: "html", ...FIXED, tokens: heat })).text, /--pk-bar-color:#6b2fa0/);
+    const book = await workbook({ tokens: heat });
+    assert.equal(book.scale, '<cfvo type="min"/><cfvo type="max"/><color rgb="FFFFF5E6"/><color rgb="FFB34700"/>');
+    assert.equal(book.bar, "6B2FA0");
+    // a token that is no plain colour keeps the default
+    assert.deepEqual(ends((await render(view, SALES, { format: "html", ...FIXED, tokens: { "--pk-heat-low": "oklch(0.9 0.02 250)" } })).text), ["#eaf1fb", "#2a78d6"]);
 });
 
 test("a cyclic date grouping (weekday) keeps the week's order, and a one-letter field works", async () => {

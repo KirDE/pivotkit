@@ -10,6 +10,10 @@ First release.
 
 ### Added
 
+- A colour scale or data bars without colours of the view's own take the host's `tokens` in the HTML
+  report's table and in the workbook (`--pk-scale-low`, `--pk-scale-mid`, `--pk-scale-high`,
+  `--pk-chart-1`), as the report on screen does; by default the light theme's heat colours, light
+  for low and strong for high ([#212](https://github.com/eizedev/pivotkit/issues/212)).
 - `WEIGHT_TOKENS`: pivotkit-react's font weight scale (`--pk-weight-normal`, `-medium`, `-strong`,
   `-bold`); the report's stylesheet and its chart take their weights from these tokens, so a host's
   `tokens` change them too ([#201](https://github.com/eizedev/pivotkit/issues/201)).

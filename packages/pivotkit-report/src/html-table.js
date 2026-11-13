@@ -30,7 +30,8 @@ const totalClass = (total) => (total === 2 ? " pk-grand" : total === 1 ? " pk-su
 /**
  * @param {import("pivotkit-core").Grid} grid
  * @param {{ maxCells: number, caption?: string, colorScale?: string[], dataBar?: string }} options
- *   colorScale, dataBar: the colours of a scale or a bar whose view names none (pivotkit-core's DEFAULT_THEME)
+ *   colorScale, dataBar: the colours of a scale or a bar whose view names none (the host's tokens,
+ *   tokens.js conditionalColors; else pivotkit-core's DEFAULT_THEME)
  * @returns {HtmlTable}
  */
 export function htmlTable(grid, { maxCells, caption, colorScale = [...DEFAULT_THEME.colorScale], dataBar = DEFAULT_THEME.dataBar }) {
