@@ -4,7 +4,7 @@ The pivot report builder of [pivotkit](https://pivotkit.eize.dev/) as a React 18
 `<PivotReport>`: a searchable field list, four drop zones (Rows, Columns, Values, Filters) with drag
 and drop and a menu on every field, table and chart (Apache ECharts), filters with value counts,
 drill-down to the rows behind a value, undo and redo, saved and shared views as JSON files, and
-Excel, CSV and PNG export. Excel's PivotTable is the reference; the engine is
+Excel, CSV, HTML report, PNG and SVG export and printing. Excel's PivotTable is the reference; the engine is
 [pivotkit-core](https://www.npmjs.com/package/pivotkit-core).
 
 ![The pivot report with real weather data: field list, the Filters, Columns, Rows and Values zones, and the average temperature of 14 cities by month as a colour scale](https://pivotkit.eize.dev/assets/screenshots/report-light.png)
@@ -26,7 +26,7 @@ npm install pivotkit-react react react-dom echarts
 
 TypeScript declarations are included. pivotkit-core (a caret range) and @dnd-kit come with the
 package. In 0.x a caret range spans patch
-versions only (`^0.4.0` is 0.4.x): an app that also imports pivotkit-core itself must use a version
+versions only (`^0.y.z` is 0.y.z and later 0.y patches): an app that also imports pivotkit-core itself must use a version
 inside that range, since npm shares one copy only when the ranges overlap.
 
 ## Example

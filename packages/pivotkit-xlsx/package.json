@@ -17,7 +17,10 @@
     "xlsx",
     "excel",
     "import",
-    "spreadsheet"
+    "spreadsheet",
+    "pivot-table",
+    "pivot-grid",
+    "pivottable"
   ],
   "type": "module",
   "sideEffects": false,

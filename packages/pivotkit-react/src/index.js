@@ -72,7 +72,9 @@
 /**
  * @typedef {object} ExportFile  a file the report made, before it is downloaded, or a text before it
  *   goes on the clipboard
- * @property {"xlsx" | "csv" | "png" | "json" | "copy-table" | "copy-json" | "drill-copy" | "drill-json" | "drill-csv" | "drill-xlsx"} kind
+ * @property {"xlsx" | "csv" | "png" | "html" | "svg" | "print" | "json" | "copy-table" | "copy-json" | "drill-copy" | "drill-json" | "drill-csv" | "drill-xlsx"} kind
+ *   "html": the HTML report; "svg": the chart as SVG; "print": the HTML report before it is printed
+ *   (returning false prints nothing: the host prints it, e.g. as a PDF of its own);
  *   "json": the view file (Views, "Download view"); "copy-table", "copy-json": Export → Copy table,
  *   Copy data as JSON; "drill-*": the drill-down panel's Export menu (Copy, Copy as JSON, Download
  *   CSV, Download Excel)
@@ -122,7 +124,11 @@
  *   (the page scrolls); with it the report stays inside that height and its result scrolls
  * @property {"on" | "off"} [grow]  whether the report grows past its height to keep the result's
  *   least height: "on" by default without `height`, "off" with it
- * @property {Partial<import("pivotkit-core").Limits>} [limits]
+ * @property {Partial<import("pivotkit-core").Limits>} [limits]  pivotkit-core's limits for the host's data
+ *   (and for a loaded file, where `importLimits` leaves a key out)
+ * @property {Partial<import("pivotkit-core").Limits>} [importLimits]  the limits a file loaded with
+ *   `allowImport` is read and shown with, merged key by key over `limits` (default: `limits`), so a
+ *   host can keep uploads small without capping its own data
  * @property {string} [label]  the name of the report's region landmark (default the labels' `report`);
  *   several reports on one page each need their own
  * @property {string} [className]
@@ -162,8 +168,8 @@
  * @property {ViewSource[]} [sources]  the other data the host can show: a view made for one of them
  *   offers "Switch to <name> and load" (with `onSourceSwitch`)
  * @property {string | null} [schemaUrl]  the `$schema` of the view files the report writes: by default
- *   https://pivotkit.eize.dev/schema/view-file-1.json, a host's own copy of the schema (it ships in
- *   pivotkit-core as "pivotkit-core/schema/view-file-1.json"), or null or "" to leave it out; loading a
+ *   https://pivotkit.eize.dev/schema/view-file-2.json, a host's own copy of the schema (it ships in
+ *   pivotkit-core as "pivotkit-core/schema/view-file-2.json"), or null or "" to leave it out; loading a
  *   view never depends on it
  * @property {(request: SourceSwitch) => void} [onSourceSwitch]  the user chose to switch to the data a
  *   view was made for and load it there: the host shows that data and the view (as its start view)

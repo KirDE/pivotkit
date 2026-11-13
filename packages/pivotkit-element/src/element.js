@@ -69,9 +69,10 @@ export { EVENTS };
 /**
  * @typedef {object} ExportFile  the detail of pivot-export: a file before its download, or a text
  *   before it goes on the clipboard
- * @property {"xlsx" | "csv" | "png" | "json" | "copy-table" | "copy-json" | "drill-copy" | "drill-json" | "drill-csv" | "drill-xlsx"} kind
- *   "json": the view file (Views, "Download view"); "copy-table", "copy-json": Export → Copy table,
- *   Copy data as JSON; "drill-*": the drill-down panel's Export menu
+ * @property {"xlsx" | "csv" | "png" | "html" | "svg" | "print" | "json" | "copy-table" | "copy-json" | "drill-copy" | "drill-json" | "drill-csv" | "drill-xlsx"} kind
+ *   "html": the HTML report; "svg": the chart as SVG; "print": the HTML report before it is printed
+ *   (respondWith(false) prints nothing); "json": the view file (Views, "Download view"); "copy-table",
+ *   "copy-json": Export → Copy table, Copy data as JSON; "drill-*": the drill-down panel's Export menu
  * @property {string} fileName  with the extension ("pivot.xlsx"); for a copy the name it would have as a file
  * @property {Blob} blob
  * @property {string} [text]  a copy's text
@@ -574,12 +575,23 @@ export class PivotReportElement extends Base {
         this.#set("plugins", value);
     }
 
-    /** pivotkit-core's limits (rows, cells, ...). */
+    /** pivotkit-core's limits (rows, cells, ...) for the host's data. */
     get limits() {
         return /** @type {Record<string, number> | undefined} */ (this.#values.limits);
     }
     set limits(value) {
         this.#set("limits", value);
+    }
+
+    /**
+     * The limits a file loaded with allow-import is read and shown with, merged key by key over
+     * `limits` (default: `limits`), so uploads can be kept small without capping the host's data.
+     */
+    get importLimits() {
+        return /** @type {Record<string, number> | undefined} */ (this.#values.importLimits);
+    }
+    set importLimits(value) {
+        this.#set("importLimits", value);
     }
 
     // ---- internals ----
@@ -698,6 +710,7 @@ export class PivotReportElement extends Base {
             theme: this.theme,
             height: this.height,
             limits: v.limits,
+            importLimits: v.importLimits,
             fileName: this.fileName,
             label: this.label,
             tips: this.tips,

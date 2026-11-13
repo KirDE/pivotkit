@@ -1,6 +1,6 @@
 ---
 title: Security
-description: How pivotkit treats views and loaded files as untrusted input, keeps memory use bounded, renders no markup from data, writes safe exports, and runs under a strict Content-Security-Policy.
+description: Why pivotkit is not access control, how it treats views and loaded files as untrusted input, keeps memory use bounded, renders no markup from data, writes safe exports, and runs under a strict Content-Security-Policy.
 ---
 
 # Security
@@ -9,6 +9,23 @@ Reports are built by the people who use them, and views travel: they are saved o
 templates and passed in URLs. pivotkit is built for that. To report a vulnerability, use the private
 channel described in the repository's
 [security policy](https://github.com/eizedev/pivotkit/blob/main/SECURITY.md).
+
+## pivotkit is not access control
+
+pivotkit shows every row and column it is given: in the table and the chart, in the drill-down, in
+the exports of the source rows, and in what `onCellClick` and the events pass on. Filters, the start
+view and templates are not permissions: a person can remove a filter, load another view or open a
+link, and sees the rest of the data. `drillDownLimit` caps how many rows a drill-down holds for
+memory, not who sees them.
+
+- Send only the rows and columns this viewer may see, filtered on your server for this user, before
+  they reach the browser: whatever the browser holds, the person can read with its developer tools.
+- A link or a view file names its data by a source id ([Sharing](concepts/sharing.md#opening-a-link-on-another-page)).
+  Load the data behind that id with the rights of the person who opens it, not of the person who
+  shared it, and answer a source they may not see as you answer an unknown one. Check the link's
+  allowed `params` the same way: they come from the link, not from you.
+- A shared view holds the values chosen in its filters, so a view can show a value to someone who
+  could not see the rows ([Privacy](reference/view-file.md#privacy)).
 
 ## Views are untrusted input
 
@@ -67,13 +84,21 @@ reference depth and the number of schema objects it reads.
 ## Exports
 
 - **CSV**: text that a spreadsheet would run as a formula gets a leading `'`: text starting with a tab
-  or a carriage return, text whose first visible character (after spaces, line breaks and control
-  characters) is `=` or `@`, and text starting with `+` or `-` unless it is a number as a locale writes it (`-5%`, `-1.234,5`, `-1’234.5`, `-5,3 %`, `-€1.50`) or a
-  number range such as the bin label `-10 – 0`.
+  or a carriage return, text whose first visible character (after spaces, line breaks, control
+  characters and invisible ones such as a zero-width space) is `=` or `@`, and text starting with `+` or `-` unless it is a number as a locale writes it (`-5%`, `-1.234,5`, `-1’234.5`, `-5,3 %`, `-€1.50`) or a
+  number range such as the bin label `-10 – 0`. Characters that change the direction of text
+  (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069) are left out, as the import leaves them
+  out, so a name cannot read as another one and no formula hides behind one.
 - **Copies** (Copy table, the drill-down's Copy): the same guard on every cell, since a spreadsheet
   runs a pasted formula too. Copy as JSON writes values, never markup or code.
-- **XLSX**: text is written as inline strings, never as formulas. The XML is written by pivotkit-core
+- **XLSX**: text is written as inline strings, never as formulas, without bidi controls, as in the CSV. The XML is written by pivotkit-core
   itself; no spreadsheet library is involved. Excel's sheet limits are checked before writing.
+- **HTML report and SVG** ([pivotkit-report](reference/report.md)): every text is escaped and loses
+  its bidi controls, as in the CSV (in the SVG also when written as a numeric reference); a
+  [print template](reference/print-template.md) may hold placeholders in text and a few attributes
+  only, checked before anything is rendered; the report's Content-Security-Policy loads and runs
+  nothing, its chart is an image; the SVG is checked element by element (no script, event attribute,
+  link or style attribute). Printing from the page fills a frame sandboxed without scripts.
 - Downloads use a blob URL on an `<a download>`; nothing is sent anywhere. File names are made safe:
   path separators and characters a file system refuses are replaced. With `onExport` (or the
   cancelable `pivot-export` event) your page gets every file and every copy first and can keep it
@@ -93,7 +118,8 @@ uploaded, and a hostile file affects only that person's tab. Its readers treat i
   in and before it is parsed: a file of a few hundred bytes with a value in row 300,000 and column
   XFD would otherwise become a dense array of billions of cells in the parser. Leaving out rows
   without a value (a used range of formatted empty cells) saves time and memory; the limits do not
-  depend on it.
+  depend on it. A host can give loaded files lower limits than its own data
+  ([`importLimits`](concepts/limits.md#limits-of-a-loaded-file)).
 - **Nothing in a file runs**: no formula is evaluated (a workbook's saved values are read), a workbook
   with macros (`.xlsm`, `vbaProject.bin`) is refused, and an XML part that declares a document type or
   entities (`<!DOCTYPE`, `<!ENTITY`) is refused before it is parsed, which rules out entity expansion
@@ -117,6 +143,15 @@ uploaded, and a hostile file affects only that person's tab. Its readers treat i
   views are kept or shared: the source id of a saved view, a view file or a link names the file
   (up to 120 characters and a hash), and a view file lists the fields it uses. Undo keeps at most three data sets, so loading one
   file after another does not keep every one in memory.
+
+## The command line
+
+`pivotkit` ([pivotkit-cli](reference/cli.md#files)) reads a file once, as a regular file, after its
+size is checked; writes through a temporary file; never replaces a link or a directory; and with
+`--allow-dir` reads and writes only inside the directories named, by real path. `--allow-dir` is not a
+sandbox: a hard link inside an allowed directory reaches the file it names, and another process of
+the same user can change the directories while the CLI runs. Its messages never hold a file's
+content, and `describe` shows a data file's values only when asked (`--items`).
 
 ## Content-Security-Policy
 
