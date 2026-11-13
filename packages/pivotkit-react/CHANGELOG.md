@@ -6,9 +6,101 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Changed
+
+- The npm description names views as JSON files, as the README and the docs do, instead of templates
+  ([#191](https://github.com/eizedev/pivotkit/issues/191)).
+- npm keywords `pivot-grid` and `pivottable`, the terms people search for ([#172](https://github.com/eizedev/pivotkit/issues/172)).
+- The report reads and writes pivotkit-core's view version 2 ([#165](https://github.com/eizedev/pivotkit/issues/165)):
+  the picks of a field are an `in` filter with `not: true` and `blanks`, a rule on the names a `text`
+  filter (case and runs of whitespace ignored, `on: "label"` for a field that is not text), "is not",
+  "does not contain" and "is not between" the positive operator with `not: true`. Views of version 1
+  (stored, shared, the host's) load with the same result. A rule the menus have no word for (a
+  loaded view's "is not greater than") is said as "not (…)".
+- A relative range the quick choices do not write (a loaded view's hours, or a second range of a
+  field) says what it keeps in words, in English and German, and stays as it is: its row in the
+  Filter level can only be removed.
+- A comparison of dates by another precision (a loaded view's) says its unit ("Feb 2026", "from Q2
+  2026") and stays as it is.
+- The view files and links the report writes are of format version 2, with the `$schema`
+  `https://pivotkit.eize.dev/schema/view-file-2.json` by default; files and links of version 1 load as
+  before. The link's place in the fragment is pivotkit-core's (`linkFragment`, `withLinkFragment`).
+- A view read from a link, a file, pasted JSON or the tab's storage keeps at most 50 filters and is
+  at most 1,000,000 characters long (pivotkit-core's `outsideLimits`), or the host's lower limits.
+
+### Added
+
+- The prop `importLimits` ([#169](https://github.com/eizedev/pivotkit/issues/169)): the limits a file
+  loaded with `allowImport` is read and shown with, merged key by key over `limits`. The host's data
+  keeps `limits`, so a host can keep uploads small (`importLimits={{ rows: 1000 }}`) without capping
+  its own data. Without it a file has `limits`, as before. A key of `importLimits` is not capped by
+  `limits`, so a file may also get more. Compared by value, as `limits`.
+- The Filter level edits what view version 2 can say:
+  - A rule on the name offers "does not begin with" and "does not end with".
+  - **Also keep items without a value (N rows)** under the rules, for a field with blank items and a
+    rule on its items or a quick choice: every such rule keeps the blank items (`blanks: "include"`),
+    a new rule too; off, none does. Only the blanks stay a pick: Select none, then "(blank)".
+  - A date's quick choices count in a unit: **This [unit]** (the units whose current period has
+    data) and **Last [N] [unit]**, with **Include the current <unit>** under it while it is set;
+    **More choices**, folded: **Next [N] [unit]**, **Before the last [N] [unit]** and **Rolling
+    instead of whole calendar periods**. No unit is finer than the grouping (by month: months,
+    quarters, years; a date or by day: days and weeks too). Last keeps its count when the unit
+    changes while it reaches the data. **Counted back from** offers the first record and a date of
+    your own as well; it stands under the choices when the data end before the current period or it
+    is not today, else among More choices. A date being typed keeps the last whole date for the
+    ranges and says so; left incomplete, the field shows that date again. When Last's current period
+    has no data, **Count back from the latest record (date) instead** under it does that in one
+    click. A loaded view's next, this, before, rolling, quarter or week range is its quick choice,
+    editable there.
+  - **Top items**: **Also show items with the same value as the last one** while a top is set
+    (`ties: "all"`); another count or measure keeps it. Under it the level says how many items
+    show ("7 items shown"), or, for a field below another on its axis, that a group can show more.
+  - The menu's search finds the rule on the name by its operators ("does not begin with").
+  Texts in English and German. The chip says a range of quarters, weeks or this period by its
+  periods ("this quarter (Q4 2026)", "last 3 months, current period excluded (Aug–Oct 2026)"); a
+  rolling range counted from a date says its days, not midnight as a time. The unit selects of the
+  quick choices are named after their choice ("Unit of “Last …”") and as high as the count beside
+  them. In German, a range counted from the latest or first record says "Datensatz", as the menu
+  does.
+- The warning about a view's unused parts says when a filter's item is in the data in another case
+  (“north”, but “North”), and names a key inside a part of the view by itself. It says when an item
+  is longer than 10,000 characters, and how many more problems it does not list.
+
 ### Fixed
 
-- Keep keyboard focus on a picked Top items radio even where mouse clicks do not focus radios (#119).
+- A choice clicked in a field's Top items level keeps the focus, also in Safari, where a click does
+  not focus a radio button ([#119](https://github.com/eizedev/pivotkit/issues/119)).
+- The menus' text actions drew as plain text in the text colour, so they did not look clickable:
+  **Back**, **Reset filter**, **Clear**, **Remove**, **change it above**, **Select all**, **Select
+  none**, **Only** and **Swap rows and columns** are in the accent colour and semibold (Back at the
+  size of the text around it, the others at the small size); Reset filter, Clear, Remove and Swap
+  are greyed out while they would change nothing. A status note's **Undo** is semibold in a tint of
+  the accent that reads on the note. The reset that gives buttons and fields the report's font and
+  colour had outranked these styles; it no longer does, so the other controls look as designed too:
+  the icon buttons (×, "i", a field's menu, a tip's ×, a table row's expand arrow) and the folding
+  lines of the Filter level (More choices, the items left out by the rules) are muted until hovered,
+  a chip's name is semibold, the folded field list's **Fields** button is bold, the link **Skip to
+  the toolbar** (shown only while it has the keyboard focus) is in the accent colour and semibold,
+  and the folded layout line is at the small size. A field's menu button is
+  no longer faded on top of that, so it keeps 3:1. Text fields and selects keep the report's font
+  ([#193](https://github.com/eizedev/pivotkit/issues/193)).
+- The Filter level's **Count back from the latest record (…) instead** looked like a note, not like
+  something to click: it is a small button as the level's **Compare** buttons (a border, an icon
+  before its words, at least 24 px high, its text wrapping inside it at a narrow width)
+  ([#179](https://github.com/eizedev/pivotkit/issues/179)).
+- The note of a file over a limit named the file twice (`big.csv could not be loaded: "big.csv" has
+  more than …`) and only `limits.*` as what a host raises, although `importLimits` may set the limit.
+  It says the limit in the report's language (English, German), with its key in brackets, and that a
+  host can raise this limit: "big.csv could not be loaded: it has more than 1,000 rows (limits.rows):
+  load a smaller extract of it, or a host can raise this limit"; other errors of a reader lose the
+  file's name in front in both of its forms ([#185](https://github.com/eizedev/pivotkit/issues/185)).
+- A rule on the names ("begins with “ACTIVE DIRECTORY”") keeps the items whose names hold a no-break
+  space or other whitespace, and a space typed at the end does not matter
+  ([#159](https://github.com/eizedev/pivotkit/issues/159)).
+- The search of a field's item list and of a grouping's item picker finds an item whose label holds
+  a no-break space or another run of whitespace when a plain space is typed, and ignores spaces
+  typed at the ends ([#159](https://github.com/eizedev/pivotkit/issues/159)). Both searches fold
+  text with pivotkit-core's `foldText`.
 
 ## [0.4.0] - 2026-11-11
 
