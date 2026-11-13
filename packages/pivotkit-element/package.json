@@ -18,11 +18,14 @@
     "custom-element",
     "reporting",
     "echarts",
-    "self-service-bi"
+    "self-service-bi",
+    "pivot-grid",
+    "pivottable"
   ],
   "type": "module",
   "sideEffects": [
-    "./dist/index.js"
+    "./dist/index.js",
+    "./dist/chunks/*.js"
   ],
   "exports": {
     ".": {
