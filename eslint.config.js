@@ -30,9 +30,14 @@ export default [
         languageOptions: { globals: { ...globals["shared-node-browser"] } }
     },
     {
-        // the reader plugins run in browsers and Node, as the engine
-        files: ["packages/pivotkit-xlsx/src/**/*.js"],
+        // the reader plugins and the report run in browsers and Node, as the engine
+        files: ["packages/pivotkit-xlsx/src/**/*.js", "packages/pivotkit-report/src/**/*.js"],
         languageOptions: { globals: { ...globals["shared-node-browser"] } }
+    },
+    {
+        // the command line runs in Node only
+        files: ["packages/pivotkit-cli/src/**/*.js", "packages/pivotkit-cli/bin/**/*.js"],
+        languageOptions: { globals: { ...globals.node } }
     },
     {
         // the UI, the web component, the playground and the element example run in browsers
@@ -50,13 +55,13 @@ export default [
         languageOptions: { globals: { __PIVOTKIT_REACT_VERSION__: "readonly" } }
     },
     {
-        files: ["packages/pivotkit-react/src/**", "examples/*/src/**", "tests/browser/pages/**"],
+        files: ["packages/pivotkit-react/src/**", "examples/*/src/**", "tests/browser/pages/**", "bench/browser/**"],
         ...reactHooks.configs.flat["recommended-latest"],
         rules: { ...reactHooks.configs.flat["recommended-latest"].rules, "react-hooks/exhaustive-deps": "error" }
     },
     {
         // browser tests: Node code that also hands functions to the page
-        files: ["tests/browser/**"],
+        files: ["tests/browser/**", "examples/angular/test/**", "bench/browser/**"],
         languageOptions: { globals: { ...globals.node, ...globals.browser } }
     }
 ];

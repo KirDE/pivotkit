@@ -8,7 +8,7 @@ import { drillTable } from "../src/drill-table.js";
 import { LABELS } from "../src/labels.js";
 import { de as menuDe } from "../src/menu-labels-de.js";
 import { addMenuTexts, menuLabels } from "../src/menu-labels.js";
-import { loadExporters, runExport } from "../src/export-run.js";
+import { hexColor, loadExporters, runExport, xlsxThemeOf } from "../src/export-run.js";
 
 // the German menu texts, as lazy-menus.jsx adds them once their chunk has loaded
 addMenuTexts("de", menuDe);
@@ -132,4 +132,108 @@ test("the menus' export texts exist in English and German, distinct from the vie
         assert.equal(typeof en[key], "string");
         assert.equal(typeof de[key], "string");
     }
+});
+
+/** The colours fakeContext takes by name. */
+const NAMED = { white: "#ffffff", rebeccapurple: "#663399" };
+/** CSS.supports("color", text) for what fakeContext takes. */
+const supports = (t) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(t.trim()) || Object.hasOwn(NAMED, t.trim().toLowerCase()) || /^oklch\(/.test(t);
+
+/** A stand-in for a canvas's 2D context: fillStyle takes #rgb, #rrggbb and two names as hex, oklch as it is. */
+function fakeContext() {
+    const named = NAMED;
+    let style = "#000000";
+    return {
+        get fillStyle() {
+            return style;
+        },
+        set fillStyle(v) {
+            const t = String(v).trim().toLowerCase();
+            const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(t);
+            if (short) style = `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+            else if (/^#[0-9a-f]{6}$/.test(t)) style = t;
+            else if (Object.hasOwn(named, t)) style = named[t];
+            else if (t.startsWith("oklch(")) style = t;
+            // anything else: a canvas keeps the colour it had
+        }
+    };
+}
+
+// #212: the workbook's colours are the report's resolved tokens
+test("hexColor: a colour the canvas takes as #rrggbb, else null (also black and white themselves)", () => {
+    const ctx = fakeContext();
+    const hex = (t, c = ctx) => hexColor(t, c, supports);
+    assert.equal(hex("#EAF1FB"), "#eaf1fb");
+    assert.equal(hex("#c00"), "#cc0000");
+    assert.equal(hex("white"), "#ffffff");
+    assert.equal(hex("#000000"), "#000000");
+    // no colour: refused, not the colour the canvas had before
+    assert.equal(hex("not a colour"), null);
+    assert.equal(hex(""), null);
+    // a colour the canvas does not write as hex (outside sRGB)
+    assert.equal(hex("oklch(0.5 0.1 200)"), null);
+    assert.equal(hex("#eaf1fb", null), null);
+    // without CSS.supports (Node) nothing is taken
+    assert.equal(hexColor("#eaf1fb", ctx), null);
+});
+
+test("xlsxThemeOf: the scale's low and high tokens (a middle one when set) and the bars' colour", () => {
+    const ctx = fakeContext();
+    const toHex = (t) => hexColor(t, ctx, supports);
+    const style = (tokens) => ({ getPropertyValue: (name) => tokens[name] ?? "" });
+    assert.deepEqual(xlsxThemeOf(style({ "--pk-scale-low": " #eaf1fb", "--pk-scale-high": "#2a78d6", "--pk-chart-1": "#2a78d6" }), toHex), { colorScale: ["#eaf1fb", "#2a78d6"], dataBar: "#2a78d6" });
+    assert.deepEqual(xlsxThemeOf(style({ "--pk-scale-low": "#00f", "--pk-scale-mid": "white", "--pk-scale-high": "#c00" }), toHex), { colorScale: ["#0000ff", "#ffffff", "#cc0000"] });
+    // one end missing or not a colour: pivotkit-core's default scale, not half of the theme's
+    assert.deepEqual(xlsxThemeOf(style({ "--pk-scale-low": "#00f", "--pk-scale-high": "oklch(0.5 0.1 200)" }), toHex), {});
+});
+
+test("the HTML report, the chart as SVG and the report to print go through onExport first; a host may take them", async () => {
+    const files = [];
+    const said = [];
+    const chartView = computePivot(encoded, { rows: ["Region"], values: [{ field: "Units", agg: "sum" }], display: "chart", chart: { type: "bar" } });
+    const context = {
+        fileName: "sales/2026",
+        result: chartView,
+        locale: "de-DE",
+        labels: LABELS.de,
+        limits: undefined,
+        root: { current: null },
+        chartRef: { current: { getWidth: () => 640.4, getHeight: () => 50 } },
+        announce: (t, extra) => said.push([t, extra]),
+        onExport: (f) => (files.push(f), false),
+        title: "Units by region",
+        source: "sales.csv",
+        loadECharts: () => import("../src/echarts.js")
+    };
+    await runExport("html", context);
+    await runExport("svg", context);
+    await runExport("print", context);
+    assert.deepEqual(files.map((f) => [f.kind, f.fileName, f.blob.type]), [["html", "sales-2026.html", "text/html;charset=utf-8"], ["svg", "sales-2026.svg", "image/svg+xml"], ["print", "sales-2026.html", "text/html;charset=utf-8"]]);
+    const html = await files[0].blob.text();
+    assert.match(html, /<html lang="de-DE"/);
+    assert.match(html, /<h1>Units by region<\/h1>/);
+    assert.match(html, /<dt>Quelle<\/dt><dd>sales\.csv<\/dd>/);
+    // the table as the report shows it, the chart as an image since the view shows the chart
+    assert.match(html, /<th scope="row" class="pk-th pk-row">Central<\/th><td class="pk-td pk-num">1\.236,5<\/td>/);
+    assert.match(html, /<img alt="Diagramm: Units by region" width="640" height="100" src="data:image\/svg\+xml;base64,/);
+    const svg = await files[1].blob.text();
+    assert.match(svg, /^<svg width="640" height="100" /);
+    assert.ok(svg.includes(">Central</text>"));
+    // printing: the chart inline (no data: image a strict page would block)
+    const print = await files[2].blob.text();
+    assert.match(print, /<figure class="pk-report-chart"><svg /);
+    assert.deepEqual(said, [], "a host that takes the file says itself what became of it");
+});
+
+test("the new export texts exist in English and German", () => {
+    for (const labels of [en, de]) {
+        for (const key of ["exportHtml", "exportSvg", "exportPrintGroup", "exportPrint", "toastPrintBlocked"]) {
+            assert.equal(typeof labels[key], "string", `${labels.lang} ${key}`);
+        }
+        for (const key of ["exportHtml", "exportPrint"]) {
+            assert.equal(typeof labels.settingInfo[key], "string", `${labels.lang} settingInfo.${key}`);
+        }
+    }
+    assert.equal(en.exportPrint, "Print or save as PDF…");
+    assert.equal(de.exportPrint, "Drucken oder als PDF speichern…");
 });

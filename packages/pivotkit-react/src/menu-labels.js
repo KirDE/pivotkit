@@ -15,12 +15,14 @@ export const en = {
     settingInfo: {
         grandTotalRow: "A last row with the total of every column.",
         grandTotalColumn: "A last column with the total of every row.",
-        rowSubtotals: "With two or more fields in Rows: a total row under each group of the outer field.",
-        colSubtotals: "With two or more fields in Columns: a total column after each group of the outer field.",
+        rowSubtotals: "With two or more fields in Rows: a subtotal row (“North Total”) under each group of the outer field that has more than one item.",
+        colSubtotals: "With two or more fields in Columns: a subtotal column (“North Total”) after each group of the outer field that has more than one item.",
         along: "The direction the calculation walks: Rows goes down the rows of each column, Columns across the columns of each row. A running total adds up along it, a difference compares with the item before it.",
         showAs: "Shows each value as a share, a difference, a running total or a rank instead of the number itself. For percentages, a tip above the result says what 100% is.",
         exportXlsx: "Every number with all its decimals, formats kept, ready to calculate with.",
         exportCsv: "Percentages and calculations as the table shows them, as plain text.",
+        exportHtml: "A page with the table as it is shown, the chart when the chart is shown, and the filters: opens in any browser, prints well.",
+        exportPrint: "The same report in the browser's print dialog: print it, or pick Save as PDF there.",
         copyTable: "The table as it is shown, headers and totals included: tab-separated, pastes into Excel or Google Sheets as columns.",
         copyDataJson: "The table's numbers with their labels as JSON, for a program. Not the view itself: that is Views → Copy view as JSON.",
         drillCopy: "The rows as the panel shows them, with a header row: tab-separated, pastes into Excel or Google Sheets as columns.",
@@ -100,13 +102,27 @@ export const en = {
     // the Filter level of a date field: its quick choices ("Last [5] years" around the number typed),
     // each with the data's share and the rows it keeps, the ones not offered, the reference date
     quickTitle: "Quick choices",
-    quickCount: { year: "Number of years", month: "Number of months", day: "Number of days" },
-    quickLast: { year: { one: "Last {count} year", other: "Last {count} years" }, month: { one: "Last {count} month", other: "Last {count} months" }, day: { one: "Last {count} day", other: "Last {count} days" } },
+    quickCount: { year: "Number of years", quarter: "Number of quarters", month: "Number of months", week: "Number of weeks", day: "Number of days" },
     quickRows: "{rows} rows",
     quickHidden: { one: "{choices} is not offered: the data end {latest}.", other: "{choices} are not offered: the data end {latest}." },
+    // under the choice that is set: whether its periods take the current one ("Last 3 months" with November)
+    quickCurrent: { year: "Include the current year", quarter: "Include the current quarter", month: "Include the current month", week: "Include the current week", day: "Include today" },
+    // the rare choices, folded: Next N, Before the last N, rolling periods
+    quickMore: "More choices",
+    quickRolling: "Rolling instead of whole calendar periods",
+    // the names of the unit selects, after their choice: "Unit of “Last …”"; This's select picks the period
+    quickUnitOf: "Unit of “{choice} …”",
+    quickThisUnit: "Current period",
     anchorLabel: "Counted back from",
     anchorToday: "today ({date})",
     anchorLatest: "the latest record ({date})",
+    anchorFirst: "the first record ({date})",
+    anchorDate: "a date…",
+    anchorDay: "The date counted from",
+    // the date field without a whole date: the range keeps the one before
+    anchorDayIncomplete: "Enter a whole date; the ranges still count from {date}.",
+    // under a choice whose current period has no data (the data end before it)
+    anchorUseLatest: "Count back from the latest record ({date}) instead",
     quickLine: "Quick choice: {text}",
     changeAbove: "change it above",
     // a cyclic grouping ("month of the year") combines the years: the ones ticked
@@ -163,7 +179,10 @@ export const en = {
     ruleUnits: { year: { one: "year", other: "years" }, month: { one: "month", other: "months" }, day: { one: "day", other: "days" } },
     // a rule on the total, as a sentence: "Product items whose / Count of Cycle / is greater than / 3"
     ruleWhose: "{field} items whose total",
+    ruleFixed: "Kept as the view has it; the rules here cannot change it yet.",
     blanksOut: "Blank items are not kept.",
+    // under the rules on the items: the field's blank items kept with them
+    rulesBlanks: { one: "Also keep items without a value ({rows} row)", other: "Also keep items without a value ({rows} rows)" },
     ruleUnit: "Unit",
     moveLeft: "Move left",
     moveRight: "Move right",
@@ -273,6 +292,10 @@ export const en = {
     topCount: "Count",
     bottom: "Bottom",
     topBy: "by",
+    topTies: "Also show items with the same value as the last one",
+    // under it: how many items the top shows (the field first on its axis), else that a group can show more
+    topShown: { one: "{count} item shown", other: "{count} items shown" },
+    topTiesGroups: "A group can show more than {count} items.",
     searchValues: "Search values",
     selectAll: "Select all",
     selectNone: "Select none",
@@ -288,6 +311,10 @@ export const en = {
     exportXlsx: "Excel workbook (.xlsx)",
     exportCsv: "CSV file (.csv)",
     exportPng: "Chart image (.png)",
+    exportSvg: "Chart image (.svg)",
+    exportHtml: "HTML report (.html)",
+    exportPrintGroup: "Print",
+    exportPrint: "Print or save as PDF…",
     exportPngNeedsChart: "Switch to Chart first.",
     exportNeedsField: "Add a field first.",
     copyTable: "Copy table",
@@ -295,6 +322,7 @@ export const en = {
     toastTableCopied: "Table copied: tab-separated, pastes into Excel or Google Sheets as columns",
     toastDataCopied: "Data copied as JSON",
     toastCopyBlocked: "This page does not allow copying. Download a file instead.",
+    toastPrintBlocked: "This page does not allow printing the report. Download the HTML report instead.",
     // drill-down
     drillTitle: "Rows behind this value",
     drillCount: { one: "{count} row", other: "{count} rows" },
@@ -382,6 +410,7 @@ export const en = {
     needsColField: "Needs a field in Columns.",
     needsRowFields: "Needs two or more fields in Rows.",
     needsColFields: "Needs two or more fields in Columns.",
+    needsValue: "Needs a field in Values.",
     expandNothing: "Nothing is collapsed.",
     collapseNeedsRows: "Needs two or more fields in Rows.",
     collapseAllDone: "Every group is collapsed already.",

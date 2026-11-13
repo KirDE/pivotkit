@@ -6,7 +6,7 @@ import { computePivot, encode, toEChartsOption, toGrid, toSeries } from "pivotki
 import { decorate } from "../src/chart-decorate.js";
 import { chartSummary } from "../src/chart-summary.js";
 import { tooltipContent, tooltipFormatter } from "../src/chart-tooltip.js";
-import { BOTTOM_LEGEND_ROOM, SLANTED_LABEL_WIDTH, columnLabelLayout, heatmapCellLabels, pieLabelRoom, ringLabelsFit, rowLabelInterval } from "../src/chart-layout.js";
+import { BOTTOM_LEGEND_ROOM, SLANTED_LABEL_WIDTH, columnLabelLayout, heatmapCellLabels, pieLabelRoom, ringLabelsFit, rowLabelInterval } from "pivotkit-core/chart";
 import { announcementsOf, nextTarget } from "../src/dnd-moves.js";
 import { dataUrlToBlob, safeFileName } from "../src/files.js";
 import { LABELS, errorText, fill, plural, resolveLabels } from "../src/labels.js";
@@ -264,8 +264,8 @@ test("a limit of the core is a message in words with what to change, any other e
     assert.equal(errorText(refused({ pivotCells: 100 }), LABELS.de, "de-DE"), fill(LABELS.de.tooManyCells, { max: "100" }));
     // 40 rows x 2 x 2 x 1 count
     assert.equal(errorText(refused({ work: 100 }, { rows: ["A"], cols: ["B"], values: [{ agg: "count" }] }), en, "en-US"), fill(en.tooMuchWork, { value: "160", max: "100" }));
-    // (2 header rows + 41 body rows) x (1 label column + 41 columns)
-    assert.equal(errorText(refused({ cells: 1000 }), en, "en-US"), "This layout makes 1,806 cells, more than the limit of 1,000. Move a field with many values to Filters, or filter it.");
+    // (2 header rows + 41 body rows) x (1 label column + 41 columns), the totals included (a count makes them)
+    assert.equal(errorText(refused({ cells: 1000 }, { rows: ["A"], cols: ["B"], values: [{ agg: "count" }] }), en, "en-US"), "This layout makes 1,806 cells, more than the limit of 1,000. Move a field with many values to Filters, or filter it.");
     let rows;
     try {
         encode([{}, {}, {}], { limits: { rows: 2 } });
@@ -345,7 +345,7 @@ test("heatmap row names: every one when a line fits each row, else every n-th", 
 });
 
 test("category axis labels: all straight when they fit, slanted, else every n-th; the modes force one", async () => {
-    const { categoryLabelLayout, CATEGORY_LABEL_WIDTH } = await import("../src/chart-layout.js");
+    const { categoryLabelLayout, CATEGORY_LABEL_WIDTH } = await import("pivotkit-core/chart");
     const short = ["A", "B", "C"];
     assert.deepEqual(categoryLabelLayout(short, { width: 800, height: 400 }), { rotate: 0, interval: 0, every: 1, width: CATEGORY_LABEL_WIDTH, overflow: "truncate" });
     const countries = Array.from({ length: 21 }, (_, i) => `Country number ${i}`);
@@ -371,7 +371,7 @@ test("the tooltip's title is the category's whole name when the axis writes it s
 });
 
 test("auto group labels need room: a phone-sized chart writes the whole names instead", async () => {
-    const { groupLabelsFit } = await import("../src/chart-layout.js");
+    const { groupLabelsFit } = await import("pivotkit-core/chart");
     assert.equal(groupLabelsFit(21, 3, { width: 1100, height: 420 }), true);
     assert.equal(groupLabelsFit(21, 3, { width: 350, height: 180 }), false, "390 px phone");
     assert.equal(groupLabelsFit(200, 1, { width: 1100, height: 420 }), false, "groups of one category are too narrow");

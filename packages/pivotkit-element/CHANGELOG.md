@@ -6,6 +6,48 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 
 ## [Unreleased]
 
+### Changed
+
+- `dist/THIRD_PARTY_LICENSES.txt` is written by the repository's shared licence script, as for
+  pivotkit-xlsx; its text is unchanged ([#125](https://github.com/eizedev/pivotkit/issues/125)).
+- The element bundles pivotkit-core's and pivotkit-react's totals ([#155](https://github.com/eizedev/pivotkit/issues/155), [#156](https://github.com/eizedev/pivotkit/issues/156)): column subtotals
+  off by default, no empty column or total rows without values, no subtotal for a group of one item,
+  the tip on column subtotals. Size budgets ([#198](https://github.com/eizedev/pivotkit/issues/198)): the first load to 170.5 KiB (168.6 measured on
+  a Mac, CI about 0.5 more), the link to 7.5 (7.2 measured, 0.1 below its old budget).
+- npm keywords `pivot-grid` and `pivottable`, the terms people search for ([#172](https://github.com/eizedev/pivotkit/issues/172)).
+- The element bundles pivotkit-core with view version 2 and pivotkit-react's filters for it
+  ([#165](https://github.com/eizedev/pivotkit/issues/165)): views of version 1 load with the same
+  result. The first load grows by about 7.5 KiB (gzip), its budget to 169; the plain words of a
+  view's unused parts to 5.5.
+
+### Added
+
+- pivotkit-react's font weight tokens ([#201](https://github.com/eizedev/pivotkit/issues/201)): `--pk-weight-normal`, `--pk-weight-medium`,
+  `--pk-weight-strong` and `--pk-weight-bold`, set on the element like every `--pk-*` token.
+- Export → HTML report, Chart image (.svg) and Print or save as PDF (pivotkit-react), loaded as the
+  chunk group "report" on first use (19.9 KiB gzip); `pivot-export` has the kinds `html`, `svg` and
+  `print` ([#165](https://github.com/eizedev/pivotkit/issues/165)). ECharts' SVG renderer comes with
+  the chart chunks (215.8 KiB, budget 222.5) and pivotkit-core's describe module with the first load
+  (170.0 KiB, budget 171.5): esbuild puts a module where any importer of its barrel loads it.
+- The property `importLimits` ([#169](https://github.com/eizedev/pivotkit/issues/169)), as
+  pivotkit-react's prop: the limits of a file loaded with `allow-import`, merged key by key over
+  `limits`; the page's data keeps `limits`. A property only, as `limits`.
+
+### Fixed
+
+- The element bundles pivotkit-react's fixes: the Excel export in the report's theme colours, the
+  default colour scale from light to strong blue, a group's label at the top of its rows in the
+  workbook ([#212](https://github.com/eizedev/pivotkit/issues/212)), and an "i" inside a menu explained above the menu ([#213](https://github.com/eizedev/pivotkit/issues/213)).
+- The element bundles pivotkit-react's fix of a hover description that closed while the pointer
+  paused between its "i" and it ([#213](https://github.com/eizedev/pivotkit/issues/213)).
+- An app whose bundler reads `sideEffects` (Angular's build) no longer warns about, or may drop,
+  the chunks `dist/index.js` imports for their effects: `sideEffects` lists `dist/chunks/*.js` too
+  ([#174](https://github.com/eizedev/pivotkit/issues/174)).
+- An app that bundles the element (Angular's build) had no `import-worker.js`, so with
+  `allow-import` the element read files on the page and Firefox and WebKit logged the failed worker.
+  The docs and the Angular example copy `dist/import-worker.js` as an asset (`angular.json`), and the
+  example's test reads a CSV file in the worker ([#182](https://github.com/eizedev/pivotkit/issues/182)).
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
