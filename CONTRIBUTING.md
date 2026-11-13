@@ -15,14 +15,17 @@ security reports privately (see [SECURITY.md](SECURITY.md)).
    changes `npm run test:browser` (Playwright's browsers: `npx playwright install` once) and a look
    at the playground (`npm run playground`) in light and dark, wide and narrow; for the web component
    also `npm run size -w pivotkit-element` and the example (`examples/element/`, served after
-   `npm run build:playground` with `node examples/playground/serve.js` at `/examples/element/`);
+   `npm run build:playground` with `node examples/playground/serve.js` at `/examples/element/`) and the
+   Angular example (`examples/angular/`, see AGENTS.md);
    for a reader (`pivotkit-core/import`, pivotkit-xlsx) tests on real files of its format (see
    `packages/pivotkit-core/test/import-fixtures/SOURCES.md`), and for pivotkit-xlsx also
    `npm run size -w pivotkit-xlsx` and `npm run bench -w pivotkit-xlsx`.
    The type declarations in `packages/pivotkit-core/types/` are generated, not committed: run
    `npm run types` before a TypeScript consumer in this repository (a later package) imports the core.
 4. Describe what people see on the [documentation site](https://pivotkit.eize.dev/) too: its pages are
-   in `docs/`. Preview them with `npm run docs:demo` (the live demo), then
+   in `docs/`, a new page also in a section of `[project.plugins.llmstxt.sections]` in `zensical.toml`
+   (`tests/llms-sections.test.js` checks it). Preview them with `npm run docs:demo` (the live demo, the
+   view file schema, the social preview and `robots.txt`), then
    `curl -fsSo docs/assets/site.css https://raw.githubusercontent.com/eizedev/brand/main/docs-site/site.css`
    and `uvx zensical@<version> serve` (the version is in eizedev/brand's
    `docs-site/requirements.txt`); `zensical build --strict` is what CI runs. A change of the UI takes
@@ -77,6 +80,7 @@ npm test -w pivotkit-xlsx              # node --test on generated workbooks (tes
 npm run build -w pivotkit-xlsx         # dist/: the plugin for pages without a bundler, THIRD_PARTY_LICENSES.txt
 npm run size -w pivotkit-xlsx          # build, gzip size of the plugin and its reader, fails above SIZE_BUDGET_KIB
 npm run bench -w pivotkit-xlsx         # read time and memory of a 94,000-row workbook (-- --browser: Chromium too)
+npm run bench:browser                  # the report in three browsers, 100,000 to 1,000,000 rows (docs/concepts/limits.md)
 ```
 
 `npm run coverage -w pivotkit-react` covers its `.js` modules; the `.jsx` components are covered by
