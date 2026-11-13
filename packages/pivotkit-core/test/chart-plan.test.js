@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_THEME, chartPlan, chartThemeFrom, computePivot, encode, normalize, swapAxes, toEChartsOption } from "pivotkit-core";
-import { decorateOption } from "pivotkit-core/chart";
+import { categoryLabelLayout, columnLabelLayout, decorateOption, heatmapCellLabels, ringLabelsFit, rowLabelInterval } from "pivotkit-core/chart";
 import { SALES } from "./fixtures.js";
 
 const data = encode(SALES);
@@ -81,4 +81,45 @@ test("decorateOption: the marks' corners from --pk-radius-chart in px (a heatmap
     assert.equal(marks({}, "heatmap").series[0].itemStyle.borderRadius, 3);
     assert.match(marks({}, "bar").tooltip.extraCssText, /border-radius: 8px;/);
     assert.match(marks({ "--pk-radius-card": "2px" }, "bar").tooltip.extraCssText, /border-radius: 2px;/);
+});
+
+// #221: the chart's text size is a token (--pk-chart-text-size in px), and the layout measures with it
+test("chartThemeFrom: the text's size in px, else DEFAULT_THEME's; toEChartsOption writes it on every text, decorateOption lays out with it", () => {
+    const sizeOf = (value) => chartThemeFrom({ getPropertyValue: (n) => (n === "--pk-chart-text-size" ? value : "") }).textSize;
+    assert.deepEqual([sizeOf("16px"), sizeOf("15"), sizeOf("1em"), sizeOf(""), sizeOf("0px")], [16, 15, undefined, undefined, undefined]);
+    assert.equal(DEFAULT_THEME.textSize, 14);
+    const result = computePivot(data, { rows: ["Region", "Product"], cols: ["Q"], values: [{ field: "Units", agg: "sum" }], chart: { type: "bar", groupLabels: "on" } });
+    const option = toEChartsOption(result, { theme: { textSize: 17 } });
+    assert.equal(option.textStyle.fontSize, 17);
+    for (const axis of [option.xAxis, option.yAxis].flat()) assert.equal(axis.axisLabel.fontSize, 17, "every axis label");
+    assert.equal(toEChartsOption(result).textStyle.fontSize, DEFAULT_THEME.textSize);
+    // ten names that fit straight in 640 px at 12 px but not at 20 px: the axis slants them at the larger size
+    const names = Array.from({ length: 10 }, (_, i) => `Name ${i}`);
+    assert.equal(categoryLabelLayout(names, { width: 640, height: 400, fontSize: 12 }).rotate, 0);
+    assert.equal(categoryLabelLayout(names, { width: 640, height: 400, fontSize: 20 }).rotate, 45);
+    assert.equal(columnLabelLayout(names, 700, 12).rotate, 0);
+    assert.equal(columnLabelLayout(names, 700, 20).rotate, 45);
+    // a row of 15 px holds a line of 12 px text, not one of 20 px
+    assert.equal(rowLabelInterval(10, 120 + 10 * 17, 12), 0);
+    assert.ok(rowLabelInterval(10, 120 + 10 * 17, 20) > 0);
+    assert.equal(heatmapCellLabels(4, 4, 80 + 4 * 60, 400, ["1,234.5"], 12), true);
+    assert.equal(heatmapCellLabels(4, 4, 80 + 4 * 60, 400, ["1,234.5"], 20), false);
+    assert.equal(ringLabelsFit(["42%", "70%"], { width: 300, height: 300 }, ["12.5%"], 10), true);
+    assert.equal(ringLabelsFit(["42%", "70%"], { width: 300, height: 300 }, ["12.5%"], 20), false);
+    const bars = computePivot(data, { rows: ["Region"], values: [{ field: "Units", agg: "sum" }], chart: { type: "bar" } });
+    const rotateAt = (textSize, width) => decorateOption(toEChartsOption(bars, { theme: { textSize } }), { getPropertyValue: () => "" }, { width, height: 300 }).xAxis.axisLabel.rotate;
+    // four regions ("(blank)" the longest, 7 characters) in 80 + 4 * 60 px: straight at 12 px, slanted at 20 px
+    assert.deepEqual([rotateAt(12, 320), rotateAt(20, 320)], [0, 45]);
+});
+
+test("the room of the title, the legend and the group labels grows with the text sizes", () => {
+    // two values: two series, so a legend above the chart
+    const result = computePivot(data, { rows: ["Region", "Product"], values: [{ field: "Units", agg: "sum" }, { field: "Price", agg: "sum" }], chart: { type: "bar", groupLabels: "on", title: "Units" } });
+    const at = (theme) => {
+        const o = toEChartsOption(result, { theme });
+        return { gridTop: o.grid.top, legendTop: o.legend.top, groupOffset: o.xAxis[1].offset };
+    };
+    // 16 px title, 14 px text: 32 px for the title, 24 for the legend line, 26 to the group labels
+    assert.deepEqual(at({}), { gridTop: 16 + 32 + 24, legendTop: 32, groupOffset: 26 });
+    assert.deepEqual(at({ titleSize: 24, textSize: 20 }), { gridTop: 16 + 40 + 30, legendTop: 40, groupOffset: 32 });
 });
