@@ -6,6 +6,34 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 
 ## [Unreleased]
 
+### Changed
+
+- The element bundles pivotkit-core's and pivotkit-react's totals ([#155](https://github.com/eizedev/pivotkit/issues/155), [#156](https://github.com/eizedev/pivotkit/issues/156)): column subtotals
+  off by default, no empty column or total rows without values, no subtotal for a group of one item,
+  the tip on column subtotals. Size budgets ([#198](https://github.com/eizedev/pivotkit/issues/198)): the first load to 170.5 KiB (168.6 measured on
+  a Mac, CI about 0.5 more), the link to 7.5 (7.2 measured, 0.1 below its old budget).
+- npm keywords `pivot-grid` and `pivottable`, the terms people search for ([#172](https://github.com/eizedev/pivotkit/issues/172)).
+- The element bundles pivotkit-core with view version 2 and pivotkit-react's filters for it
+  ([#165](https://github.com/eizedev/pivotkit/issues/165)): views of version 1 load with the same
+  result. The first load grows by about 7.5 KiB (gzip), its budget to 169; the plain words of a
+  view's unused parts to 5.5.
+
+### Added
+
+- The property `importLimits` ([#169](https://github.com/eizedev/pivotkit/issues/169)), as
+  pivotkit-react's prop: the limits of a file loaded with `allow-import`, merged key by key over
+  `limits`; the page's data keeps `limits`. A property only, as `limits`.
+
+### Fixed
+
+- An app whose bundler reads `sideEffects` (Angular's build) no longer warns about, or may drop,
+  the chunks `dist/index.js` imports for their effects: `sideEffects` lists `dist/chunks/*.js` too
+  ([#174](https://github.com/eizedev/pivotkit/issues/174)).
+- An app that bundles the element (Angular's build) had no `import-worker.js`, so with
+  `allow-import` the element read files on the page and Firefox and WebKit logged the failed worker.
+  The docs and the Angular example copy `dist/import-worker.js` as an asset (`angular.json`), and the
+  example's test reads a CSV file in the worker ([#182](https://github.com/eizedev/pivotkit/issues/182)).
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
