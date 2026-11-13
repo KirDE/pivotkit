@@ -27,6 +27,7 @@ test.describe("a host page that provides React", () => {
     test("controlled and rendered again every 200 ms: undo keeps its steps, the rows are encoded once", async ({ page }) => {
         await page.goto("pages/host.html");
         await expect(page.locator(".pk-root")).toBeVisible();
+        await openZones(page);
         await page.getByRole("button", { name: "Remove Country" }).click();
         await page.getByRole("button", { name: "Remove Category" }).click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
@@ -48,6 +49,7 @@ test.describe("a host page that provides React", () => {
 
 test("a host that renders again does not move the focus inside an open popover", async ({ page }) => {
     await page.goto("pages/host.html");
+    await openZones(page);
     await page.getByTestId("chip-menu-Region").click();
     await page.getByTestId("topic-filter").click();
     await expect(page.locator(".pk-chip-menu input[type=search]").last()).toBeFocused();
@@ -63,6 +65,7 @@ test.describe("inside a shadow root", () => {
         await page.goto("pages/shadow.html");
         const root = page.locator(".pk-root");
         await expect(root).toBeVisible();
+        await openZones(page);
         expect(await root.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe("solid");
         await page.evaluate(() => document.getElementById("shadow-host").setAttribute("data-theme", "dark"));
         await expect(root).toHaveAttribute("data-pk-theme", "dark");
