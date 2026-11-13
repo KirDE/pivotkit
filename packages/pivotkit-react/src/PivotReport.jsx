@@ -25,8 +25,9 @@ import { errorText, fill, plural, resolveLabels } from "./labels.js";
 import { useIsoLayoutEffect } from "./iso.js";
 import { MenuPanel, loadMenus, menusNow, onMenuTexts } from "./lazy-menus.jsx";
 import { importNow, loadImport } from "./lazy-import.js";
+import { importLimitsOf } from "./import-limits.js";
 import { LayerContext } from "./popover.jsx";
-import { linkNow, linkParam, loadCheck, loadLink, readLinkParam, readStoredView, shareBase, viewFromObject, writeStoredView } from "./share.js";
+import { linkNow, loadCheck, loadLink, readLinkParam, readStoredView, shareBase, viewFromObject, writeStoredView } from "./share.js";
 import { HelpContext } from "./help.js";
 import { Skeleton } from "./skeleton.jsx";
 import { PivotTable } from "./table.jsx";
@@ -46,7 +47,7 @@ import { forgetData, hostIdentity, keepData, keptData } from "./data-keep.js";
 import { tagFor } from "./view-history.js";
 import { useBigResult, useFitHeight } from "./use-big-result.js";
 import {
-    addField, filterZoneFields, groupField, isEmptyView, moveField, removeAt, rowFolding, setChart, setChartDisplay, setCollapsed, setDisplay, setSort, setTotal, sourceOf, swapAxes, toggleCollapsed, zoneOverLimit
+    addField, filterZoneFields, groupField, isEmptyView, moveField, removeAt, rowFolding, same, setChart, setChartDisplay, setCollapsed, setDisplay, setSort, setTotal, sourceOf, swapAxes, toggleCollapsed, zoneOverLimit
 } from "./view-ops.js";
 import { Zones, zoneEntries } from "./zones.jsx";
 
@@ -291,6 +292,7 @@ function Report(props) {
         theme = "auto",
         height = 640,
         limits: limitsProp,
+        importLimits: importLimitsProp,
         className,
         fileName = "pivot",
         fieldDefaults,
@@ -342,7 +344,12 @@ function Report(props) {
     const baseLabels = useMemo(() => resolveLabels(locale, JSON.parse(labelsKey)), [locale, labelsKey]);
     const typesKey = JSON.stringify(typesOf(fieldDefaults));
     const limitsKey = JSON.stringify(limitsProp ?? null);
-    const limits = useMemo(() => JSON.parse(limitsKey) ?? undefined, [limitsKey]);
+    const hostLimits = useMemo(() => JSON.parse(limitsKey) ?? undefined, [limitsKey]);
+    // a loaded file's limits: the host's `importLimits` over its `limits`, key by key, so a host that
+    // keeps uploads small does not cap its own data; without importLimits the very object of hostLimits,
+    // so showing a file or the host's data again does not re-run what depends on the limits
+    const importLimitsKey = JSON.stringify(importLimitsProp ?? null);
+    const fileLimits = useMemo(() => importLimitsOf(hostLimits, JSON.parse(importLimitsKey)), [hostLimits, importLimitsKey]);
     const root = useRef(/** @type {HTMLDivElement | null} */ (null));
     const themeName = useResolvedTheme(theme, root);
     const [layer, setLayer] = useState(/** @type {HTMLElement | null} */ (null));
@@ -413,14 +420,14 @@ function Report(props) {
     const source = useMemo(() => {
         try {
             const types = JSON.parse(typesKey);
-            const enc = encodedProp ?? measured("encode", () => encode(dataOf(data), { timeZone: timeZone ?? "UTC", limits, ...(types ? { types } : {}) }));
+            const enc = encodedProp ?? measured("encode", () => encode(dataOf(data), { timeZone: timeZone ?? "UTC", limits: hostLimits, ...(types ? { types } : {}) }));
             return { encoded: enc, error: null };
         } catch (error) {
             return { encoded: encode([]), error };
         }
         // data is read through dataIdentity: with a dataKey a new array with the same key is the same data
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [encodedProp, dataIdentity, timeZone, limits, typesKey]);
+    }, [encodedProp, dataIdentity, timeZone, hostLimits, typesKey]);
     // the file's data shown (null: the host's) and the data steps of the undo history (data-history.js);
     // a report mounted again with its storageKey over the same host data starts where it was
     // (data-keep.js: memory only, restored by the layout effect below)
@@ -437,6 +444,9 @@ function Report(props) {
     const sourceId = imported ? imported.source.id : hostSourceId;
     const sourceName = imported ? imported.source.name : hostSourceName;
     const encoded = imported ? imported.encoded : source.encoded;
+    // the limits of the data shown: a file's are the import limits, so its views, results and exports
+    // are bounded the way it was read
+    const limits = imported ? fileLimits : hostLimits;
     // the display names (labels.fields), told apart where two fields would look the same
     const fieldNamesKey = encoded.schema.fields.map((f) => f.name).join("\u0000");
     const labels = useMemo(() => {
@@ -536,7 +546,6 @@ function Report(props) {
 
     // a view that comes back by itself: the tab's stored one, then a shared link (which wins); read
     // once, after the first render. A link needs pivotkit-core/link: while it loads the result waits.
-    const param = linkParam(storageKey);
     const [opening, setOpening] = useState(false);
     const appliedLink = useRef(/** @type {string | null} */ (null));
     // commit() is defined further down: the ref gets it after the render
@@ -608,7 +617,7 @@ function Report(props) {
             return;
         }
         const page = here();
-        const link = shareLink ? readLinkParam(page?.hash ?? "", param) : null;
+        const link = shareLink ? readLinkParam(page?.hash ?? "", storageKey) : null;
         if (link) {
             openLink(link);
         } else if (persistView === "session") {
@@ -632,14 +641,14 @@ function Report(props) {
             return undefined;
         }
         const onHash = () => {
-            const link = readLinkParam(here()?.hash ?? "", param);
+            const link = readLinkParam(here()?.hash ?? "", storageKey);
             if (link && link !== appliedLink.current) {
                 openLink(link, true);
             }
         };
         window.addEventListener("hashchange", onHash);
         return () => window.removeEventListener("hashchange", onHash);
-    }, [shareLink, param, openLink]);
+    }, [shareLink, storageKey, openLink]);
     // the tab keeps the view shown (persistView="session"); Reset stores the start view the same way
     useEffect(() => {
         if (persistView === "session") {
@@ -884,13 +893,15 @@ function Report(props) {
     );
 
     /**
-     * "Filter…" of a field not in the report: the filter of a draft that puts it into Filters (a date
-     * grouped as it would be placed), so Apply places it with the selection and Cancel changes nothing.
+     * The field list's "Add to Filters": the field's filter on a draft that puts it into Filters (a
+     * date grouped as it would be placed, a field on Rows or Columns moved), so Apply places it with
+     * the selection and Cancel changes nothing; a field in Filters already opens its own filter.
      */
-    const filterNew = useCallback(
+    const filterField = useCallback(
         (field, anchor) => {
             const options = placeOptions(field, "filters");
-            const draft = addField(view, field, "filters", options);
+            const name = options.groupName ?? field;
+            const draft = filterZoneFields(view).some((f) => same(f, name)) ? undefined : addField(view, field, "filters", options);
             // on a narrow report the field list is a drawer: it closes, the filter anchors to its button
             const opener = size === "narrow" ? /** @type {HTMLElement | null} */ (root.current?.querySelector("[data-pk-opener='fields']") ?? null) : null;
             if (size === "narrow") {
@@ -898,7 +909,7 @@ function Report(props) {
             }
             const target = opener ?? anchor;
             if (target) {
-                setFilterTarget({ field: options.groupName ?? field, anchor: target, base: draft });
+                setFilterTarget({ field: name, anchor: target, base: draft });
             }
         },
         [placeOptions, view, size]
@@ -958,7 +969,7 @@ function Report(props) {
     const requestImport = () => loadImport().then((m) => (flushSync(() => setImportMod(() => m)), m));
     /** What the import UI works on: this render's state, its setters and the props it needs. */
     const api = {
-        imported, setImported, steps: dataSteps, setSteps: setDataSteps, job, setJob, dragging, history, encoded, hostEncoded: source.encoded, hostSource: sourceProp, sourceName, labels, locale, plugins, worker: importWorker, limits, timeZone, onDataLoad, announce, dismiss,
+        imported, setImported, steps: dataSteps, setSteps: setDataSteps, job, setJob, dragging, history, encoded, hostEncoded: source.encoded, hostSource: sourceProp, sourceName, labels, locale, plugins, worker: importWorker, limits: fileLimits, timeZone, onDataLoad, announce, dismiss,
         undo: () => undoLater.current(),
         box: () => root.current?.getBoundingClientRect(),
         pick: () => importMod?.pickFile(fileInput.current),
@@ -1040,7 +1051,7 @@ function Report(props) {
         schemaUrl,
         encoded,
         shareLink,
-        param,
+        linkKey: storageKey,
         root,
         fileName,
         onExport,
@@ -1287,6 +1298,8 @@ function Report(props) {
             commit(setChart(view, "auto"), { step: "chart", type: "auto" });
         } else if (action === "saveTemplate") {
             setViewsRequest((n) => n + 1);
+        } else if (action === "colSubtotalsOff") {
+            commit(setTotal(view, "colSubtotals", false), { step: "totals" });
         }
     };
 
@@ -1362,7 +1375,7 @@ function Report(props) {
                                     }
                                 }}
                                 onNote={(text) => announce(text)}
-                                onFilter={filterNew}
+                                onFilter={filterField}
                                 nameOf={nameOf}
                                 info={info}
                                 showInfo={fieldSwitch.on}

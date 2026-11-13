@@ -110,7 +110,9 @@ export function fileError(reason, file, message, params = {}) {
 }
 
 /**
- * A LIMIT_EXCEEDED error that names the file, the limit and what to change.
+ * A LIMIT_EXCEEDED error that names the file, the limit and what to change. The key in brackets is
+ * the one of `limits`; a UI that reads files with other limits of its own (pivotkit-react's
+ * `importLimits`) says the same words, so the hint names no key.
  * @param {string} limit
  * @param {number} value
  * @param {number} max
@@ -121,7 +123,7 @@ export function limitError(limit, value, max, file, what) {
     const n = (x) => x.toLocaleString("en-US");
     return new PivotkitError(
         "LIMIT_EXCEEDED",
-        `"${file}" has more than ${n(max)} ${what} (limits.${limit}): load a smaller extract of it, or a host can raise limits.${limit}`,
+        `"${file}" has more than ${n(max)} ${what} (limits.${limit}): load a smaller extract of it, or a host can raise this limit`,
         { limit, value, max, file }
     );
 }
@@ -138,7 +140,9 @@ export function checkFileLimit(limit, value, max, file, what) {
 /** The file's name for messages. */
 export function fileName(file, options) {
     const own = file && typeof file === "object" && typeof (/** @type {any} */ (file).name) === "string" ? /** @type {any} */ (file).name : "";
-    return cleanText(String(options?.name ?? own ?? "")).slice(0, 256) || "file";
+    const name = cleanText(String(options?.name ?? own ?? "")).slice(0, 256);
+    // A UTF-16 cap must not leave half of an astral character at the end.
+    return (/\p{Surrogate}$/u.test(name) ? name.slice(0, -1) : name) || "file";
 }
 
 /**
