@@ -120,11 +120,18 @@ for (const intermediate of [false, true]) {
         await expect.poll(() => page.evaluate(() => window.__order.length)).toBe(1);
         await page.getByRole("button", { name: "Remove Category" }).click();
         await expect.poll(() => page.evaluate(() => window.__order.length)).toBe(2);
-        // Controlled rendering remains the host's responsibility, not an optimistic UI (#142).
-        await expect.poll(() => chips(page, "rows")).toEqual(["Region", "Country"]);
+        // Assert the actual outgoing views, not only the history notes (#153 review).
+        const sent = await page.evaluate(() => window.__reportedViews);
+        expect(sent[0].rows).toEqual(["Region"]);
+        expect(sent[0].cols).toEqual(["Category"]);
+        expect(sent[1].rows).toEqual(["Region"]);
+        expect(sent[1].cols).toEqual([]);
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+        await expect.poll(() => chips(page, "cols")).toEqual([]);
         if (intermediate) {
             await page.evaluate(() => window.__echoNext());
             await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+            await expect.poll(() => chips(page, "cols")).toEqual([]);
         }
         await page.locator(".pk-status").click();
         await page.keyboard.press("ControlOrMeta+z");
@@ -142,5 +149,31 @@ for (const intermediate of [false, true]) {
         await page.keyboard.press("ControlOrMeta+Shift+z");
         await page.evaluate(() => window.__echoNext());
         await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+    });
+}
+
+for (const outside of [false, true]) {
+    test(`pending controlled view accepts ${outside ? "outside changes" : "only the latest echo"} #141`, async ({ page }) => {
+        await page.goto("pages/host.html?manualecho");
+        await openZones(page);
+        await page.getByRole("button", { name: "Remove Country" }).click();
+        await page.getByRole("button", { name: "Remove Category" }).click();
+        // Unrelated host renders do not discard an unacknowledged edit (#142).
+        const before = Number(await page.getByTestId("host-renders").textContent());
+        await expect.poll(async () => Number(await page.getByTestId("host-renders").textContent())).toBeGreaterThan(before + 2);
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+        await expect.poll(() => chips(page, "cols")).toEqual([]);
+        if (outside) {
+            await page.evaluate(() => window.__setHostView({ ...window.__reportedViews.at(-1), rows: ["Country"] }));
+            await expect.poll(() => chips(page, "rows")).toEqual(["Country"]);
+        } else {
+            await page.evaluate(() => window.__echoLatest());
+            await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+        }
+        await page.locator(".pk-status").click();
+        await page.keyboard.press("ControlOrMeta+z");
+        await expect(page.locator(".pk-toasts")).toContainText(`Undone: ${outside ? "change from outside the report" : "Category removed"}`);
+        await expect.poll(() => chips(page, "rows")).toEqual(["Region"]);
+        await expect.poll(() => chips(page, "cols")).toEqual(outside ? [] : ["Category"]);
     });
 }

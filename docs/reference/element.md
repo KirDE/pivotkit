@@ -191,10 +191,14 @@ As with `<PivotReport>`:
   its undo history. Feed the view back unchanged and before the next change: an older view (from a
   debounced or asynchronous store) counts as a new start view and starts the report again. That way a framework that sets properties after the element is in the page
   (React 18, Angular) still gets its start view.
-- Controlled (`view` set): the report shows that view. A change is a `pivot-view-change` event, and the
-  report shows it only when the page sets `view = event.detail.view`; a page that does not set it keeps
-  the report on its view. A view the page sets on its own becomes one undo step. `view = undefined`
-  makes it uncontrolled again; switching back and forth is not meant for normal use.
+- Controlled (`view` set): a change is a `pivot-view-change` event. The report shows its latest
+  pending view while the page passes it back with `view = event.detail.view`, so successive actions
+  build on one another. Pass views back in order, or only the latest; an earlier acknowledgement
+  does not roll the report back. A different view the page sets on its own replaces the pending
+  view and becomes one undo step. Without acknowledgement the pending view remains shown, with no
+  expiry timer. The same value cannot identify an out-of-order echo versus an intentional outside
+  change ([React contract](react.md#controlled-and-uncontrolled)). `view = undefined` makes it
+  uncontrolled again; switching back and forth is not meant for normal use.
 
 What of the page's `view` or `defaultView` the data cannot use shows above the result as a warning,
 once per distinct view, as for `<PivotReport>`

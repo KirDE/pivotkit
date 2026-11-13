@@ -45,7 +45,17 @@ function Host() {
     const manual = useRef([]);
     useEffect(() => {
         window.__echoNext = () => setView(manual.current.shift());
-        return () => { delete window.__echoNext; };
+        window.__echoLatest = () => {
+            const latest = manual.current.at(-1);
+            manual.current = [];
+            setView(latest);
+        };
+        window.__setHostView = setView;
+        return () => {
+            delete window.__echoNext;
+            delete window.__echoLatest;
+            delete window.__setHostView;
+        };
     }, []);
     const remount = () => {
         echoes.current.forEach(clearTimeout);
@@ -72,6 +82,7 @@ function Host() {
     }, [empty]);
     const onViewChange = (next) => {
         window.__order.push("view");
+        (window.__reportedViews ??= []).push(next);
         if (query.has("manualecho")) {
             manual.current.push(next);
         } else if (query.has("asyncecho")) {

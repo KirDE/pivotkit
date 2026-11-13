@@ -1,7 +1,7 @@
 /*
  * The view of a report and its undo history (view-history.js), controlled or not:
  *
- * - controlled: `view` + `onViewChange`. The report shows the view the host passes. A change calls
+ * - controlled: `view` + `onViewChange`. The report shows its pending view until acknowledged. A change calls
  *   onViewChange; the history stays inside the report and keeps its steps when the host passes back
  *   the view it got, however often it renders. A view the host changes on its own becomes a step
  *   ("change from outside") the next time the user acts, so undo goes back over it too.
@@ -15,8 +15,8 @@
  * `initial` starts the report on such a history (a report mounted again, data-keep.js); it tells the
  * host with replace(initial) in a layout effect. A controlled host that has not passed back the view
  * it was told yet (onViewChange; a host whose view goes through its server, or one that renders once
- * more after the report is gone) shows the view it had a moment longer: snapshot() keeps the view the
- * report told, not that one as a change from outside.
+ * more after the report is gone) keeps the report on its pending view: snapshot() keeps it too,
+ * not the old host view as a change from outside.
  *
  * Every step carries a tag (view-history.js): the saved view it shows. commit(next, note, tag) sets
  * it (undefined: the tag of the view before), `tag` is the present one, setTag(tag) changes it
@@ -73,7 +73,7 @@ export function useViewHistory({ encoded, view, defaultView, onViewChange, limit
 
     const viewKey = controlled ? JSON.stringify(view) : null;
     // Keep every outgoing view until the host acknowledges it. Intermediate echoes belong to
-    // this sequence, not to a new outside edit. Rendering still uses the host's view (#142).
+    // this sequence, not to a new outside edit. Menus must build on the pending view too.
     const [echo, setEcho] = useState(() => ({ over: viewKey, pending: initialState ? [initialState.present] : [] }));
     let pending = echo.pending;
     if (viewKey !== echo.over) {
@@ -81,15 +81,18 @@ export function useViewHistory({ encoded, view, defaultView, onViewChange, limit
         pending = index < 0 ? [] : pending.slice(index + 1);
         setEcho({ over: viewKey, pending });
     }
+    const waiting = viewKey !== null && pending.length > 0 && state.schema === schema;
     const shown = useMemo(() => {
+        if (waiting) {
+            return state.present;
+        }
         if (viewKey !== null) {
             return json(JSON.parse(viewKey));
         }
         return state.schema === schema ? state.present : json(JSON.parse(state.present));
-    }, [viewKey, json, state, schema]);
+    }, [waiting, viewKey, json, state, schema]);
     const current = useMemo(() => /** @type {import("pivotkit-core").View} */ (JSON.parse(shown)), [shown]);
     // the history a step works on (pure: a new schema or an outside change, settled)
-    const waiting = viewKey !== null && pending.length > 0 && state.schema === schema;
     const live = useMemo(() => waiting ? state : settle(state, { schema, start, shown, outside: outsideNote }), [waiting, state, schema, start, shown, outsideNote]);
 
     const apply = useCallback(
