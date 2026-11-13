@@ -163,8 +163,9 @@ every January of the data in one, and the cell summarizes them all (the average 
 the sum of all the Januaries). This is for comparing seasons, months or weekdays with one another;
 the table does not say which years it combined. So three years of data grouped by **Quarter of
 year** are four rows, not twelve.
-It also keeps the years 0–99 and dates before year 1: a month names its era (Jan 100 BC), and a
-quarter keeps Q1–Q4 before year zero.
+
+Along the time line, the years 0–99 and dates before year 1 keep their own periods: a month names
+its era (Jan 100 BC), and a quarter keeps Q1–Q4 before year zero.
 
 ??? question "Which grouping do I need?"
     The steps below use the [weather data](../learn.md#weather) of the live demo: fourteen cities,
