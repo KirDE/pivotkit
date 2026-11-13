@@ -157,35 +157,28 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
         const ro = typeof ResizeObserver === "function" && el ? new ResizeObserver(place) : null;
         if (ro && el) {
             ro.observe(el);
-            if (anchor.current) ro.observe(anchor.current);
         }
-        // Position-only changes (the zones opening, for example) do not resize the anchor.
-        const root = anchor.current?.closest(".pk-root");
-        root?.addEventListener("transitionend", place, true);
-        root?.addEventListener("animationend", place, true);
-        // Ancestor transforms do not bubble through the report and do not resize the anchor.
-        window.addEventListener("transitionend", place, true);
-        window.addEventListener("animationend", place, true);
-        // Immediate layout/transform changes (including reduced motion) emit no end event.
-        // Only re-place when the anchor rectangle changes; a closed/sheet popover has no loop.
+        // the anchor can move or change size while the popover is open (the zones' open animation, a
+        // transition of the host page, a move at once with reduced motion): its box is compared once a
+        // frame and the popover placed again when it changed. A sheet does not follow an anchor.
         let frame = 0;
         let rect = anchor.current?.getBoundingClientRect();
         const follow = () => {
             const next = anchor.current?.getBoundingClientRect();
-            if (next && rect && (next.x !== rect.x || next.y !== rect.y || next.width !== rect.width || next.height !== rect.height)) place();
+            if (next && rect && (next.x !== rect.x || next.y !== rect.y || next.width !== rect.width || next.height !== rect.height)) {
+                place();
+            }
             rect = next;
             frame = requestAnimationFrame(follow);
         };
-        if (!sheet) frame = requestAnimationFrame(follow);
+        if (!sheet) {
+            frame = requestAnimationFrame(follow);
+        }
         window.addEventListener("resize", place);
         window.addEventListener("scroll", place, true);
         return () => {
             cancelAnimationFrame(frame);
             ro?.disconnect();
-            root?.removeEventListener("transitionend", place, true);
-            root?.removeEventListener("animationend", place, true);
-            window.removeEventListener("transitionend", place, true);
-            window.removeEventListener("animationend", place, true);
             window.removeEventListener("resize", place);
             window.removeEventListener("scroll", place, true);
         };
