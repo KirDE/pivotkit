@@ -176,7 +176,10 @@
     box-sizing: border-box;
 }
 
-.pk-root :is(button, input, select, textarea) {
+/* form controls take the report's font and colour, not the browser's; :where() keeps this reset at
+   the specificity of .pk-root alone, so a class of the report (.pk-action, .pk-link, .pk-icon-btn,
+   ...) sets its own colour, size and weight over it */
+.pk-root :where(button, input, select, textarea) {
     font: inherit;
     color: inherit;
 }
@@ -311,7 +314,9 @@
     transition: background var(--pk-duration), color var(--pk-duration);
 }
 
-.pk-icon-btn:hover {
+/* hovered, or its menu or dialog open */
+.pk-icon-btn:hover,
+.pk-icon-btn[aria-haspopup][aria-expanded="true"] {
     background: var(--pk-surface-3);
     color: var(--pk-text);
 }
@@ -638,16 +643,14 @@
     color: var(--pk-accent);
 }
 
+/* quiet in the muted colour of an icon button (no opacity on top: it would fall below 3:1) */
 .pk-field-menu {
     /* as narrow as a control may be: the room goes to the field's name (a touch screen keeps its hit area) */
     width: var(--pk-target);
-    opacity: 0.6;
 }
 
-.pk-field:hover .pk-field-menu,
-.pk-field-menu:focus-visible,
-.pk-field-menu[aria-expanded="true"] {
-    opacity: 1;
+.pk-field:hover .pk-field-menu {
+    color: var(--pk-text);
 }
 
 .pk-panel.pk-removing {
@@ -1792,6 +1795,111 @@
 
 .pk-quick-hidden {
     margin: 0;
+}
+
+/* a checkbox with its words: "Include the current month", "Also keep items without a value" */
+.pk-check {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    min-height: var(--pk-target);
+    padding: 0 0.6em;
+    border-radius: var(--pk-radius-sm);
+    cursor: pointer;
+}
+
+.pk-check:hover {
+    background: var(--pk-surface-3);
+}
+
+/* not a text field's look inside a form (.pk-condition input) */
+.pk-check > input[type="checkbox"] {
+    flex: none;
+    width: 1.1em;
+    min-width: 0;
+    height: 1.1em;
+    margin: 0;
+    padding: 0;
+    accent-color: var(--pk-accent);
+}
+
+/* a choice's own setting, under it: in line with its words, not with its radio */
+.pk-quick-row > .pk-check {
+    flex-basis: 100%;
+    margin-left: 1.7em;
+}
+
+/* More choices of the quick choices: a disclosure, its choices indented under it */
+.pk-quick-more-toggle {
+    display: flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 0.35em;
+    min-height: var(--pk-target);
+    padding: 2px 6px;
+    border: 0;
+    border-radius: var(--pk-radius-sm);
+    background: transparent;
+    color: var(--pk-muted);
+    font-size: var(--pk-small);
+    cursor: pointer;
+}
+
+.pk-quick-more-toggle:hover {
+    background: var(--pk-surface-3);
+    color: var(--pk-text);
+}
+
+.pk-quick-more {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-left: 0.6em;
+    padding-left: 0.6em;
+    border-left: 2px solid var(--pk-border);
+}
+
+/* the selects and the date field of the quick choices: as high as the count beside them, a target's
+   height at least (they are not in a .pk-condition form) */
+.pk-quick-row select,
+.pk-quick-anchor select,
+.pk-quick-anchor input[type="date"] {
+    min-height: var(--pk-target);
+    height: 2em;
+    padding: 0 0.4em;
+    border: 1px solid var(--pk-input-border);
+    border-radius: var(--pk-radius-sm);
+    background: var(--pk-surface);
+    color: var(--pk-text);
+}
+
+.pk-quick-anchor > .pk-hint {
+    flex-basis: 100%;
+}
+
+/* under a choice: the button that counts back from the data's end, in line with its words; a small
+   button as the level's "Compare" buttons, whose long text wraps inside it at a narrow width */
+.pk-quick-row > .pk-quick-fix {
+    flex-basis: 100%;
+    min-width: 0;
+    margin-left: 1.7em;
+}
+
+/* "Count back from the latest record": the level's small button, its icon first as on "Compare"; its
+   words wrap at narrow width, the icon stays at the first line */
+.pk-quick-fix > .pk-btn.pk-small-btn {
+    align-items: flex-start;
+    height: auto;
+    min-height: max(2em, var(--pk-target));
+    max-width: 100%;
+    padding-block: 0.25em;
+    text-align: start;
+    white-space: normal;
+}
+
+.pk-quick-fix > .pk-btn.pk-small-btn > .pk-icon {
+    flex: none;
+    margin-top: 0.2em;
 }
 
 /* the years a cyclic grouping combines: a toggle per year with its rows */
@@ -3799,4 +3907,9 @@
 .pk-data-menu p {
     padding: 0 8px;
     overflow-wrap: anywhere;
+}
+
+/* under "Also show items with the same value as the last one": in line with its words */
+.pk-level-form > .pk-top-shown {
+    padding-left: calc(1.7em + 0.6em);
 }
