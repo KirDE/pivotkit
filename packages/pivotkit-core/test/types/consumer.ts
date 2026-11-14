@@ -22,11 +22,13 @@ const rowsBytes: Uint8Array = rowsToXlsx(data, new Int32Array([0]), { sheetName:
 const pasted: string = toTsv(grid) + toTsv([["a", "b"]]) + toJson(grid, { space: 0 });
 export const all = [firstName, read.issues.length, fromSchema.templates.length, TEMPLATE_LIMITS.count, issues.length, bytes.length, csv.length, rowsCsv.length, rowsBytes.length, pasted.length, option, code, grid.locale, shown, schemaIssues.length];
 
-// relative date ranges: today from options.now, the range as ISO days or null
-const range: { from: string; to: string } | null = relativeDateRange("year", 5, { now: new Date(), timeZone: "UTC" });
+// relative date ranges: today from options.now, the range as ISO days or null; "before" has no start
+const range: { from: string | null; to: string } | null = relativeDateRange("year", 5, { now: new Date(), timeZone: "UTC" });
+const before: { from: string | null; to: string } | null = relativeDateRange("week", 2, { direction: "before", calendar: false, weekStart: 7, anchor: "2025-06-30" });
+void before;
 const today: PivotResult = computePivot(encode([{ d: "2026-01-01" }]), { filters: [{ field: "d", type: "relative", unit: "year", count: 1 }] }, { now: "2026-11-09" });
 // anchored at the data's latest date instead of today
-const anchored: { from: string; to: string } | null = relativeDateRange("month", 12, { anchor: "latest", latest: "2025-12-31", timeZone: "UTC" });
+const anchored: { from: string | null; to: string } | null = relativeDateRange("month", 12, { anchor: "latest", latest: "2025-12-31", timeZone: "UTC" });
 const latest: PivotResult = computePivot(encode([{ d: "2026-01-01" }]), { filters: [{ field: "d", type: "relative", unit: "year", count: 1, anchor: "latest" }] });
 void range;
 void today;
@@ -43,3 +45,41 @@ export async function load(file: File): Promise<number> {
     const columnar: ColumnarData = { columns: again.columns, types: again.types, data: again.data };
     return encode(columnar).length + encode(table).length + table.notes.filter((n) => n.code === "TEXT_CUT").length;
 }
+
+// a link of a page's fragment, with its data source; views checked with severities and hints
+import { readViewLink } from "pivotkit-core/link";
+import { outsideLimits, validate, foldText } from "pivotkit-core";
+const link = readViewLink("#pivot-sales=1.abc", "sales", { allowParams: ["year"] });
+const srcId: string | undefined = link.src?.id;
+const year: string | undefined = link.src?.params?.year;
+const checked = validate(link.view ?? {}, encode([{ a: 1 }]), { limits: outsideLimits({ rows: 10 }) });
+const warned: boolean = checked.warnings.some((w) => w.severity === "warning" && w.params?.suggestion !== undefined);
+const folded: string = foldText(" A\u00A0b ", { case: "insensitive", whitespace: "collapse" });
+void srcId;
+void year;
+void warned;
+void folded;
+
+// a view from a layout and the data's field description; a file's source id
+import { describeSource, groupingName, isIdentifierName, renameFields, suggestLayout, viewFromLayout, dateUnitFor, GROUPING_NAMES } from "pivotkit-core";
+import { sourceIdOf } from "pivotkit-core/import";
+const described = describeSource(encode([{ Region: "North", Units: 3 }]));
+const suggestion = suggestLayout(described, { locale: "de-DE" });
+const pickCodes: string[] = suggestion.picks.map((p) => p.code);
+const built = viewFromLayout({ ...suggestion.layout, values: [{ field: "Units", agg: "average" }], groups: [{ field: "When", by: "yearMonth" }], map: { Units: "Stück" } }, described, { locale: "en-US" });
+const draftName: string = built.name;
+const noteCodes: string[] = built.notes.map((n) => n.code);
+const renamed: string[] = renameFields(built.view, { Region: "Area" }).unused;
+const unit: string | null = dateUnitFor(0, 86_400_000 * 90);
+const grouped: string = groupingName("Date", "yearMonth", { locale: "de-DE" }) + GROUPING_NAMES.en.name;
+const identifier: boolean = isIdentifierName("Order No");
+const sourceId: Promise<string> = sourceIdOf("sales.csv", ["Region", "Units"]);
+void normalize(built.view, data);
+void pickCodes;
+void draftName;
+void noteCodes;
+void renamed;
+void unit;
+void grouped;
+void identifier;
+void sourceId;

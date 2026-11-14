@@ -1,3 +1,4 @@
+import { MAX_DATE_MS } from "./date-limits.js";
 // Group-level hints load only with the menus.
 import { CATALOG } from "pivotkit-core";
 import { plural } from "./labels.js";
@@ -15,7 +16,7 @@ export function groupStats(encoded, field) {
     let yearCount = 0;
     const date = new Date(0);
     for (const value of column.dict) {
-        if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 8.64e15) continue;
+        if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > MAX_DATE_MS) continue;
         min = Math.min(min, value); max = Math.max(max, value);
         date.setTime(value);
         const month = date.getUTCMonth();

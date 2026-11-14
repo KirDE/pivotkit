@@ -53,6 +53,8 @@ web component (`<pivot-report>`).
 | Adjust the chart beyond its menus (font sizes, axis names) | [`chartOptions`](../concepts/charts.md#chartoptions-for-developers) |
 | A taller report on phones | [web component](../getting-started/web-component.md#a-taller-report-on-phones), [layout](../reference/react.md#layout) |
 | Keep, log or block every export and copy | [`onExport`](../reference/react.md#prop-onexport) |
+| Let users download the rows behind the report (for the command line) | [`exportData`](../reference/react.md#prop-exportdata) |
+| Keep the rows from being taken home | leave [`exportData`](../reference/react.md#prop-exportdata) off, set [`drillDown`](../reference/react.md#props) to `false`, send only permitted rows ([Security](../security.md#source-data)) |
 
 ## Pages and hosts
 
@@ -62,6 +64,7 @@ web component (`<pivot-report>`).
 | Angular | [web component](../getting-started/web-component.md#angular), [zone.js](../reference/element.md#angular-and-zonejs) |
 | PowerShell Universal | [React](../getting-started/react.md#powershell-universal) |
 | A page without a bundler (import map) | [bundlers and import maps](../getting-started/react.md#bundlers-and-import-maps) |
+| Some viewers may see only some rows | [pivotkit is not access control](../security.md#pivotkit-is-not-access-control) |
 | A strict Content-Security-Policy | [security](../security.md#content-security-policy), [element](../reference/element.md#content-security-policy) |
 | Several reports on one page | [FAQ](../faq.md#several-reports-on-one-page) |
 | The report inside a dialog of your page | [Escape and the host page](../reference/react.md#escape-and-the-host-page) |

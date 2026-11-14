@@ -9,22 +9,32 @@ description: Common questions about pivotkit - which package to use, data size, 
 
 - A React app: [pivotkit-react](getting-started/react.md).
 - A page without React (Angular, PHP, plain HTML): [pivotkit-element](getting-started/web-component.md).
-- Your own UI, or reports built on a server: [pivotkit-core](getting-started/engine.md).
+- Your own UI, or pivots, grids and exports in your own code: [pivotkit-core](getting-started/engine.md).
+- Reports as files from a script or a server: [pivotkit-report](getting-started/report.md).
+- Reports in a terminal or CI: [pivotkit-cli](getting-started/cli.md).
+- Reports for programs over HTTP, or as a container: [pivotkit-server](getting-started/rest.md).
+- Reports from an AI client: [pivotkit-mcp](getting-started/mcp.md).
+
+All eight packages and what a host switches on: [Embed pivotkit](embed/index.md).
 
 ## How many rows can it handle?
 
-It is designed for up to about 100,000 rows in the browser; a change then stays within a frame or two
-(see [Performance](reference/react.md#performance)). `encode` accepts up to 1,000,000 rows by
-default, at the cost of time and memory. Beyond the rows, the [limits](concepts/limits.md#limits)
+Measured up to 1,000,000 rows in Chromium, Firefox and WebKit on one Mac (Apple M4, 16 GB): the first table took
+about 0.15 s at 100,000 rows and 1 to 2.5 s at a million, with the page frozen while it is built;
+after that a filter, a field or the chart took about 0.15 s at most
+([measured in the browser](concepts/limits.md#measured-in-the-browser), which also says what was not
+measured, such as loading a file). A million rows is the default `rows` limit. Beyond the rows, the [limits](concepts/limits.md#limits)
 guard the work of a layout (`work`), its groups (`groups`), its aggregated cells (`pivotCells`) and
-the size of the table (`cells`).
+the size of the table (`cells`). For more rows, see
+[more than a million rows](concepts/limits.md#more-than-a-million-rows).
 
 ## My data is on a server. Does pivotkit fetch it?
 
-No. pivotkit takes an array of plain objects you load yourself (`fetch`, a framework's data layer, a
+No. The report takes an array of plain objects you load yourself (`fetch`, a framework's data layer, a
 `<script type="application/json">` block), and never makes a network request. To aggregate on the
 server instead, run pivotkit-core there and send the [grid](getting-started/engine.md#drawing-the-grid)
-or the XLSX file.
+or the XLSX file, or run the [REST service](getting-started/rest.md) (or its container image) on files
+you configure, and let programs ask it for reports.
 
 ## My data is columnar (`{ columns, rows }`). Can I pass it?
 
