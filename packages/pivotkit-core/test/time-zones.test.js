@@ -116,8 +116,7 @@ test("ISO expanded years use a sign and six digits and reject negative zero", ()
         assert.ok(parsed, text);
         assert.equal(new Date(parsed.ms).toISOString().split("T")[0], text);
     }
-    for (const text of ["-000000-01-01", "+10000-01-01", "10000-01-01", "+010000-02-30", "+275760-09-14", "-271821-04-19"]) {
+    for (const text of ["-000000-01-01", "+10000-01-01", "10000-01-01", "+010000-02-30", "+275760-09-14", "-271821-04-19", "+275760-09-13T00:00:00-01:00", "-271821-04-20T00:00:00+01:00"]) {
         assert.equal(parseIso(text), null, text);
     }
 });
-

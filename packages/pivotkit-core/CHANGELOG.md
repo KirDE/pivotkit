@@ -1,14 +1,12 @@
 # Changelog
 
-## Unreleased
-
-- Read signed six-digit ISO years in compare date values, matching the saved-view writer (#97).
-
 All notable changes to `pivotkit-core` are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this package adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+- Read signed six-digit ISO years in compare date values, matching the saved-view writer (#97). Reject offsets that put the instant outside the Date range.
 
 ### Changed
 

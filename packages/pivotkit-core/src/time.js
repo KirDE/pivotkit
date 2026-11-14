@@ -78,6 +78,7 @@ export function parseIso(text) {
             offsetMinutes = (zone[0] === "-" ? -1 : 1) * (oh * 60 + om);
         }
     }
+    if (offsetMinutes !== null && !isDateMs(ms - offsetMinutes * 60_000)) return null;
     return { ms, offsetMinutes };
 }
 
