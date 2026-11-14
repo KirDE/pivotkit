@@ -363,4 +363,4 @@ The first level of a row or column field's menu:
     `value`, `custom`), and how a field gets its order (`fieldDefaults.order`), are in
     [Filters, top N and sorting](../concepts/filters.md).
 
-Compare date values also accept ECMAScript expanded ISO years: a sign followed by six digits (for example, `+010000-02-29` or `-000001-01-01`). The negative-zero year (`-000000`) and dates outside the JavaScript Date range are rejected. These values survive normalization and saved-view round trips.
+Compare date values also accept ECMAScript expanded ISO years: a sign followed by six digits (for example, `+010000-02-29` or `-000001-01-01`). The negative-zero year (`-000000`) and dates outside the JavaScript Date range are rejected. These values survive normalization and saved-view round trips. This support is limited to comparison values; it does not change source-date inference.

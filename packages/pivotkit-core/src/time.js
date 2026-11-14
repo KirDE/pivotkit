@@ -41,11 +41,12 @@ function utc(y, mo, d, h = 0, mi = 0, s = 0, ms = 0) {
  * Parses an ISO date string; null when it is not one or names a day or time that does not exist
  * (2026-02-30, 10:61).
  * @param {string} text
+ * @param {boolean} [expanded]  compare values only; source-date recognition keeps its existing grammar
  * @returns {{ ms: number, offsetMinutes: number | null } | null}  ms: the wall clock as written
  */
-export function parseIso(text) {
+export function parseIso(text, expanded = false) {
     const m = ISO_DATE.exec(text.trim());
-    if (!m || m[1] === "-000000") {
+    if (!m || m[1] === "-000000" || (!expanded && m[1].length !== 4)) {
         return null;
     }
     const zone = m[8];
