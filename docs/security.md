@@ -137,8 +137,8 @@ uploaded, and a hostile file affects only that person's tab. Its readers treat i
   when it would grow beyond the size the directory states, so a ZIP bomb or a forged directory cannot
   unpack more than the limits allow. `unpackedBytes` bounds what is unpacked, not the memory a read
   takes: see [Untrusted workbooks](#untrusted-workbooks). A sheet's values are checked against
-  `rows`, `columns` and `importCells` by the row and column they stand in, while the sheet streams
-  in and before it is parsed: a file of a few hundred bytes with a value in row 300,000 and column
+  `rows`, `columns` and `importCells` by the row and column they stand in, read as the parser reads
+  them (with any namespace prefix), while the sheet streams in and before it is parsed: a file of a few hundred bytes with a value in row 300,000 and column
   XFD would otherwise become a dense array of billions of cells in the parser. Leaving out rows
   without a value (a used range of formatted empty cells) saves time and memory; the limits do not
   depend on it. A host can give loaded files lower limits than its own data
@@ -172,7 +172,7 @@ uploaded, and a hostile file affects only that person's tab. Its readers treat i
 `unpackedBytes` (500 MiB) bounds how much of a workbook is unpacked; the memory a read takes depends
 on what of it is kept. Before read-excel-file parses a part, pivotkit-xlsx leaves out what it never
 reads (rows without a value, anything between rows that is no row, what follows `</sheetData>`), cuts
-runs of whitespace to 128 KiB and refuses a text of more than 1 MiB or a tag of more than 256 KiB as `DAMAGED`, so a small
+runs of whitespace to 128 KiB and refuses a text of more than 1 MiB, a tag of more than 256 KiB or a `<` inside a tag as `DAMAGED`, so a small
 file padded with whitespace costs time in proportion to its unpacked size, and memory mostly for the
 pieces being unpacked, which the garbage collector frees as it goes (up to about 2 to 3 times the
 unpacked size at its peak). What is kept costs a few times its size, as for any workbook that large.

@@ -499,9 +499,9 @@ test("cell and row positions are read however the attribute is quoted or spaced,
     const t = await read(fileOf(sheet(`<row r="1"><c r="A1" t="inlineStr"><is><t>n</t></is></c></row><row r="2"><c x=' r="A3000000"' r="A2"><v>7</v></c></row>`)));
     assert.deepEqual(col(t, "n"), [7]);
     // a row of half a megabyte of "<c " without a ">": the filter scans each tag once (it was
-    // quadratic), then the guard refuses the one long tag the parser would read
+    // quadratic) and refuses the "<" in a tag the parser would read as one long tag
     const started = performance.now();
-    await rejects(read(fileOf(sheet(`<row r="1"><c r="A1"><v>1</v></c></row><row r="2">${"<c ".repeat(170_000)}</c></row>`))), "DAMAGED", (e) => /256 KiB/.test(e.message));
+    await rejects(read(fileOf(sheet(`<row r="1"><c r="A1"><v>1</v></c></row><row r="2">${"<c ".repeat(170_000)}</c></row>`))), "DAMAGED", (e) => /"<" in a tag/.test(e.message));
     assert.ok(performance.now() - started < 3_000, `${Math.round(performance.now() - started)} ms`);
 });
 
@@ -730,4 +730,98 @@ test("a quoted '>' or '/>' in a row tag does not end the tag: the row is read an
         assert.deepEqual(filter.end(), { lastRow: 2, lastValueRow: 1, dropped: 1, errors: 0, shared: -1 }, `pieces of ${size} bytes`);
         assert.equal(parts.join(""), expected, `pieces of ${size} bytes`);
     }
+});
+
+// read-excel-file reads a tag or an attribute without its namespace prefix (<x:row>, x:r): a sheet
+// written with prefixes went past the checks before parsing, so a value far out made the parser build
+// a dense table of billions of cells from a file of a few hundred bytes
+test("a sheet with namespace prefixes is checked and trimmed as one without", async () => {
+    const XNS = 'xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+    const prefixed = (rows) => makeXlsxWithSheet(`<?xml version="1.0"?>\n<x:worksheet ${XNS}><x:sheetData>${rows}</x:sheetData></x:worksheet>`);
+    const head = '<x:row r="1"><x:c r="A1" t="inlineStr"><x:is><x:t>n</x:t></x:is></x:c></x:row>';
+    const started = performance.now();
+    await assert.rejects(read(fileOf(prefixed(`${head}<x:row r="300000"><x:c r="ALL300000"><x:v>1</x:v></x:c></x:row>`))), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "importCells");
+    await assert.rejects(read(fileOf(prefixed(`${head}<x:row r="2"><x:c r="XFD2"><x:v>1</x:v></x:c></x:row>`))), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "columns");
+    // a cell with another prefix than its row, and only the sheet's data with a prefix, count the same
+    await assert.rejects(read(fileOf(prefixed(`${head}<x:row r="2"><y:c xmlns:y="urn:y" r="XFD2"><x:v>1</x:v></y:c></x:row>`))), (e) => e.details?.limit === "columns");
+    const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+    await assert.rejects(read(fileOf(makeXlsxWithSheet(`<worksheet ${NS} ${XNS}><x:sheetData><row r="1"><c r="A1"><v>1</v></c></row><row r="2"><c r="XFD2"><v>1</v></c></row></x:sheetData></worksheet>`))), (e) => e.details?.limit === "columns");
+    assert.ok(performance.now() - started < 3_000, `${Math.round(performance.now() - started)} ms`);
+    // a sheet with prefixes reads as before; its rows without a value are left out with a note
+    const empty = Array.from({ length: 200 }, (_, k) => `<x:row r="${k + 3}"><x:c r="A${k + 3}" s="1"/></x:row>`).join("");
+    const t = await read(fileOf(prefixed(`${head}<x:row r="2" ><x:c r="A2"><x:v>7</x:v></x:c></x:row >${empty}`)));
+    assert.deepEqual(col(t, "n"), [7]);
+    assert.ok(t.notes.some((note) => note.code === "USED_RANGE"), JSON.stringify(t.notes));
+    // the filter gives the same XML however the sheet arrives in pieces, and finds the shared string a
+    // cell names in a <v> with a prefix
+    const { createSheetFilter } = await import("../src/xml.js");
+    const xml = '<x:worksheet><x:sheetData><x:row r="1"><x:c r="A1" t="s"><x:v>3</x:v></x:c></x:row ><x:row r="2"><x:c r="A2" s="1"/></x:row></x:sheetData><x:pageMargins/></x:worksheet>';
+    const expected = '<x:worksheet><x:sheetData><x:row r="1"><x:c r="A1" t="s"><x:v>3</x:v></x:c></x:row ></x:sheetData></x:worksheet>';
+    for (const size of [1, 2, 5, 13, xml.length]) {
+        const parts = [];
+        const filter = createSheetFilter({ write: (b, from = 0, to = b.length) => parts.push(new TextDecoder().decode(b.slice(from, to))) });
+        const bytes = strToU8(xml);
+        for (let at = 0; at < bytes.length; at += size) filter.push(bytes.subarray(at, at + size));
+        assert.deepEqual(filter.end(), { lastRow: 2, lastValueRow: 1, dropped: 1, errors: 0, shared: 3 }, `pieces of ${size} bytes`);
+        assert.equal(parts.join(""), expected, `pieces of ${size} bytes`);
+    }
+});
+
+// read-excel-file reads a row's r with Number() and a cell's r as letters, then Number(), with
+// entities decoded (a prefixed r maybe twice) and any prefix but "xmlns:" left out; the checks
+// before parsing read them so too (an entity or a byte beyond ASCII counts as the worst), or a few bytes ask it for a
+// billion rows
+test("row and cell numbers are read as the parser reads them, before parsing", async () => {
+    const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+    const sheet = (rows) => makeXlsxWithSheet(`<?xml version="1.0"?>\n<worksheet ${NS}><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>n</t></is></c></row>${rows}</sheetData></worksheet>`);
+    const rowTags = ['<row r="1e9">', '<row r="0x40000000">', '<row r="+999999999">', '<row r=" 999999999 ">', '<row r="&#57;99999999">', '<row r="Infinity">',
+        '<row XMLNS:r="999999999" xmlns:XMLNS="urn:y">', '<row xmlns:a:r="999999999">', '<row x:y:r="999999999" y:r="2">', '<row a=x"y r="999999999" b=">', '<row x:r="&amp;#57;99999999" r="2">'];
+    for (const tag of rowTags) {
+        await assert.rejects(read(fileOf(sheet(`${tag}<c r="A2"><v>1</v></c></row>`))), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "rows", tag);
+    }
+    // a row without r takes its number from its first cell
+    await assert.rejects(read(fileOf(sheet('<row><c r="A2e8"><v>1</v></c></row>'))), (e) => e.details?.limit === "rows");
+    // columns only the check before parsing can refuse in time (billions of cells to the parser);
+    // "~" is column 62 to it, a lower-case letter 33 to 58
+    const started = performance.now();
+    for (const cell of ['<c r="~~~~~~~2">', '<c r="zzzzzzz2">', '<c r="ZZZZZZZZ2" r="A2">', '<c x:r="ZZZZZZZZ2" r="A2">', '<c x:y:r="ZZZZZZZZ2" y:r="A2">']) {
+        await assert.rejects(read(fileOf(sheet(`<row r="2">${cell}<v>1</v></c></row>`))), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "columns", cell);
+    }
+    for (const cell of ['<c r="&#90;ZZZZZZZ2">', '<c x:r="&amp;#90;ZZZZZZZ2" r="A2">', '<c r="A\u00a02">']) {
+        await assert.rejects(read(fileOf(sheet(`<row r="2">${cell}<v>1</v></c></row>`))), (e) => e.code === "LIMIT_EXCEEDED", cell);
+    }
+    assert.ok(performance.now() - started < 3_000, `${Math.round(performance.now() - started)} ms`);
+    // an xmlns:r declared on a row or cell is no r
+    const t = await read(fileOf(sheet('<row r="2" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><c r="A2" xmlns:t="urn:t"><v>7</v></c></row>')));
+    assert.deepEqual(col(t, "n"), [7]);
+});
+
+test("a row in a row is checked; a '<' in a tag and a row the sheet does not end are refused", async () => {
+    const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+    const head = '<row r="1"><c r="A1" t="inlineStr"><is><t>n</t></is></c></row>';
+    const sheet = (rows, end = "</sheetData></worksheet>") => makeXlsxWithSheet(`<?xml version="1.0"?>\n<worksheet ${NS}><sheetData>${head}${rows}${end}`);
+    await assert.rejects(read(fileOf(sheet('<row r="2"><c r="A2"><v>1</v></c><row r="999999999"></row></row>'))), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "rows");
+    // the parser reads a quoted "<" as part of the tag, so it would see an r the checks do not
+    await rejects(read(fileOf(sheet('<row r="2"><c a="<" r="XFD2"><v>1</v></c></row><row r="600000"><c r="A600000"><v>1</v></c></row>'))), "DAMAGED", (e) => /"<"/.test(e.message));
+    await rejects(read(fileOf(sheet('<row r="2"><c r="A2" <v>1</v></c></row>'))), "DAMAGED", (e) => /"<"/.test(e.message));
+    // a row cut off at the end of the sheet goes to the parser unchecked no more
+    const started = performance.now();
+    await rejects(read(fileOf(sheet('<row r="2"><c r="ZZZZZZZZ2"><v>1</v></c>', ""))), "DAMAGED");
+    assert.ok(performance.now() - started < 1_000, `${Math.round(performance.now() - started)} ms`);
+    // the sheet's data starts where the parser starts it: not in a comment or CDATA section before it
+    for (const before of ["<!-- <sheetData> -->", "<![CDATA[<sheetData>]]>"]) {
+        const t = await read(fileOf(makeXlsxWithSheet(`<worksheet ${NS}>${before}<sheetData>${head}<row r="2"><c r="A2"><v>7</v></c></row></sheetData></worksheet>`)));
+        assert.deepEqual(col(t, "n"), [7], before);
+    }
+});
+
+// the shared strings are counted where the parser reads their tags: a quoted "<!--" in a tag would
+// hide the items after it from the count
+test("a '<' in a tag of the shared strings is refused, so no item is hidden from the count", async () => {
+    const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+    const strings = rebuild(makeXlsx({ sheets: [{ name: "S", rows: [["A"], [1]] }], level: 0 }), {
+        "xl/worksheets/sheet1.xml": strToU8(`<worksheet ${NS}><sheetData><row r="1"><c r="A1" t="s"><v>11999</v></c></row></sheetData></worksheet>`),
+        "xl/sharedStrings.xml": strToU8(`<sst ${NS}><x a="<!--"/>${"<si><t>a</t></si>".repeat(12_000)}<x b="-->"/></sst>`)
+    });
+    await rejects(read(fileOf(strings), { limits: { importCells: 1_000, columns: 10 } }), "DAMAGED", (e) => /"<"/.test(e.message));
 });

@@ -10,6 +10,8 @@ All notable changes to `pivotkit-xlsx` are documented in this file. The format i
 
 ### Fixed
 
+- Workbooks with namespace-prefixed elements are checked like unprefixed ones
+  ([GHSA-c6vh-q36c-92r3](https://github.com/eizedev/pivotkit/security/advisories/GHSA-c6vh-q36c-92r3)).
 - A workbook of a few hundred kilobytes with millions of shared strings or cell formats made
   read-excel-file keep an entry for each, bounded only by `limits.unpackedBytes`: 100 MiB of
   one-letter shared strings took 2.4 s and about 570 MB, 100 MiB of `<xf/>` about 2.2 GB. Only the
