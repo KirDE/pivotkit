@@ -1,3 +1,4 @@
+import { MAX_DATE_MS } from "./date-limits.js";
 /*
  * The changes the first load makes to a view (placing, moving, sorting by a header, totals, the tips'
  * actions; those only the menus make are in menu-ops.js, loaded with them), as pure functions:
@@ -7,17 +8,80 @@
  *
  * Zones: "rows" and "cols" are the axes, "values" the value list, "filters" the fields that filter the
  * report without being on an axis. A field in the Filters zone is a filter entry; one that filters
- * nothing yet is { type: "exclude", items: [] }.
+ * nothing yet is emptyPick(): { type: "in", items: [], not: true, blanks: "include" }.
+ *
+ * Filters are pivotkit-core's view version 2: { field, type, ..., not, blanks }. The menus keep their
+ * own words for a negated rule ("is not", "does not contain", "does not begin with", "is not between"): ruleOp() reads a
+ * filter's operator in those words, opOf() writes one back as version 2's operator with `not`; the
+ * picks of a field (its `in` filter) are the values not ticked, read by selectedItems() and written by
+ * pickFilter().
  */
 
-import { LIMITS, aggregatorsFor, isFormat } from "pivotkit-core";
+import { LIMITS, aggregatorsFor, foldText, isFormat, swapAxes } from "pivotkit-core";
 import { CHART_TYPES } from "./chart-types.js";
 
 /** @typedef {"rows" | "cols" | "values" | "filters"} Zone */
 export const ZONES = Object.freeze(/** @type {Zone[]} */ (["filters", "cols", "rows", "values"]));
 
 export const clone = (view) => JSON.parse(JSON.stringify(view));
+
+/** The negated operators the menus offer, by the version-2 operator they negate. */
+const NEGATED = Object.freeze({ "=": "!=", between: "notBetween", equals: "notEquals", contains: "notContains", beginsWith: "notBeginsWith", endsWith: "notEndsWith" });
+/** The operators of the menus' rules: on an item's name, on an item or its total. */
+export const RULE_OPS = Object.freeze({
+    text: Object.freeze(["equals", "notEquals", "contains", "notContains", "beginsWith", "notBeginsWith", "endsWith", "notEndsWith"]),
+    compare: Object.freeze(["=", "!=", ">", ">=", "<", "<=", "between", "notBetween"])
+});
+
+/**
+ * A filter's operator as the menus name it: its own, or with `not` its negation ("!=", "notBetween",
+ * "notContains", "notBeginsWith"). A `not` the menus have no word for (a loaded view's "not greater
+ * than") is hiddenNot().
+ * @param {{ op?: string, not?: boolean }} f
+ */
+export const ruleOp = (f) => (f.not && typeof f.op === "string" && Object.hasOwn(NEGATED, f.op) ? NEGATED[f.op] : String(f.op));
+
+/** Whether a filter's `not` has no word in the menus (ruleOp gives the operator without it). */
+export const hiddenNot = (f) => Boolean(f.not) && !(typeof f.op === "string" && Object.hasOwn(NEGATED, f.op));
+
+/**
+ * A menu's operator as version 2 writes it: `{ op, not }` ("notBetween" is between with not).
+ * @param {string} menuOp
+ */
+export function opOf(menuOp) {
+    const positive = Object.keys(NEGATED).find((op) => NEGATED[op] === menuOp);
+    return positive ? { op: positive, not: true } : { op: menuOp, not: false };
+}
+
+/**
+ * The pick of a field: the values not ticked dropped (null is the blank), so values that appear in
+ * newer data are shown, as in Excel.
+ * @param {string} field
+ * @param {unknown[]} excluded
+ */
+export const pickFilter = (field, excluded) => ({ field, type: "in", items: excluded.filter((v) => v !== null), not: true, blanks: excluded.includes(null) ? "exclude" : "include" });
+
+/** The pick of a field that drops nothing: a field in the Filters zone without a filter holds it. */
+export const emptyPick = (field) => pickFilter(field, []);
+
+/** Whether a filter is a field's pick (an item list, ticked in the menus). */
+export const isPick = (f) => f.type === "in";
+
+/** Whether a pick drops nothing (emptyPick). */
+export const isEmptyPick = (f) => isPick(f) && f.not === true && f.items.length === 0 && f.blanks === "include";
 export const same = (a, b) => typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
+
+/**
+ * The items of a picker whose label holds what was typed: as text filters compare (pivotkit-core's
+ * foldText), so case and runs of whitespace, a no-break space among them, do not matter.
+ * @param {Array<{ label: string } & Record<string, any>>} items
+ * @param {string} query
+ */
+export function searchItems(items, query) {
+    const q = foldText(query);
+    return q ? items.filter((i) => foldText(i.label).includes(q)) : items;
+}
+
 const clamp = (i, n) => (Number.isInteger(i) ? Math.max(0, Math.min(i, n)) : n);
 
 /** The fields shown in the Filters zone: filtered fields that are on no axis, once each. */
@@ -144,7 +208,7 @@ export function addField(view, field, zone, options = {}) {
     } else if (zone === "filters") {
         dropFromAxes(next, field);
         if (!next.filters.some((f) => same(f.field, field))) {
-            next.filters.push({ field, type: "exclude", items: [] });
+            next.filters.push(emptyPick(field));
         }
     }
     resetCollapsed(next, view);
@@ -264,6 +328,9 @@ export function numberRange(encoded, field) {
     return min <= max ? { min, max } : null;
 }
 
+/** @type {WeakMap<import("pivotkit-core").Encoded, Map<string, {min: number, max: number} | null>>} */
+const dateSpans = new WeakMap();
+
 /**
  * The first and the last date of a date column (wall-clock ms, as the column holds them), or null
  * for another type or a column without dates: the data's span, which a relative range is measured
@@ -273,6 +340,15 @@ export function numberRange(encoded, field) {
  * @returns {{ min: number, max: number } | null}
  */
 export function dateSpan(encoded, field) {
+    let spans = dateSpans.get(encoded);
+    if (!spans) dateSpans.set(encoded, spans = new Map());
+    const key = field.toLowerCase();
+    if (spans.has(key)) {
+        const span = spans.get(key) ?? null;
+        spans.delete(key);
+        spans.set(key, span);
+        return span;
+    }
     const column = encoded.column(field);
     if (!column || column.type !== "date") {
         return null;
@@ -280,12 +356,18 @@ export function dateSpan(encoded, field) {
     let min = Infinity;
     let max = -Infinity;
     for (const v of column.dict) {
-        if (typeof v === "number") {
+        if (typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= MAX_DATE_MS) {
             min = Math.min(min, v);
             max = Math.max(max, v);
         }
     }
-    return min <= max ? { min, max } : null;
+    const span = min <= max ? { min, max } : null;
+    spans.set(key, span);
+    if (spans.size > LIMITS.cacheEntries) {
+        const oldest = spans.keys().next().value;
+        if (oldest !== undefined) spans.delete(oldest);
+    }
+    return span;
 }
 
 /**
@@ -329,7 +411,7 @@ export function groupField(view, field, unit, options = {}) {
         const inFilterZone = !axis && filterZoneFields(view).some((f) => same(f, field));
         next.filters = next.filters.filter((f) => !same(f.field, field));
         if (inFilterZone) {
-            next.filters.push({ field: name, type: "exclude", items: [] });
+            next.filters.push(emptyPick(name));
         }
     }
     next.sort = next.sort.map((s) => (same(s.field, field) ? { ...s, field: name } : s));
@@ -463,12 +545,13 @@ export function filtersOf(view, field, types) {
     return view.filters.filter((f) => same(f.field, field) && (!types || types.includes(f.type)));
 }
 
-/** The values an item filter lets through, from the field's values; all of them without a filter. */
+/** The values a field's picks let through, from the field's values (null is the blank); all of them without a pick. */
 export function selectedItems(view, field, all) {
     let selected = all;
-    for (const f of filtersOf(view, field, ["include", "exclude"])) {
+    for (const f of filtersOf(view, field, ["in"])) {
         const listed = new Set(f.items.map((v) => JSON.stringify(v)));
-        selected = selected.filter((v) => listed.has(JSON.stringify(v)) === (f.type === "include"));
+        const blank = f.blanks !== "exclude";
+        selected = selected.filter((v) => (v === null ? blank : f.blanks !== "only" && listed.has(JSON.stringify(v)) !== f.not));
     }
     return selected;
 }
@@ -491,7 +574,7 @@ export function sameRef(a, b) {
 
 /** True when a field has a filter that removes something. */
 export function isFiltered(view, field) {
-    return filtersOf(view, field).some((f) => f.type !== "exclude" || f.items.length > 0);
+    return filtersOf(view, field).some((f) => !isEmptyPick(f));
 }
 
 /** Collapses or expands one group of an axis. */
@@ -581,27 +664,8 @@ export function setChartDisplay(view, patch) {
     return next;
 }
 
-/**
- * Swaps the fields of Rows and Columns, with their collapsed groups; a calculation along an axis
- * ("running total along Rows") goes along the other one, so it still runs along the same fields.
- */
-export function swapAxes(view) {
-    const next = clone(view);
-    [next.rows, next.cols] = [next.cols, next.rows];
-    next.collapsed = { rows: next.collapsed.cols, cols: next.collapsed.rows };
-    for (const v of next.values) {
-        if (v.showAs && v.showAs.axis) {
-            v.showAs = { ...v.showAs, axis: v.showAs.axis === "rows" ? "cols" : "rows" };
-        }
-    }
-    const swapped = { percentOfRowTotal: "percentOfColumnTotal", percentOfColumnTotal: "percentOfRowTotal", percentOfParentRow: "percentOfParentColumn", percentOfParentColumn: "percentOfParentRow" };
-    for (const v of next.values) {
-        if (v.showAs && Object.hasOwn(swapped, v.showAs.type)) {
-            v.showAs = { ...v.showAs, type: swapped[v.showAs.type] };
-        }
-    }
-    return next;
-}
+/** Rows and Columns swapped (pivotkit-core's swapAxes): the chart's swap, the zones' Swap button. */
+export { swapAxes };
 
 /** True when nothing is placed: the UI shows its first steps. */
 export function isEmptyView(view) {

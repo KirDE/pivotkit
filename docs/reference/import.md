@@ -32,6 +32,16 @@ const data = encode(table);                            // { columns, types, data
 const asText = retype(table, { Zip: "string" });       // another type, without reading the file again
 ```
 
+In Node, a file on disk becomes a `File` with its bytes and its name (the name picks the reader):
+
+```js
+import { readFile as readBytes } from "node:fs/promises";
+import { readFile } from "pivotkit-core/import";
+import xlsxReader from "pivotkit-xlsx";
+
+const table = await readFile(new File([await readBytes("sales.xlsx")], "sales.xlsx"), { plugins: [xlsxReader] });
+```
+
 ## Formats
 
 | Format | Reader | Files | What it reads |
@@ -95,7 +105,7 @@ file loaded again finds its views and other data does not. The rule, in this ord
    "team (2)"); nested JSON as `a.b`. A type picked in the preview changes nothing.
 3. **The hash**: SHA-256 of the UTF-8 bytes of the name and the column names in their order, joined
    with U+0000. The browser's `crypto.subtle` computes it; a page without it (plain `http` on a host
-   other than `localhost`) uses pivotkit-react's own implementation, which gives the same digest.
+   other than `localhost`) uses pivotkit-core's own implementation, which gives the same digest.
 4. **`source.id`** is the shown name, `#` and the first 16 hex digits of the hash.
    **`source.name`** is the shown name: the name itself, or, above 120 characters, its first 117
    followed by `...` (116 when the 117th is the first half of a surrogate pair, so no character is
@@ -109,8 +119,16 @@ file loaded again finds its views and other data does not. The rule, in this ord
 The first row is SHA-256 of `tickets.csv\0Id\0Team\0Opened\0Hours\0Zip`
 (`e51bd4bc21e98ee818b3a8efcb49347b…`). Reordered, renamed or added columns, or another file name
 (`Tickets.csv` too: the name is compared as it is), make other data. The sheet of a workbook is not
-part of it: two sheets with the same columns share their views. The rows are not part of it either: a
-newer export of the same table keeps its views.
+part of it: the views saved, downloaded and linked from a workbook name their sheet next to the id,
+in `source.params.sheet` ([view file](view-file.md#the-sheet-of-a-workbook)), so two sheets with the
+same columns keep their views apart, and a view of another sheet of the same file reads that sheet
+again when it is opened ([saved views](../use/load-data.md#after-loading)). The rows are not part of it
+either: a newer export of the same table keeps its views.
+
+`sourceIdOf(name, columns)` of `pivotkit-core/import` computes it (a promise of the id; `shownName`
+and `SHOWN_MAX` give the shown name). The command line names the files it writes a view for the same
+way (`describe --suggest`, `render --save-view`), so the report opens such a view as a view of that
+file, on its sheet.
 
 ## Types
 
@@ -179,8 +197,9 @@ characters: show them as text, never as HTML.
 
 ## Limits
 
-Each file is checked against [`LIMITS`](../concepts/limits.md#limits) (the host's `limits` merged
-over them) before the step it guards, so a file that is too large costs no memory first:
+Each file is checked against [`LIMITS`](../concepts/limits.md#limits) (the `limits` option merged
+over them; in the report, [`importLimits`](react.md#prop-importlimits) over `limits`) before the
+step it guards, so a file that is too large costs no memory first:
 
 | Limit | Default | When |
 | --- | --- | --- |
@@ -190,12 +209,16 @@ over them) before the step it guards, so a file that is too large costs no memor
 | `importCells` | 10,000,000 | Rows x columns, counted as they are read. |
 | `textLength` | 32,767 | Characters of one value (Excel's cell limit); longer text is cut, with a note. |
 | `archiveEntries` | 10,000 | Parts of an archive (an `.xlsx` is a ZIP), from its directory, before anything is unpacked. |
-| `unpackedBytes` | 500 MiB | What the parts unpack to, from the directory, before anything is unpacked. |
+| `unpackedBytes` | 500 MiB | What the parts unpack to, from the directory, before anything is unpacked (a ZIP bomb). |
 
 A file over a limit throws `PivotkitError` `LIMIT_EXCEEDED` with `details` `{ limit, value, max,
 file }` and a message that names the file, the limit and what to change: `"tickets.csv" has more than
-1,000,000 rows (limits.rows): load a smaller extract of it, or a host can raise limits.rows`. The
-previous data stays.
+1,000,000 rows (limits.rows): load a smaller extract of it, or a host can raise this limit`. The
+previous data stays. pivotkit-react says it in the report's language from `details` (the limits
+`rows`, `columns`, `fileBytes`, `importCells`, `archiveEntries` and `unpackedBytes`;
+`labels.dataImport.overLimit` and `limitWhat`), after the file's name: "big.csv could not be
+loaded: it has more than 1,000 rows (limits.rows): …"; the key is the one of `limits` also where the
+host set `importLimits`. Any other error is the reader's message without the file's name in front.
 
 ## Errors
 
@@ -215,8 +238,7 @@ A file that cannot be read throws `PivotkitError` with the code `INVALID_FILE`, 
 | `ENCRYPTED` | A password-protected workbook. |
 | `MACROS` | A workbook with macros (`.xlsm`, `vbaProject.bin`). |
 | `XML_DECLARATION` | A part of a workbook declares a document type or entities, which a workbook never needs. |
-| `LIMIT` | A workbook's directory names more parts or more unpacked bytes than the limits allow (a ZIP bomb); `details.limit`. |
-| `DAMAGED` | A workbook is damaged, cut off, or a part unpacks to more than its directory states. |
+| `DAMAGED` | A workbook is damaged, cut off, a part unpacks to more than its directory states, or an XML part holds a text of more than 1 MiB or a tag of more than 256 KiB (an Excel cell holds at most 32,767 characters). |
 
 ## Progress, cancel and workers
 

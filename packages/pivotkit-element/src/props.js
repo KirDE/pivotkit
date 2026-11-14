@@ -27,6 +27,7 @@ export const ATTRIBUTES = Object.freeze([
     { attr: "label", prop: "label", kind: "string" },
     { attr: "drill-down", prop: "drillDown", kind: "on-unless-false" },
     { attr: "drill-down-limit", prop: "drillDownLimit", kind: "number" },
+    { attr: "export-data", prop: "exportData", kind: "flag" },
     { attr: "save-templates", prop: "saveTemplates", kind: "flag" },
     { attr: "template-store", prop: "templateStore", kind: "string" },
     { attr: "can-publish", prop: "canPublish", kind: "flag" },
@@ -49,7 +50,7 @@ export const ATTRIBUTES = Object.freeze([
 ]);
 
 /** Properties without an attribute: objects and arrays a host sets from script. */
-export const OBJECT_PROPS = Object.freeze(["data", "dataKey", "templates", "labels", "fieldDefaults", "limits", "dismissedTips", "chartOptions", "sources", "plugins"]);
+export const OBJECT_PROPS = Object.freeze(["data", "dataKey", "templates", "labels", "fieldDefaults", "limits", "importLimits", "dismissedTips", "chartOptions", "sources", "plugins"]);
 
 const THEMES = new Set(["auto", "light", "dark"]);
 

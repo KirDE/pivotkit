@@ -72,8 +72,8 @@ test.describe("a field's menu by keyboard", () => {
         await expect(menu.getByTestId("topic-state-group")).toHaveText("● Month");
         await openLevel(menu, "group");
         await expect(menu.getByTestId("level-title")).toHaveText("Created by month › Group");
-        await expect(menu.getByText("Along the time line")).toBeVisible();
-        await expect(menu.getByText("Same period every year")).toBeVisible();
+        await expect(menu.getByText("One item per period")).toBeVisible();
+        await expect(menu.getByText("Same period, years combined")).toBeVisible();
         // the unit in use takes the focus
         await expect(menu.getByTestId("group-yearMonth")).toBeFocused();
         // one column: the items one below the other, each hint on its right
@@ -81,10 +81,11 @@ test.describe("a field's menu by keyboard", () => {
         expect(a.x).toBe(b.x);
         expect(b.y).toBeGreaterThan(a.y);
         const hint = menu.getByTestId("group-quarter").locator(".pk-item-hint");
-        await expect(hint).toHaveText("Q1 of every year");
+        await expect(hint).toHaveText("Q1–Q4 · 2 years together");
         expect(parseFloat(await hint.evaluate((el) => getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(14);
         await menu.getByTestId("group-quarter").click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Created by quarter of year"]);
+        await expect(page.locator('[data-zone="rows"]')).toContainText("2025–2026 combined");
     });
 });
 
@@ -129,7 +130,7 @@ test.describe("screen readers", () => {
             - menuitemcheckbox "Grand total row" [checked]
             - menuitemcheckbox "Grand total column" [checked]
             - menuitemcheckbox "Row subtotals" [checked]
-            - menuitemcheckbox /Column subtotals/ [checked] [disabled]
+            - menuitemcheckbox /Column subtotals/ [disabled]
         `);
         // a switch applies at once and the menu stays open with the focus on it
         const row = page.getByTestId("total-rowSubtotals");
@@ -143,7 +144,8 @@ test.describe("screen readers", () => {
         await expect(page.getByTestId("total-colSubtotals")).toBeFocused();
         await expect(page.getByTestId("total-colSubtotals")).toHaveAccessibleDescription(/Needs two or more fields in Columns/);
         await page.keyboard.press("Enter");
-        await expect(page.getByTestId("total-colSubtotals")).toHaveAttribute("aria-checked", "true");
+        // it changes nothing and shows no tick, though the view keeps it (#156)
+        await expect(page.getByTestId("total-colSubtotals")).toHaveAttribute("aria-checked", "false");
         // its explanation is read with the item
         await expect(page.getByTestId("total-grandTotalRow")).toHaveAccessibleDescription("A last row with the total of every column.");
     });

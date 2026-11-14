@@ -32,8 +32,14 @@ const monthName = (month, locale) =>
     dateTimeFormat(locale, { month: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2000, month - 1, 1)));
 
 /** "Jan 2025" in English, "Jan. 2025" in German: the month of a year, as the locale writes it. */
-const yearMonthName = (v, locale) =>
-    dateTimeFormat(locale, { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(Math.floor(v / 100), (v % 100) - 1, 1)));
+const yearMonthName = (v, locale) => {
+    const year = Math.floor(v / 100);
+    const month = v - year * 100;
+    const start = new Date(0);
+    // Date.UTC remaps years 0–99; remainder is negative for BCE keys.
+    start.setUTCFullYear(year, month - 1, 1);
+    return dateTimeFormat(locale, { month: "short", year: "numeric", timeZone: "UTC", era: year <= 0 ? "short" : undefined }).format(start);
+};
 
 // 2024-01-01 was a Monday
 const weekdayName = (weekday, locale) =>
@@ -65,7 +71,7 @@ export const DERIVED = Object.freeze({
         source: "date",
         type: "number",
         value: (d) => d.getUTCFullYear() * 10 + Math.floor(d.getUTCMonth() / 3) + 1,
-        label: (v) => `Q${v % 10} ${Math.floor(v / 10)}`
+        label: (v) => `Q${v - Math.floor(v / 10) * 10} ${Math.floor(v / 10)}`
     },
     yearMonth: {
         source: "date",
@@ -98,9 +104,26 @@ const SPAN_UNITS = Object.freeze([
 ]);
 
 /**
- * The date grouping a date field gets when it is placed on an axis, from the span of its values:
- * up to 62 days by day, up to two years by month, up to six years by quarter, longer by year. Null
- * for a field that is not a date, has fewer than two different days, or is missing.
+ * The date grouping for a span of dates (milliseconds since 1970, either order): up to 62 days by
+ * day, up to two years by month, up to six years by quarter, longer by year. Null for a span shorter
+ * than a day, or when either end is no finite number. The one table behind suggestDateUnit and the
+ * suggestions of suggestLayout (which read a field's span from describeSource).
+ * @param {number} min
+ * @param {number} max
+ * @returns {"day" | "yearMonth" | "yearQuarter" | "year" | null}
+ */
+export function dateUnitFor(min, max) {
+    const days = Math.abs(max - min) / MS_PER_DAY;
+    if (!(days >= 1) || !Number.isFinite(days)) {
+        return null;
+    }
+    return /** @type {any} */ (SPAN_UNITS.find((s) => days <= s.maxDays).unit);
+}
+
+/**
+ * The date grouping a date field gets when it is placed on an axis, from the span of its values
+ * (dateUnitFor). Null for a field that is not a date, has fewer than two different days, or is
+ * missing.
  * @param {import("./encode.js").Encoded} encoded
  * @param {string} field
  * @returns {"day" | "yearMonth" | "yearQuarter" | "year" | null}
@@ -118,11 +141,7 @@ export function suggestDateUnit(encoded, field) {
             max = Math.max(max, v);
         }
     }
-    const days = (max - min) / MS_PER_DAY;
-    if (!(days >= 1)) {
-        return null;
-    }
-    return /** @type {any} */ (SPAN_UNITS.find((s) => days <= s.maxDays).unit);
+    return dateUnitFor(min, max);
 }
 
 /**

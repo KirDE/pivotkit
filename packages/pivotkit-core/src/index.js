@@ -12,6 +12,7 @@
  *   const file = toViewFile(view, { name, source: { id }, data }); // the view file; fromViewFile reads one
  *   // import { parseTemplates, templatesFromSchema } from "pivotkit-core/templates" (named views)
  *   // import { toXlsx, toCsv } from "pivotkit-core/export"
+ *   // import { decorateOption } from "pivotkit-core/chart" (a report's marks on the chart's option)
  *
  * Conventions: required inputs first (the subject leads), everything optional in one trailing options
  * object. Locale: view.formatting.locale, then options.locale, then "en-US". Errors: a bad view never
@@ -25,6 +26,10 @@
  * @typedef {import("./encode.js").SchemaField} SchemaField
  * @typedef {import("./encode.js").ColumnarData} ColumnarData
  * @typedef {import("./view.js").View} View
+ * @typedef {import("./suggest.js").Layout} Layout
+ * @typedef {import("./suggest.js").LayoutPick} LayoutPick
+ * @typedef {import("./suggest.js").LayoutNote} LayoutNote
+ * @typedef {import("./suggest.js").LayoutDescription} LayoutDescription
  * @typedef {import("./view.js").ValueSpec} ValueSpec
  * @typedef {import("./view.js").ValueRef} ValueRef
  * @typedef {import("./view.js").FilterSpec} FilterSpec
@@ -47,24 +52,32 @@
  * @typedef {import("./view-file.js").ViewFileRead} ViewFileRead
  * @typedef {import("./view-file.js").ViewFileCompatibility} ViewFileCompatibility
  * @typedef {import("./view-file.js").ViewFileSource} ViewFileSource
+ * @typedef {import("./text-match.js").TextMatch} TextMatch
+ * @typedef {import("./link.js").ViewLinkRead} ViewLinkRead
  */
 
 export { encode } from "./encode.js";
-export { normalize, validate, migrate, emptyView, viewFields, VIEW_VERSION, VIEW_ISSUE_CODES } from "./view.js";
+export { normalize, validate, migrate, emptyView, viewFields, VIEW_VERSION, VIEW_ISSUE_CODES, VIEW_ISSUES } from "./view.js";
 export { computePivot } from "./pivot.js";
 export { findNode, cellRows } from "./tree.js";
 export { fieldItems } from "./items.js";
-export { suggestDateUnit } from "./derive.js";
+export { dateUnitFor, suggestDateUnit } from "./derive.js";
 export { relativeDateRange } from "./filters.js";
+export { foldText, MATCH_DEFAULTS } from "./text-match.js";
+export { closest, HINT_LIMITS } from "./hints.js";
 export { toGrid } from "./grid.js";
 export { autoChartType, toSeries, toEChartsOption } from "./chart.js";
+export { chartPlan, swapAxes, chartThemeFrom, CHART_COLORS } from "./chart-plan.js";
 export { createHistory } from "./history.js";
 export { formatter, isFormat } from "./format.js";
 export { aggregatorsFor } from "./aggregators.js";
 export { CATALOG } from "./catalog.js";
-export { DEFAULT_LABELS, fieldLabel } from "./labels.js";
+export { describeSource, describeView, DESCRIBE_LIMITS } from "./describe.js";
+export { DEFAULT_LABELS, GROUPING_NAMES, REPORT_LABELS, fieldLabel, groupingName, reportLabels } from "./labels.js";
 export { fieldDefaultsFromSchema } from "./schema.js";
 export { DEFAULT_THEME } from "./defaults.js";
-export { LIMITS } from "./limits.js";
+export { ISSUE_CAP, LIMITS, OUTSIDE_LIMITS, outsideLimits } from "./limits.js";
 export { PivotkitError } from "./errors.js";
-export { toViewFile, fromViewFile, viewFileText, viewFileName, viewFileFields, VIEW_FILE_FORMAT, VIEW_FILE_VERSION, VIEW_FILE_SCHEMA, VIEW_FILE_LIMITS } from "./view-file.js";
+export { linkFragment, linkParam, withLinkFragment } from "./link-fragment.js";
+export { suggestLayout, viewFromLayout, isIdentifierName, SUGGEST_LIMITS, LAYOUT_LIMITS } from "./suggest.js";
+export { toViewFile, fromViewFile, viewFileText, viewFileName, viewFileFields, renameFields, VIEW_FILE_FORMAT, VIEW_FILE_VERSION, VIEW_FILE_SCHEMA, VIEW_FILE_LIMITS } from "./view-file.js";
