@@ -17,6 +17,12 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
   under a base href such as `/reports/`. Without it the worker is next to the element's own code
   ([#194](https://github.com/eizedev/pivotkit/issues/194)).
 
+### Changed
+
+- The first load grows by about 0.3 KiB gzip with pivotkit-react's dates before year 1 and after
+  9999 in the filter's texts (173.9 KiB measured on a Mac with `importWorkerUrl`, CI about 0.6
+  more), within its budget of 175 ([#349](https://github.com/eizedev/pivotkit/issues/349)).
+
 ### Fixed
 
 - The element bundles pivotkit-react's fix of a saved view that reads another sheet of the loaded

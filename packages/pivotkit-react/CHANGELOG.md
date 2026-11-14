@@ -50,6 +50,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 - The dashed rule between the parts of a menu's group (the chart's Display: Value labels, Legend,
   Title) uses `--pk-rule`, 3:1 against the menu as the rule between groups, instead of `--pk-border`
   (about 1.3:1) ([#205](https://github.com/eizedev/pivotkit/issues/205)).
+- The filter's texts and Years combined read and write years before 0 and after 9999 (signed ISO
+  days), compare such days in time order, and write years before 1 AD as the table does ("2 BC");
+  Years combined keeps the first and last year a `Date` holds as far as it holds
+  ([#349](https://github.com/eizedev/pivotkit/issues/349)).
 
 ## [0.6.0] - 2026-11-14
 
