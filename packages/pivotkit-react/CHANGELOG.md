@@ -63,6 +63,8 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
   days), compare such days in time order, and write years before 1 AD as the table does ("2 BC");
   Years combined keeps the first and last year a `Date` holds as far as it holds
   ([#349](https://github.com/eizedev/pivotkit/issues/349)).
+- The import UI takes a plugin's table as pivotkit-core's `readFile` completes it; its own
+  `completeTable` is gone ([#130](https://github.com/eizedev/pivotkit/issues/130)).
 
 ## [0.6.0] - 2026-11-14
 

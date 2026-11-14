@@ -22,6 +22,9 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 - The first load grows by about 0.3 KiB gzip with pivotkit-react's dates before year 1 and after
   9999 in the filter's texts (173.9 KiB measured on a Mac with `importWorkerUrl`, CI about 0.6
   more), within its budget of 175 ([#349](https://github.com/eizedev/pivotkit/issues/349)).
+- The import group grows by about 0.4 KiB gzip with pivotkit-core's check of a plugin's table
+  (21.5 KiB measured on a Mac with the other changes of this release, CI about 0.2 more); its budget
+  to 22 ([#130](https://github.com/eizedev/pivotkit/issues/130)).
 
 ### Fixed
 
