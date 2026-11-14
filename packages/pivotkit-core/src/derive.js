@@ -16,24 +16,16 @@ import { MS_PER_DAY, decimalsOf, pad } from "./util.js";
 export const MIN_BIN_SIZE = 1e-9;
 
 /** ISO 8601 week and its year for wall-clock milliseconds. */
-const utcDay = (year, month, day) => { const date = new Date(0); date.setUTCFullYear(year, month, day); return date.getTime(); };
-const remainder = (value, base) => ((value % base) + base) % base;
-
 export function isoWeek(ms) {
-    // Gregorian weekdays repeat every 400 years. Work in a representable cycle so
-    // January 4 and a neighbouring Thursday exist even at either Date boundary.
-    const original = new Date(ms);
-    const sourceYear = original.getUTCFullYear();
-    const shift = sourceYear <= -271821 || sourceYear >= 275760 ? 2000 + remainder(sourceYear, 400) - sourceYear : 0;
-    const d = shift ? new Date(utcDay(sourceYear + shift, original.getUTCMonth(), original.getUTCDate())) : original;
+    const d = new Date(ms);
     const day = (d.getUTCDay() + 6) % 7; // Monday = 0
-    const thursday = utcDay(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day + 3);
+    const thursday = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day + 3);
     const year = new Date(thursday).getUTCFullYear();
     // week 1 is the week with the year's first Thursday (the one that contains 4 January)
-    const jan4 = new Date(utcDay(year, 0, 4));
+    const jan4 = new Date(Date.UTC(year, 0, 4));
     const firstThursday = jan4.getTime() + (3 - ((jan4.getUTCDay() + 6) % 7)) * MS_PER_DAY;
     const week = 1 + Math.round((thursday - firstThursday) / (7 * MS_PER_DAY));
-    return { year: year - shift, week };
+    return { year, week };
 }
 
 const monthName = (month, locale) =>
@@ -42,10 +34,11 @@ const monthName = (month, locale) =>
 /** "Jan 2025" in English, "Jan. 2025" in German: the month of a year, as the locale writes it. */
 const yearMonthName = (v, locale) => {
     const year = Math.floor(v / 100);
-    const start = utcDay(year, remainder(v, 100) - 1, 1);
-    // The first representable month starts on April 20, not April 1.
-    const date = new Date(Number.isNaN(start) && year < 0 ? -8.64e15 : start);
-    return dateTimeFormat(locale, { month: "short", year: "numeric", timeZone: "UTC", ...(year <= 0 ? {era: "short"} : {}) }).format(date);
+    const month = v - year * 100;
+    const start = new Date(0);
+    // Date.UTC remaps years 0–99; remainder is negative for BCE keys.
+    start.setUTCFullYear(year, month - 1, 1);
+    return dateTimeFormat(locale, { month: "short", year: "numeric", timeZone: "UTC", era: year <= 0 ? "short" : undefined }).format(start);
 };
 
 // 2024-01-01 was a Monday
@@ -78,7 +71,7 @@ export const DERIVED = Object.freeze({
         source: "date",
         type: "number",
         value: (d) => d.getUTCFullYear() * 10 + Math.floor(d.getUTCMonth() / 3) + 1,
-        label: (v) => `Q${remainder(v, 10)} ${Math.floor(v / 10)}`
+        label: (v) => `Q${v - Math.floor(v / 10) * 10} ${Math.floor(v / 10)}`
     },
     yearMonth: {
         source: "date",
@@ -93,7 +86,7 @@ export const DERIVED = Object.freeze({
             const w = isoWeek(d.getTime());
             return w.year * 100 + w.week;
         },
-        label: (v) => `${Math.floor(v / 100)}-W${pad(remainder(v, 100))}`
+        label: (v) => `${Math.floor(v / 100)}-W${pad(v % 100)}`
     },
     // number bins: value and label depend on size and origin, see binning()
     bin: { source: "number", type: "number" }
@@ -111,9 +104,26 @@ const SPAN_UNITS = Object.freeze([
 ]);
 
 /**
- * The date grouping a date field gets when it is placed on an axis, from the span of its values:
- * up to 62 days by day, up to two years by month, up to six years by quarter, longer by year. Null
- * for a field that is not a date, has fewer than two different days, or is missing.
+ * The date grouping for a span of dates (milliseconds since 1970, either order): up to 62 days by
+ * day, up to two years by month, up to six years by quarter, longer by year. Null for a span shorter
+ * than a day, or when either end is no finite number. The one table behind suggestDateUnit and the
+ * suggestions of suggestLayout (which read a field's span from describeSource).
+ * @param {number} min
+ * @param {number} max
+ * @returns {"day" | "yearMonth" | "yearQuarter" | "year" | null}
+ */
+export function dateUnitFor(min, max) {
+    const days = Math.abs(max - min) / MS_PER_DAY;
+    if (!(days >= 1) || !Number.isFinite(days)) {
+        return null;
+    }
+    return /** @type {any} */ (SPAN_UNITS.find((s) => days <= s.maxDays).unit);
+}
+
+/**
+ * The date grouping a date field gets when it is placed on an axis, from the span of its values
+ * (dateUnitFor). Null for a field that is not a date, has fewer than two different days, or is
+ * missing.
  * @param {import("./encode.js").Encoded} encoded
  * @param {string} field
  * @returns {"day" | "yearMonth" | "yearQuarter" | "year" | null}
@@ -131,11 +141,7 @@ export function suggestDateUnit(encoded, field) {
             max = Math.max(max, v);
         }
     }
-    const days = (max - min) / MS_PER_DAY;
-    if (!(days >= 1)) {
-        return null;
-    }
-    return /** @type {any} */ (SPAN_UNITS.find((s) => days <= s.maxDays).unit);
+    return dateUnitFor(min, max);
 }
 
 /**

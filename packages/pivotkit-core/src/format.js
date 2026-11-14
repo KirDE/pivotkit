@@ -219,12 +219,7 @@ export function formatterFor(spec, locale) {
             const df = dateTimeFormat(locale, DATE_STYLES[f.name]);
             return (v) => {
                 const n = toNumber(v);
-                if (!Number.isFinite(n)) return plain(v);
-                const date = new Date(n);
-                if (f.name !== "time" && date.getUTCFullYear() <= 0) {
-                    return dateTimeFormat(locale, {year: "numeric", month: "short", day: "numeric", era: "short", timeZone: "UTC", ...(f.name === "datetime" ? {hour: "numeric", minute: "2-digit"} : {})}).format(date);
-                }
-                return df.format(date);
+                return Number.isFinite(n) ? df.format(new Date(n)) : plain(v);
             };
         }
         case "number":

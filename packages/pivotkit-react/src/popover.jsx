@@ -119,8 +119,10 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
     // whether this popover goes into the top layer: read when it mounts, the same in every render of
     // it. A description shown on hover (passive) stays in the report's layer: in CI's WebKit (Linux)
     // the pointer moving from its "i" onto it in the top layer closed it, so its link could not be
-    // reached; a click shows it as a dialog, which goes into the top layer
-    const [top] = useState(() => !passive && hasTopLayer());
+    // reached; a click shows it as a dialog, which goes into the top layer. A description of an "i"
+    // inside a menu that is in the top layer goes there too, shown after the menu, so it is drawn
+    // above it, not behind it (#213)
+    const [top] = useState(() => hasTopLayer() && (!passive || Boolean(anchor.current?.closest?.(".pk-popover")?.hasAttribute("popover"))));
     // the attribute as a spread: React 18's types do not know it yet (React passes it on as it is)
     const inTopLayer = /** @type {any} */ (top ? { popover: "manual" } : {});
     // into the top layer before it is placed: there it is fixed to the window, whatever its ancestors
@@ -158,9 +160,26 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
         if (ro && el) {
             ro.observe(el);
         }
+        // the anchor can move or change size while the popover is open (the zones' open animation, a
+        // transition of the host page, a move at once with reduced motion): its box is compared once a
+        // frame and the popover placed again when it changed. A sheet does not follow an anchor.
+        let frame = 0;
+        let rect = anchor.current?.getBoundingClientRect();
+        const follow = () => {
+            const next = anchor.current?.getBoundingClientRect();
+            if (next && rect && (next.x !== rect.x || next.y !== rect.y || next.width !== rect.width || next.height !== rect.height)) {
+                place();
+            }
+            rect = next;
+            frame = requestAnimationFrame(follow);
+        };
+        if (!sheet) {
+            frame = requestAnimationFrame(follow);
+        }
         window.addEventListener("resize", place);
         window.addEventListener("scroll", place, true);
         return () => {
+            cancelAnimationFrame(frame);
             ro?.disconnect();
             window.removeEventListener("resize", place);
             window.removeEventListener("scroll", place, true);
@@ -179,17 +198,20 @@ export function Popover({ open, anchor, onClose, label, role = "dialog", align =
             return undefined;
         }
         const el = ref.current;
-        // the first option that is shown (a folded section's are hidden)
-        const shown = (/** @type {Element} */ o) => o.getClientRects().length > 0;
-        // never an "i" first: its explanation would open over the menu; a menu whose entries are all off
-        // (the Export menu of an empty report) takes the focus itself
-        const first =
-            el?.querySelector("[data-autofocus]") ??
-            [...(el?.querySelectorAll(OPTION) ?? [])].find(shown) ??
-            [...(el?.querySelectorAll(FOCUSABLE) ?? [])].find((o) => shown(o) && !o.classList.contains("pk-info")) ??
-            (el?.querySelector("[data-pk-option]") ? el : null);
-        // after the placement, so the page does not scroll to a popover still at 0,0
-        const t = requestAnimationFrame(() => /** @type {HTMLElement | null} */ (first)?.focus({ preventScroll: true }));
+        // After placement, which can be a late frame on a busy page. Resolve the target then:
+        // a control the person already reached inside keeps its focus (#139).
+        const t = requestAnimationFrame(() => {
+            if (!el?.isConnected) return;
+            const now = activeIn(el);
+            if (now && now !== el && (el.contains(now) || now.closest(".pk-popover")?.getAttribute("data-pk-parent") === elId)) return;
+            const shown = (/** @type {Element} */ o) => o.getClientRects().length > 0;
+            const first =
+                el.querySelector("[data-autofocus]") ??
+                [...el.querySelectorAll(OPTION)].find(shown) ??
+                [...el.querySelectorAll(FOCUSABLE)].find((o) => shown(o) && !o.classList.contains("pk-info")) ??
+                (el.querySelector("[data-pk-option]") ? el : null);
+            /** @type {HTMLElement | null} */ (first)?.focus({ preventScroll: true });
+        });
         // a press inside a popover opened from this one (a rule's item picker) is inside
         const onDown = (e) => {
             if (!eventWithin(e, [el, anchor.current]) && !e.composedPath().some((n) => n instanceof Element && n !== el && n.getAttribute("data-pk-parent") === elId)) {

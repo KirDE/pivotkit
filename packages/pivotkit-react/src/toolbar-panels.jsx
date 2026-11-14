@@ -540,23 +540,50 @@ function viewActions(ctx, labels) {
         return run(
             () =>
                 target.kind === "publish"
-                    ? ctx.onPublish(name, ctx.view)
+                    ? ctx.onPublish(name, ctx.view, { source: ctx.source })
                     : target.kind === "host"
-                      ? ctx.onSave(name, ctx.view, { scope: "user" })
-                      : write({ name, view: ctx.view, sourceId: ctx.sourceId, replace: target.at }),
+                      ? ctx.onSave(name, ctx.view, { scope: "user", source: ctx.source })
+                      : write({ name, view: ctx.view, sourceId: ctx.sourceId, sheet: ctx.sheet, replace: target.at }),
             labels.toastSaved,
             labels.toastSaveFailed,
             labels.toastSaveRejected,
             name
-        ).then((ok) => ok && ctx.onSaved({ name, scope: target.kind === "publish" ? "shared" : "user", store: target.kind === "store", storeSource: target.kind === "store" ? target.storeSource : null }, key));
+        ).then((ok) => ok && ctx.onSaved({ name, scope: target.kind === "publish" ? "shared" : "user", store: target.kind === "store", storeSource: target.kind === "store" ? target.storeSource : null, storeSheet: target.kind === "store" ? storedSheet(target, ctx) : null }, key));
     };
     return {
         // Save and Save as: where to is view-save.js's (the host's onSaveTemplate wins over the store)
         save,
         remove: ctx.onDelete || ctx.store ? (t) => run(() => (t.at !== undefined ? write({ remove: t.at, removeName: t.name }) : ctx.onDelete(t.name, { scope: t.scope })), labels.toastDeleted, labels.toastDeleteFailed, labels.toastDeleteRejected, t.name) : null,
-        publish: ctx.onPublish ? (t) => run(() => ctx.onPublish(t.name, ctx.normalized(t.view)), labels.toastPublished, labels.toastPublishFailed, labels.toastPublishRejected, t.name) : null
+        // a view of the menu is published with the data it was made for, which is the data shown unless
+        // the entry names other data (a view of the browser store kept for another file or sheet)
+        publish: ctx.onPublish ? (t) => run(() => ctx.onPublish(t.name, ctx.normalized(t.view), { source: entrySource(t, ctx.source) }), labels.toastPublished, labels.toastPublishFailed, labels.toastPublishRejected, t.name) : null
     };
 }
+
+/**
+ * The data an entry of the Views menu was made for, as the host's callbacks get a source: the browser
+ * store's by its id and sheet, a host's view file's source id and sheet (named as the data shown when
+ * it is that data); the data shown when the entry names none (a host's view, which the host lists for
+ * the data shown; a view of the browser store saved without data), as onSaveTemplate gets it.
+ * @param {{ sourceId?: string, sheetOf?: string, fileSource?: string, sheet?: string }} t
+ * @param {{ id: string, name?: string, params?: Record<string, string> } | null | undefined} shown
+ */
+const entrySource = (t, shown) => {
+    const id = t.sourceId ?? t.sheetOf ?? t.fileSource;
+    if (!id) {
+        return shown ?? null;
+    }
+    return { id, ...(shown?.id === id && shown.name ? { name: shown.name } : {}), ...(t.sheet ? { params: { sheet: t.sheet } } : {}) };
+};
+
+/**
+ * The sheet a save into the browser store leaves its view with: the sheet shown when the view is
+ * stored for the data shown (a new one, or one saved before views named their sheet, which takes it:
+ * view-store.js), else the sheet it had.
+ * @param {{ storeSource: string | null, storeSheet?: string | null }} target
+ * @param {{ sourceId?: string, sheet?: string | null }} ctx
+ */
+const storedSheet = (target, ctx) => (target.storeSource && target.storeSource === ctx.sourceId ? (ctx.sheet ?? null) : (target.storeSheet ?? null));
 
 /**
  * The Views menu in levels: what persists, as one list to scan in groups - "This view" (Save the
@@ -575,7 +602,7 @@ function viewActions(ctx, labels) {
  */
 export function ViewsPanel({ templates, labels, onLoad, actions, close, share }) {
     const { save, remove: onDelete, publish: onPublish } = viewActions(actions, labels);
-    const can = { host: Boolean(actions.onSave), store: Boolean(actions.store), publish: Boolean(onPublish), sourceId: actions.sourceId };
+    const can = { host: Boolean(actions.onSave), store: Boolean(actions.store), publish: Boolean(onPublish), sourceId: actions.sourceId, sheet: actions.sheet ?? null };
     const target = saveTarget(actions.loaded, templates, can, actions.empty);
     // "My views" says where they are kept while the browser store takes the saves
     const store = actions.store && !actions.onSave;
@@ -602,6 +629,9 @@ export function ViewsPanel({ templates, labels, onLoad, actions, close, share })
             id,
             testId: `saved-view-${t.name}`,
             text: t.name,
+            // while a workbook's sheet is shown, a view made on a sheet says which (two views of a
+            // name can be kept, one per sheet; one of another sheet reads that sheet when opened)
+            hint: t.sheet && actions.sheet ? fill(labels.viewSheet, { sheet: t.sheet }) : undefined,
             icon: "bookmark",
             current: isLoadedEntry(t, actions.loaded),
             closes: true,
@@ -745,13 +775,15 @@ export function ExportOption({ icon, text, info, onSelect, testId, disabled, rea
 }
 
 /**
- * The Export menu: the table as a file (Excel, CSV), the chart as an image, and the table on the
- * clipboard (as shown, or its data as JSON). The export module loads when the menu opens, so a copy
- * happens right in the click.
- * An empty report (no field placed) has nothing to export: every entry is off, and says so.
- * @param {{ labels: import("./labels.js").UiLabels, onExport: (kind: string) => void, chartReady: boolean, display: string, empty?: boolean, prepare: () => void, close: () => void }} props
+ * The Export menu: the table as a file (Excel, CSV), the chart as an image (PNG, SVG), an HTML report,
+ * printing (or saving as PDF from the print dialog), the table on the clipboard (as shown, or its data
+ * as JSON), and last, when the host turns it on (exportData), the source data: every row as it is,
+ * CSV or JSON, apart from the table's exports so the two are not taken for each other. The export module loads when the menu opens, so a copy happens right in
+ * the click. An empty report (no field placed) has no table to export: those entries are off, and say
+ * so; the source data is there all the same. The chart's images are off while the table is shown.
+ * @param {{ labels: import("./labels.js").UiLabels, onExport: (kind: string) => void, chartReady: boolean, display: string, empty?: boolean, dataExport?: boolean, prepare: () => void, close: () => void }} props
  */
-export function ExportPanel({ labels, onExport, chartReady, display, empty = false, prepare, close }) {
+export function ExportPanel({ labels, onExport, chartReady, display, empty = false, dataExport = false, prepare, close }) {
     useEffect(() => {
         prepare();
     }, [prepare]);
@@ -766,12 +798,23 @@ export function ExportPanel({ labels, onExport, chartReady, display, empty = fal
             <Section title={labels.exportDownload}>
                 <ExportOption icon="file" text={labels.exportXlsx} info="exportXlsx" onSelect={run("xlsx")} {...off} testId="export-xlsx" />
                 <ExportOption icon="file" text={labels.exportCsv} info="exportCsv" onSelect={run("csv")} {...off} testId="export-csv" />
+                <ExportOption icon="file" text={labels.exportHtml} info="exportHtml" onSelect={run("html")} {...off} testId="export-html" />
                 <ExportOption icon="image" text={labels.exportPng} disabled={empty || !chartReady} reason={empty ? off.reason : display !== "chart" ? labels.exportPngNeedsChart : undefined} onSelect={run("png")} testId="export-png" />
+                <ExportOption icon="image" text={labels.exportSvg} disabled={empty || display !== "chart"} reason={empty ? off.reason : display !== "chart" ? labels.exportPngNeedsChart : undefined} onSelect={run("svg")} testId="export-svg" />
+            </Section>
+            <Section title={labels.exportPrintGroup}>
+                <ExportOption icon="print" text={labels.exportPrint} info="exportPrint" onSelect={run("print")} {...off} testId="export-print" />
             </Section>
             <Section title={labels.exportCopy}>
                 <ExportOption icon="copy" text={labels.copyTable} info="copyTable" onSelect={run("copy-table")} {...off} testId="export-copy-table" />
                 <ExportOption icon="copy" text={labels.copyDataJson} info="copyDataJson" onSelect={run("copy-json")} {...off} testId="export-copy-json" />
             </Section>
+            {dataExport ? (
+                <Section title={labels.exportDataGroup}>
+                    <ExportOption icon="file" text={labels.exportDataCsv} info="exportDataCsv" onSelect={run("data-csv")} testId="export-data-csv" />
+                    <ExportOption icon="file" text={labels.exportDataJson} info="exportDataJson" onSelect={run("data-json")} testId="export-data-json" />
+                </Section>
+            ) : null}
         </>
     );
 }

@@ -1,57 +1,23 @@
-// Loading data in the browser, the parts without a DOM: the source id of a file (import-source.js),
-// the data steps of the undo history (data-history.js, import-steps.js), the file kept over a new
-// mount (data-keep.js), the texts of the import UI
+// Loading data in the browser, the parts without a DOM: the data steps of the undo history (data-history.js, import-steps.js), the file kept over a new
+// mount (data-keep.js), the limits a file is read with (import-limits.js), the texts of the import UI
 // and of the readers' notes (import-labels.js), and how a file is read: in the host's worker for the
 // built-in readers, on the page for a plugin or when the worker does not start (import-run.js).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { PivotkitError, encode } from "pivotkit-core";
-import { IMPORT_NOTE_CODES, readFile } from "pivotkit-core/import";
+import { IMPORT_NOTE_CODES, limitError, readFile } from "pivotkit-core/import";
 import { DATA_STEPS, NO_DATA_STEPS, hostHistory, pushData, redoData, undoData, withoutFuture } from "../src/data-history.js";
-import { IMPORT_TEXTS, de, en, importLabels, noteText } from "../src/import-labels.js";
+import { IMPORT_TEXTS, de, en, errorText, importLabels, noteText } from "../src/import-labels.js";
 import { acceptOf, completeTable, formatsOf, readImport, sheetsOf } from "../src/import-run.js";
-import { SHOWN_MAX, sha256Bytes, sha256Hex, shownName, sourceIdOf } from "../src/import-source.js";
 import { backToOriginal, loadData, moveData, restoreData } from "../src/import-steps.js";
 import { KEPT_REPORTS, forgetData, hostIdentity, keepData, keptData } from "../src/data-keep.js";
+import { importLimitsOf } from "../src/import-limits.js";
 import { resolveLabels } from "../src/labels.js";
 import { createState } from "../src/view-history.js";
 
 const keys = (o, p = "") => Object.entries(o).flatMap(([k, v]) => (v && typeof v === "object" && !Array.isArray(v) ? keys(v, `${p}${k}.`) : [`${p}${k}`])).sort();
 const csv = (text, name = "tickets.csv") => new File([text], name, { type: "text/csv" });
 const TICKETS = "Id;Team;Opened;Hours\n1;Network;10.11.2026;1,5\n2;Server;11.11.2026;2,25\n3;Network;12.11.2026;4\n";
-
-test("SHA-256 of its own gives Node's digest, at every padding boundary and for text outside ASCII", async () => {
-    for (const text of ["", "abc", "a".repeat(55), "a".repeat(56), "a".repeat(63), "a".repeat(64), "a".repeat(119), "Größe\u0000Straße 😀", "x".repeat(5000)]) {
-        const want = createHash("sha256").update(text, "utf8").digest("hex");
-        assert.equal(Buffer.from(sha256Bytes(new TextEncoder().encode(text))).toString("hex"), want, `${text.length} characters`);
-        assert.equal(await sha256Hex(text, { subtle: null }), want, "without crypto.subtle");
-        assert.equal(await sha256Hex(text), want, "with crypto.subtle");
-    }
-});
-
-test("a file's source id is its name and 16 hex digits of the SHA-256 of its name and columns, as the PowerShell Universal demo builds it", async () => {
-    const columns = ["Id", "Team", "Opened"];
-    const want = `tickets.csv#${createHash("sha256").update(["tickets.csv", ...columns].join("\u0000"), "utf8").digest("hex").slice(0, 16)}`;
-    assert.equal(await sourceIdOf("tickets.csv", columns), want);
-    assert.equal(await sourceIdOf("tickets.csv", columns, { subtle: null }), want);
-    // other or reordered columns are other data; the same file again is the same
-    assert.notEqual(await sourceIdOf("tickets.csv", ["Team", "Id", "Opened"]), want);
-    assert.equal(await sourceIdOf("tickets.csv", [...columns]), want);
-    // the worked example of docs/reference/import.md ("How a loaded file is named")
-    assert.equal(await sourceIdOf("tickets.csv", ["Id", "Team", "Opened", "Hours", "Zip"]), "tickets.csv#e51bd4bc21e98ee8");
-    assert.equal(await sourceIdOf("tickets.csv", ["Team", "Id", "Opened", "Hours", "Zip"], { subtle: null }), "tickets.csv#d11fe64346f1d906");
-    // a long name is cut for people, the hash still covers all of it
-    const long = `${"a".repeat(130)}.csv`;
-    const other = `${"a".repeat(130)}x.csv`;
-    const id = await sourceIdOf(long, columns);
-    assert.equal(id.split("#")[0], `${"a".repeat(SHOWN_MAX - 3)}...`);
-    assert.notEqual(id, await sourceIdOf(other, columns));
-    // never cut inside a character outside the BMP
-    const emoji = `${"a".repeat(SHOWN_MAX - 4)}😀😀😀`;
-    assert.equal(shownName(emoji), `${"a".repeat(SHOWN_MAX - 4)}...`);
-    assert.equal(shownName("short.csv"), "short.csv");
-});
 
 test("data steps: a load goes back to the data before it with its view history, Redo forward again, a new step drops the redo", () => {
     const h = (present) => ({ ...createState("s", "start", present), past: [{ view: "older", note: "x", tag: null }] });
@@ -174,6 +140,48 @@ test("a note in the report's language: counts in their plural form and the local
     assert.equal(noteText({ code: "PLUGIN_OWN", params: {}, message: "Read 3 records." }, en, where), "Read 3 records.");
     // a param from the file is text: markup stays as it is
     assert.equal(noteText({ code: "JSON_PROPERTY", params: { property: "<b>rows</b>" } }, en, where), "The rows were read from “<b>rows</b>”.");
+});
+
+test("a file's error in the report's language without the file's name the note names already: a limit with its key and that a host can raise it (issue #185)", async () => {
+    const en_ = { lang: "en", locale: "en-US" };
+    const de_ = { lang: "de", locale: "de-DE" };
+    // a limit of the built-in readers, as they throw it: in the report's language, the key in brackets
+    const rows = await readFile(csv("A\n" + "1\n".repeat(1001), "big.csv"), { limits: { rows: 1000 } }).catch((e) => e);
+    assert.equal(rows.code, "LIMIT_EXCEEDED");
+    assert.equal(errorText(rows, "big.csv", en, en_), "it has more than 1,000 rows (limits.rows): load a smaller extract of it, or a host can raise this limit");
+    assert.equal(errorText(rows, "big.csv", de, de_), "sie hat mehr als 1.000 Zeilen (limits.rows): eine kleinere Auswahl daraus laden, oder eine Anwendung kann diese Grenze anheben");
+    const cells = await readFile(csv("A,B\n1,2\n3,4\n5,6\n", "cells.csv"), { limits: { importCells: 5 } }).catch((e) => e);
+    assert.equal(errorText(cells, "cells.csv", en, en_), "it has more than 5 values (rows x columns) (limits.importCells): load a smaller extract of it, or a host can raise this limit");
+    const bytes = new PivotkitError("LIMIT_EXCEEDED", "\"huge.csv\" has more than 10 bytes (limits.fileBytes): …", { limit: "fileBytes", value: 11, max: 10, file: "huge.csv" });
+    assert.equal(errorText(bytes, "huge.csv", de, de_), "sie hat mehr als 10 Bytes (limits.fileBytes): eine kleinere Auswahl daraus laden, oder eine Anwendung kann diese Grenze anheben");
+    // a limit this version has no word for (a plugin's own): the reader's message without the name in front
+    const own = new PivotkitError("LIMIT_EXCEEDED", "\"big.log\" has more than 9 records (limits.records): load less", { limit: "records", value: 10, max: 9, file: "big.log" });
+    assert.equal(errorText(own, "big.log", en, en_), "has more than 9 records (limits.records): load less");
+    // a file the reader refuses: its message without the name and colon in front, in either form
+    const invalid = await readFile(new File(["{"], "bad.json", { type: "application/json" })).catch((e) => e);
+    assert.equal(invalid.code, "INVALID_FILE");
+    assert.ok(invalid.message.startsWith('"bad.json": '), invalid.message);
+    assert.equal(errorText(invalid, "bad.json", en, en_), invalid.message.slice('"bad.json": '.length));
+    // a name the message does not start with is left alone, as is a plain text
+    assert.equal(errorText(new Error('"other.csv" has a problem'), "big.csv", en, en_), '"other.csv" has a problem');
+    assert.equal(errorText("no reader", "big.csv", en, en_), "no reader");
+});
+
+test("a workbook over the archive limits of pivotkit-xlsx is said in the report's language too (issue #239)", () => {
+    const en_ = { lang: "en", locale: "en-US" };
+    const de_ = { lang: "de", locale: "de-DE" };
+    // as pivotkit-xlsx's zip.js throws them (LIMIT_EXCEEDED since #236)
+    const parts = limitError("archiveEntries", 9, 5, "book.xlsx", "parts in its ZIP directory");
+    assert.equal(errorText(parts, "book.xlsx", en, en_), "it has more than 5 parts in its ZIP directory (limits.archiveEntries): load a smaller extract of it, or a host can raise this limit");
+    assert.equal(errorText(parts, "book.xlsx", de, de_), "sie hat mehr als 5 Teile in ihrem ZIP-Verzeichnis (limits.archiveEntries): eine kleinere Auswahl daraus laden, oder eine Anwendung kann diese Grenze anheben");
+    const bomb = limitError("unpackedBytes", 209_715_200, 104_857_600, "book.xlsx", "bytes unpacked, by its ZIP directory; a ZIP bomb or a workbook too large to load");
+    assert.equal(errorText(bomb, "book.xlsx", en, en_), "it has more than 104,857,600 bytes unpacked (limits.unpackedBytes): load a smaller extract of it, or a host can raise this limit");
+    assert.equal(errorText(bomb, "book.xlsx", de, de_), "sie hat mehr als 104.857.600 entpackte Bytes (limits.unpackedBytes): eine kleinere Auswahl daraus laden, oder eine Anwendung kann diese Grenze anheben");
+    // every limit a reader of pivotkit-core or pivotkit-xlsx stops a file at has words in both languages
+    const stops = ["fileBytes", "rows", "columns", "importCells", "archiveEntries", "unpackedBytes"];
+    for (const texts of [en, de]) {
+        assert.deepEqual(Object.keys(texts.limitWhat).sort(), [...stops].sort());
+    }
 });
 
 test("a host's texts for loading data (labels.dataImport) win over the defaults, of the right kind only", () => {
@@ -421,4 +429,28 @@ test("a file's data shown again by a report mounted again tells the host (onData
     assert.deepEqual(told, [{ cause: "restore", source: imported.source, file: imported.file, sheet: null, rows: 2, columns: [{ name: "Id", type: "number" }, { name: "Team", type: "string" }], notes: [] }]);
     restoreData(/** @type {any} */ ({ ...ctx, imported: null }));
     assert.equal(told.length, 1);
+});
+
+test("a loaded file's limits are the host's importLimits over its limits, key by key", async () => {
+    assert.equal(importLimitsOf(undefined, undefined), undefined);
+    assert.equal(importLimitsOf(null, null), undefined);
+    assert.deepEqual(importLimitsOf({ rows: 50, cells: 9 }, undefined), { rows: 50, cells: 9 }, "without importLimits: the host's limits");
+    assert.deepEqual(importLimitsOf(undefined, { rows: 2 }), { rows: 2 });
+    // the import key wins, the host's other keys stay
+    assert.deepEqual(importLimitsOf({ rows: 5_000, cells: 9 }, { rows: 2, fileBytes: 1_000 }), { rows: 2, cells: 9, fileBytes: 1_000 });
+    // a value that is no object reaches readFile as it is, which refuses it with its own message
+    await assert.rejects(readImport(csv(TICKETS), { limits: importLimitsOf({ rows: 5 }, /** @type {any} */ ("small")) }), (e) => e instanceof PivotkitError && e.code === "INVALID_OPTION");
+    // an array is no limits object either: not spread into the host's limits, refused by readFile
+    for (const value of [[], [2]]) {
+        assert.deepEqual(importLimitsOf({ rows: 5 }, value), value);
+        await assert.rejects(readImport(csv(TICKETS), { limits: importLimitsOf({ rows: 5 }, /** @type {any} */ (value)) }), (e) => e instanceof PivotkitError && e.code === "INVALID_OPTION", JSON.stringify(value));
+    }
+    // the host's data of five rows fits its own limits; a file of three rows is over the import limit of 2,
+    // read on the page and in the worker alike, and the error names the limit
+    const limits = { rows: 5_000 };
+    const fileLimits = importLimitsOf(limits, { rows: 2 });
+    assert.equal(encode([{}, {}, {}, {}, {}], { limits }).length, 5);
+    for (const worker of [undefined, fakeWorker()]) {
+        await assert.rejects(readImport(csv(TICKETS), { worker, limits: fileLimits }), (e) => e instanceof PivotkitError && e.code === "LIMIT_EXCEEDED" && e.details.limit === "rows" && e.details.max === 2);
+    }
 });

@@ -7,7 +7,7 @@
  * load with them; a host's entries for them are kept here and win there.
  */
 
-import { DEFAULT_LABELS, PivotkitError } from "pivotkit-core";
+import { GROUPING_NAMES, PivotkitError, REPORT_LABELS } from "pivotkit-core";
 
 /**
  * Every text of the UI: these and the menus' (menu-labels.js, loaded with the menus; a type import
@@ -23,28 +23,7 @@ export const en = {
     lang: "en",
     /** the name of the report's region landmark */
     report: "Pivot report",
-    core: /** @type {import("pivotkit-core").Labels} */ ({
-        ...DEFAULT_LABELS,
-        // a yes/no field in the table, the filter list and the drill-down: words, not true/false
-        true: "Yes",
-        false: "No",
-        aggregators: {
-            count: "Count",
-            countUnique: "Distinct count",
-            listUnique: "List of distinct values",
-            sum: "Sum",
-            average: "Average",
-            median: "Median",
-            min: "Minimum",
-            max: "Maximum",
-            stdev: "Standard deviation (sample)",
-            stdevp: "Standard deviation (population)",
-            var: "Variance (sample)",
-            varp: "Variance (population)",
-            first: "First value",
-            last: "Last value"
-        }
-    }),
+    core: /** @type {import("pivotkit-core").Labels} */ (REPORT_LABELS.en),
     zones: { rows: "Rows", cols: "Columns", values: "Values", filters: "Filters" },
     zoneHints: {
         rows: "Drop fields here to group rows",
@@ -131,19 +110,14 @@ export const en = {
         quarter: "Quarter of year", month: "Month of year", week: "Week of year", weekday: "Weekday", hour: "Hour of day",
         bin: "Ranges"
     },
-    // a date grouping's name: "Date by month"; the unit as it reads inside it (unitInName)
-    derivedName: "{field} by {unit}",
-    unitInName: {
-        year: "year", yearQuarter: "quarter", yearMonth: "month", yearWeek: "week", day: "day",
-        quarter: "quarter of year", month: "month of year", week: "week of year", weekday: "weekday", hour: "hour of day",
-        bin: "ranges"
-    },
-    binsName: "{field} (by {size})",
+    // a date grouping's name: "Date by month"; the unit as it reads inside it (unitInName); pivotkit-core's GROUPING_NAMES
+    derivedName: GROUPING_NAMES.en.name,
+    unitInName: { ...GROUPING_NAMES.en.units },
+    binsName: GROUPING_NAMES.en.bins,
     top: "Top",
     topBadge: "Top {count}",
     bottomBadge: "Bottom {count}",
     by: "by {value}",
-    filter: "Filter…",
     filtered: "Filtered",
     filterSummary: "{shown} of {total}",
     /** a text the user typed or a name, quoted as the language quotes: a text condition, field names */
@@ -244,6 +218,7 @@ export const en = {
             percentRunningTotal: "100% is the total along the axis: the running total ends at 100%.",
             percentDifferenceFromPrevious: "The previous item is 100%: each value says how much it grew or shrank from it."
         },
+        colSubtotals: "A Total column adds up the columns of the group before it; it is not an item of its own.",
         chartOverTime: "{field} is a date: lines show how the values change over time.",
         pieSlices: "A pie works for up to about {max} parts; this one has {count}. Bars compare them more easily.",
         pieColumns: "A pie draws one slice per row and adds up the columns ({fields}). Bars show the columns side by side.",
@@ -265,7 +240,8 @@ export const en = {
         groupDate: "Group by {unit}",
         saveTemplate: "Save view",
         bars: "Switch to Bars",
-        auto: "Show as lines over time"
+        auto: "Show as lines over time",
+        colSubtotalsOff: "Hide column subtotals"
     },
     dismissTip: "Dismiss tip",
     tipsTitle: "Tips",
@@ -325,12 +301,39 @@ export const en = {
     // the measure a sort or a filter goes by when the view shows no value: the rows counted
     countOfRows: "Count of rows",
     // a rule on the names of a field's items, on its chip and in its menu: "contains “an”"
-    labelOps: { equals: "is", notEquals: "is not", contains: "contains", notContains: "does not contain", beginsWith: "begins with", endsWith: "ends with" },
+    labelOps: { equals: "is", notEquals: "is not", contains: "contains", notContains: "does not contain", beginsWith: "begins with", notBeginsWith: "does not begin with", endsWith: "ends with", notEndsWith: "does not end with" },
+    // a rule inverted (a loaded view's "not" the menus have no word for): "not (begins with “a”)"
+    notRule: "not ({rule})",
     // a relative date range and a date compared, in short (the chip and the Filter level): "last 5 years (2022–2026)", "from 2022"
     relative: { year: "this year", years: "last {count} years", month: "last {count} month", months: "last {count} months", day: "last {count} day", days: "last {count} days" },
     withRange: "{text} ({range})",
     // the range counted back from the data's latest record, and the data's share of a range
     relativeTo: "{text} to {end}",
+    // a relative range the menus do not write yet (a loaded view's): its words, and the dates it keeps
+    relativeMore: {
+        last: {
+            hour: { one: "last {count} hour", other: "last {count} hours" }, day: { one: "last {count} day", other: "last {count} days" },
+            week: { one: "last {count} week", other: "last {count} weeks" }, month: { one: "last {count} month", other: "last {count} months" },
+            quarter: { one: "last {count} quarter", other: "last {count} quarters" }, year: { one: "last {count} year", other: "last {count} years" }
+        },
+        next: {
+            hour: { one: "next {count} hour", other: "next {count} hours" }, day: { one: "next {count} day", other: "next {count} days" },
+            week: { one: "next {count} week", other: "next {count} weeks" }, month: { one: "next {count} month", other: "next {count} months" },
+            quarter: { one: "next {count} quarter", other: "next {count} quarters" }, year: { one: "next {count} year", other: "next {count} years" }
+        },
+        before: {
+            hour: { one: "before the last {count} hour", other: "before the last {count} hours" }, day: { one: "before the last {count} day", other: "before the last {count} days" },
+            week: { one: "before the last {count} week", other: "before the last {count} weeks" }, month: { one: "before the last {count} month", other: "before the last {count} months" },
+            quarter: { one: "before the last {count} quarter", other: "before the last {count} quarters" }, year: { one: "before the last {count} year", other: "before the last {count} years" }
+        },
+        this: { hour: "this hour", day: "today", week: "this week", month: "this month", quarter: "this quarter", year: "this year" },
+        rolling: "{text}, rolling",
+        withoutCurrent: "{text}, current period excluded",
+        fromLatest: "{text}, counted from the latest record",
+        fromFirst: "{text}, counted from the first record",
+        fromDate: "{text}, counted from {date}",
+        until: "until {to}"
+    },
     withShare: "{text} ({range}; {missing})",
     noData: { one: "{range} has no data", other: "{range} have no data" },
     compareShort: { "=": "{value}", "!=": "not {value}", ">": "after {value}", ">=": "from {value}", "<": "before {value}", "<=": "up to {value}", between: "{from} to {to}", notBetween: "not {from} to {to}" },
@@ -351,47 +354,7 @@ export const en = {
 export const de = {
     lang: "de",
     report: "Pivot-Bericht",
-    core: /** @type {import("pivotkit-core").Labels} */ ({
-        ...DEFAULT_LABELS,
-        blank: "(Leer)",
-        total: "{label} gesamt",
-        grandTotal: "Gesamtergebnis",
-        values: "Werte",
-        valueName: "{agg} von {field}",
-        countRows: "Anzahl",
-        true: "Ja",
-        false: "Nein",
-        aggregators: {
-            count: "Anzahl",
-            countUnique: "Anzahl verschiedener Werte",
-            listUnique: "Liste verschiedener Werte",
-            sum: "Summe",
-            average: "Durchschnitt",
-            median: "Median",
-            min: "Minimum",
-            max: "Maximum",
-            stdev: "Standardabweichung (Stichprobe)",
-            stdevp: "Standardabweichung (Grundgesamtheit)",
-            var: "Varianz (Stichprobe)",
-            varp: "Varianz (Grundgesamtheit)",
-            first: "Erster Wert",
-            last: "Letzter Wert"
-        },
-        showAsName: "{showAs} von {value}",
-        showAs: {
-            percentOfGrandTotal: "% des Gesamtergebnisses",
-            percentOfRowTotal: "% der Zeilensumme",
-            percentOfColumnTotal: "% der Spaltensumme",
-            percentOfParentRow: "% der übergeordneten Zeile",
-            percentOfParentColumn: "% der übergeordneten Spalte",
-            differenceFromPrevious: "Differenz zum vorherigen",
-            percentDifferenceFromPrevious: "% Differenz zum vorherigen",
-            runningTotal: "Laufende Summe",
-            percentRunningTotal: "% laufende Summe",
-            rankAscending: "Rang (kleinster zuerst)",
-            rankDescending: "Rang (größter zuerst)"
-        }
-    }),
+    core: /** @type {import("pivotkit-core").Labels} */ (REPORT_LABELS.de),
     zones: { rows: "Zeilen", cols: "Spalten", values: "Werte", filters: "Filter" },
     zoneHints: {
         rows: "Felder hierher ziehen, um Zeilen zu gruppieren",
@@ -467,18 +430,13 @@ export const de = {
         quarter: "Quartal im Jahr", month: "Monat im Jahr", week: "Woche im Jahr", weekday: "Wochentag", hour: "Stunde am Tag",
         bin: "Bereiche"
     },
-    derivedName: "{field} nach {unit}",
-    unitInName: {
-        year: "Jahr", yearQuarter: "Quartal", yearMonth: "Monat", yearWeek: "Woche", day: "Tag",
-        quarter: "Quartal im Jahr", month: "Monat im Jahr", week: "Woche im Jahr", weekday: "Wochentag", hour: "Stunde am Tag",
-        bin: "Bereichen"
-    },
-    binsName: "{field} (je {size})",
+    derivedName: GROUPING_NAMES.de.name,
+    unitInName: { ...GROUPING_NAMES.de.units },
+    binsName: GROUPING_NAMES.de.bins,
     top: "Oberste",
     topBadge: "Top {count}",
     bottomBadge: "Letzte {count}",
     by: "nach {value}",
-    filter: "Filtern…",
     filtered: "Gefiltert",
     filterSummary: "{shown} von {total}",
     quote: "„{text}“",
@@ -568,6 +526,7 @@ export const de = {
         chartOverTime: "{field} ist ein Datum: Linien zeigen, wie sich die Werte über die Zeit ändern.",
         pieSlices: "Ein Kreis eignet sich für bis zu etwa {max} Teile; dieser hat {count}. Balken lassen sich leichter vergleichen.",
         pieColumns: "Ein Kreis zeigt ein Stück je Zeile und addiert dafür die Spalten ({fields}). Balken zeigen die Spalten nebeneinander.",
+        colSubtotals: "Eine Spalte „… gesamt“ addiert die Spalten der Gruppe davor; sie ist kein eigener Eintrag.",
         chartDates: "Die Daten liegen in Spalten, so wird jedes Datum eine eigene Linie. Zeilen und Spalten tauschen, um die Daten entlang der Achse zu zeichnen.",
         chartTrend: "Linien verbinden Punkte zu einem Verlauf. Für Kategorien wie Länder passen Balken besser.",
         chartSeries: "{count} Reihen sind schwer zu unterscheiden. Zeilen und Spalten tauschen oder Spalten auf weniger Einträge filtern.",
@@ -586,7 +545,8 @@ export const de = {
         groupDate: "Nach {unit} gruppieren",
         saveTemplate: "Ansicht speichern",
         bars: "Zu Balken wechseln",
-        auto: "Als Linien über die Zeit zeigen"
+        auto: "Als Linien über die Zeit zeigen",
+        colSubtotalsOff: "Teilergebnisse der Spalten ausblenden"
     },
     dismissTip: "Tipp ausblenden",
     tipsTitle: "Tipps",
@@ -635,10 +595,35 @@ export const de = {
     },
     valueConditions: { compare: "{value} {op} {number}", between: "{value} zwischen {from} und {to}", notBetween: "{value} nicht zwischen {from} und {to}" },
     countOfRows: "Anzahl der Zeilen",
-    labelOps: { equals: "ist", notEquals: "ist nicht", contains: "enthält", notContains: "enthält nicht", beginsWith: "beginnt mit", endsWith: "endet mit" },
+    labelOps: { equals: "ist", notEquals: "ist nicht", contains: "enthält", notContains: "enthält nicht", beginsWith: "beginnt mit", notBeginsWith: "beginnt nicht mit", endsWith: "endet mit", notEndsWith: "endet nicht mit" },
+    notRule: "nicht ({rule})",
     relative: { year: "dieses Jahr", years: "letzte {count} Jahre", month: "letzter {count} Monat", months: "letzte {count} Monate", day: "letzter {count} Tag", days: "letzte {count} Tage" },
     withRange: "{text} ({range})",
     relativeTo: "{text} bis {end}",
+    relativeMore: {
+        last: {
+            hour: { one: "letzte {count} Stunde", other: "letzte {count} Stunden" }, day: { one: "letzter {count} Tag", other: "letzte {count} Tage" },
+            week: { one: "letzte {count} Woche", other: "letzte {count} Wochen" }, month: { one: "letzter {count} Monat", other: "letzte {count} Monate" },
+            quarter: { one: "letztes {count} Quartal", other: "letzte {count} Quartale" }, year: { one: "letztes {count} Jahr", other: "letzte {count} Jahre" }
+        },
+        next: {
+            hour: { one: "nächste {count} Stunde", other: "nächste {count} Stunden" }, day: { one: "nächster {count} Tag", other: "nächste {count} Tage" },
+            week: { one: "nächste {count} Woche", other: "nächste {count} Wochen" }, month: { one: "nächster {count} Monat", other: "nächste {count} Monate" },
+            quarter: { one: "nächstes {count} Quartal", other: "nächste {count} Quartale" }, year: { one: "nächstes {count} Jahr", other: "nächste {count} Jahre" }
+        },
+        before: {
+            hour: { one: "vor der letzten {count} Stunde", other: "vor den letzten {count} Stunden" }, day: { one: "vor dem letzten {count} Tag", other: "vor den letzten {count} Tagen" },
+            week: { one: "vor der letzten {count} Woche", other: "vor den letzten {count} Wochen" }, month: { one: "vor dem letzten {count} Monat", other: "vor den letzten {count} Monaten" },
+            quarter: { one: "vor dem letzten {count} Quartal", other: "vor den letzten {count} Quartalen" }, year: { one: "vor dem letzten {count} Jahr", other: "vor den letzten {count} Jahren" }
+        },
+        this: { hour: "diese Stunde", day: "heute", week: "diese Woche", month: "dieser Monat", quarter: "dieses Quartal", year: "dieses Jahr" },
+        rolling: "{text}, gleitend",
+        withoutCurrent: "{text}, ohne den laufenden Zeitraum",
+        fromLatest: "{text}, gezählt ab dem letzten Datensatz",
+        fromFirst: "{text}, gezählt ab dem ersten Datensatz",
+        fromDate: "{text}, gezählt ab {date}",
+        until: "bis {to}"
+    },
     withShare: "{text} ({range}; {missing})",
     noData: { one: "{range} hat keine Daten", other: "{range} haben keine Daten" },
     compareShort: { "=": "{value}", "!=": "nicht {value}", ">": "nach {value}", ">=": "ab {value}", "<": "vor {value}", "<=": "bis {value}", between: "{from} bis {to}", notBetween: "nicht {from} bis {to}" },

@@ -10,41 +10,11 @@
 import { test as plain } from "@playwright/test";
 import { chips, drag, expect, tableRows, test, toolbar } from "./fixtures.js";
 import { makeXlsx } from "../../packages/pivotkit-xlsx/test/make-xlsx.js";
+import { dataMenu, dropFiles, fieldNames, fileOf, pickThroughMenu } from "./import-helpers.js";
 
 const TICKETS = "Id;Team;Opened;Hours;Zip\n1001;Network;10.11.2026;1,5;01067\n1002;Server;11.11.2026;2,25;10115\n1003;Network;12.11.2026;4;01067\n\n1004;Client;13.11.2026;0,5;20095\n";
 const CSV = "text/csv";
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-/** A file for the page: its name, type and content (text, or bytes as base64). */
-const fileOf = (name, type, content) => ({ name, type, ...(typeof content === "string" ? { text: content } : { base64: Buffer.from(content).toString("base64") }) });
-
-/**
- * Drags files over the report and drops them, as a browser does with files from the desktop:
- * dragenter, dragover (the overlay shows), then drop, all with one DataTransfer holding the files.
- * `drop: false` drags them out again instead.
- */
-async function dropFiles(page, target, files, { drop = true, expectOverlay = true } = {}) {
-    const dt = await page.evaluateHandle((list) => {
-        const t = new DataTransfer();
-        for (const f of list) {
-            const content = f.text ?? Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0));
-            t.items.add(new File([content], f.name, { type: f.type }));
-        }
-        return t;
-    }, files);
-    const box = await target.boundingBox();
-    const at = { clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 };
-    await target.dispatchEvent("dragenter", { dataTransfer: dt, ...at });
-    await target.dispatchEvent("dragover", { dataTransfer: dt, ...at });
-    if (expectOverlay) {
-        await expect(page.getByTestId("drop-overlay")).toBeVisible();
-    }
-    await target.dispatchEvent(drop ? "drop" : "dragleave", { dataTransfer: dt, ...at });
-    await expect(page.getByTestId("drop-overlay")).toHaveCount(0);
-}
-
-/** The field names of the field list. */
-const fieldNames = (scope) => scope.locator(".pk-field-list [data-field]").evaluateAll((els) => els.map((e) => e.getAttribute("data-field")));
 
 /** The preview table: its header cells (column names) and body rows as texts. */
 async function preview(dialog) {
@@ -118,26 +88,6 @@ test("a CSV dropped onto the report: the overlay, the preview with types and not
     await page.getByTestId("redo").click();
     await expect.poll(() => chips(page, "rows")).toEqual(["Team"]);
 });
-
-/** Opens the Data menu: its own button, or its entry in "More". */
-async function dataMenu(scope) {
-    const own = scope.getByTestId("data");
-    if (await own.count()) {
-        await own.click();
-    } else {
-        await scope.getByTestId("more").click();
-        await scope.getByTestId("more-data").click();
-    }
-    await expect(scope.getByTestId("data-menu")).toBeVisible();
-}
-
-/** Picks a file through the Data menu's "Load data…" and the browser's file chooser. */
-async function pickThroughMenu(page, scope, file) {
-    await dataMenu(scope);
-    const chooser = page.waitForEvent("filechooser");
-    await scope.getByTestId("load-file").click();
-    await (await chooser).setFiles({ name: file.name, mimeType: file.type, buffer: file.base64 ? Buffer.from(file.base64, "base64") : Buffer.from(file.text) });
-}
 
 test("the Data menu by keyboard: where the data comes from, Load data… opens the file chooser, Escape cancels the preview and the focus goes back", async ({ page }) => {
     await page.goto("?data=sales&import");
@@ -274,15 +224,28 @@ test("a file that cannot be read says why with the reader's message; the data st
     await expect(page.getByTestId("import-dialog")).toHaveCount(0);
 });
 
-test("a large file shows its progress and Cancel stops it; the data stays", async ({ page }) => {
+test("a paused file read shows its progress and Cancel stops it; the data stays", async ({ page }) => {
+    // Hold the real worker at the file read instead of racing a 30 MB parse against the
+    // assertions. Progress stays observable regardless of the machine's speed or load (#140).
+    await page.route("**/import-worker.js", async (route) => {
+        const response = await route.fetch();
+        await route.fulfill({ response, body: `
+            const originalRead = Blob.prototype.arrayBuffer;
+            Blob.prototype.arrayBuffer = function () {
+                if (this instanceof File && this.name === "big.csv") return new Promise(() => {});
+                return originalRead.call(this);
+            };
+            ${await response.text()}
+        ` });
+    });
     await page.goto("?data=sales&import");
     await expect(page.getByTestId("pivot-table")).toBeVisible();
     const before = await fieldNames(page);
-    // about 30 MB of CSV: long enough to show the progress and to cancel it
+    // A small real CSV held at arrayBuffer by the worker route above.
     const dt = await page.evaluateHandle(() => {
         const line = "2026-11-10T08:30:00;Network;Open;1234.5;some longer description text of a ticket\n";
         const t = new DataTransfer();
-        t.items.add(new File(["When;Team;State;Hours;Text\n", line.repeat(400_000)], "big.csv", { type: "text/csv" }));
+        t.items.add(new File(["When;Team;State;Hours;Text\n", line.repeat(4)], "big.csv", { type: "text/csv" }));
         return t;
     });
     const table = page.getByTestId("pivot-table");
@@ -451,6 +414,65 @@ test("a host that renders again all the time (React from an import map, no worke
     await pickThroughMenu(page, page, fileOf("assets.xlsx", XLSX, makeXlsx({ sheets: [{ name: "Assets", rows: [["Host"], ["a"]] }] })));
     await page.getByTestId("import-apply").click();
     await expect.poll(() => fieldNames(page)).toEqual(["Host"]);
+});
+
+test("importLimits (issue #169): the host's 2,000 rows stay while a file over the import limits is refused with the limit named; a key it leaves out is the host's limits; the file's views have the import limits", async ({ page }) => {
+    // the host: importLimits { rows: 1000, cells: 100 } and limits { columns: 4 }, new objects on every render
+    await page.goto("pages/host.html?import&importlimits");
+    await expect(page.getByTestId("pivot-table")).toBeVisible();
+    await expect.poll(() => page.getByTestId("host-renders").textContent().then(Number)).toBeGreaterThan(2);
+    // the host's data is above the import rows and its grid above the import cells, and both show: no
+    // limit note, its fields, the report's 2,000 rows behind it
+    await expect(page.getByTestId("pivot-table").locator("td, th")).not.toHaveCount(0);
+    expect(await page.getByTestId("pivot-table").locator("td, th").count()).toBeGreaterThan(100);
+    await expect(page.getByText(/more than the limit of/)).toHaveCount(0);
+    const hostFields = await fieldNames(page);
+    expect(hostFields).toContain("Region");
+    await dataMenu(page);
+    await expect(page.getByTestId("data-size")).toHaveText(/^2,000 rows × /);
+    await page.keyboard.press("Escape");
+    const csvOf = (n) => `Team,Hours\n${Array.from({ length: n }, (_, i) => `T${i % 7},${i}`).join("\n")}\n`;
+    // a file of 1,001 rows, dropped: refused, the limit named, the host's data stays
+    await dropFiles(page, page.getByTestId("pivot-table"), [{ name: "big.csv", type: CSV, text: csvOf(1001) }]);
+    await expect(page.locator(".pk-toast.pk-error")).toHaveText("big.csv could not be loaded: it has more than 1,000 rows (limits.rows): load a smaller extract of it, or a host can raise this limit");
+    await expect(page.getByTestId("import-dialog")).toHaveCount(0);
+    await expect.poll(() => fieldNames(page)).toEqual(hostFields);
+    await page.locator(".pk-toast-x").first().click();
+    // five columns: over the host's limits.columns, which importLimits leaves to it
+    await pickThroughMenu(page, page, { name: "tickets.csv", type: CSV, text: TICKETS });
+    await expect(page.locator(".pk-toast.pk-error")).toHaveText("tickets.csv could not be loaded: it has more than 4 columns (limits.columns): load a smaller extract of it, or a host can raise this limit");
+    await expect.poll(() => fieldNames(page)).toEqual(hostFields);
+    await page.locator(".pk-toast-x").first().click();
+    // 1,000 rows fit: the preview, Load data, the file's data shown
+    await pickThroughMenu(page, page, { name: "fits.csv", type: CSV, text: csvOf(1000) });
+    await expect(page.getByTestId("import-meta")).toHaveText(/1,000 rows · 2 columns/);
+    await page.getByTestId("import-apply").click();
+    await expect.poll(() => fieldNames(page)).toEqual(["Team", "Hours"]);
+    expect((await page.evaluate(() => window.__loads)).map((l) => [l.cause, l.rows])).toEqual([["load", 1000]]);
+    // the file's views have the import limits too: 1,000 hours in Rows make a grid over its 100 cells
+    await expect(page.getByText(/more than the limit of/)).toHaveCount(0);
+    await drag(page, page.locator('.pk-field[data-field="Hours"]'), page.locator('[data-zone="rows"]'));
+    await expect(page.getByText(/^This layout makes [\d,]+ cells, more than the limit of 100\./)).toBeVisible();
+    // Back to original data: the host's 2,000 rows again, under its own limits
+    await dataMenu(page);
+    await page.getByTestId("back-to-original").click();
+    await expect.poll(() => fieldNames(page)).toEqual(hostFields);
+    await expect(page.getByText(/more than the limit of/)).toHaveCount(0);
+});
+
+strict("the element's importLimits property: the page's 1,000 rows show, a file over the import rows is refused in its worker", async ({ page }) => {
+    const report = await elementPage(page, "?importlimits");
+    await expect(report.getByTestId("pivot-table")).toBeVisible();
+    await expect.poll(() => fieldNames(report).then((f) => f.length)).toBeGreaterThan(3);
+    const before = await fieldNames(report);
+    await expect(report.getByText(/more than the limit of/)).toHaveCount(0);
+    const worker = page.waitForEvent("worker", { timeout: 10_000 });
+    await dropFiles(page, report.getByTestId("pivot-table"), [{ name: "tickets.csv", type: CSV, text: TICKETS }]);
+    expect((await worker).url()).toMatch(/\/import-worker\.js$/);
+    await expect(report.locator(".pk-toast.pk-error")).toHaveText("tickets.csv could not be loaded: it has more than 3 rows (limits.rows): load a smaller extract of it, or a host can raise this limit");
+    await expect(report.getByTestId("import-dialog")).toHaveCount(0);
+    await expect.poll(() => fieldNames(report)).toEqual(before);
+    expect(await page.evaluate(() => window.__loads)).toEqual([]);
 });
 
 test("review fixes: Undo's keys in the preview leave the report behind it alone; no warning about the host's view after a load; a new file closes old error notes", async ({ page }) => {

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { strFromU8, unzipSync } from "fflate";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { readSheet } from "read-excel-file/node";
-import { computePivot, encode, toGrid } from "../src/index.js";
-import { toCsv, toCsvBytes, toXlsx } from "../src/export.js";
+import { DEFAULT_THEME, computePivot, encode, toGrid } from "../src/index.js";
+import { toCsv, toCsvBytes, toJson, toTsv, toXlsx } from "../src/export.js";
 import { csvSeparator, neutralizeFormula } from "../src/csv.js";
 import { SALES } from "./fixtures.js";
 
@@ -44,7 +44,8 @@ test("merged headers, frozen panes, column widths and native conditional formatt
     assert.equal([].concat(sheet.cols.col).length, grid.columnCount);
     const cf = sheet.conditionalFormatting;
     assert.equal(cf.cfRule.type, "colorScale");
-    assert.equal([].concat(cf.cfRule.colorScale.color).length, 3);
+    // no colours of its own: the default theme's, low to high
+    assert.deepEqual([].concat(cf.cfRule.colorScale.color).map((c) => c.rgb), DEFAULT_THEME.colorScale.map((c) => `FF${c.slice(1).toUpperCase()}`));
 });
 
 test("values are typed numbers and dates; totals are bold; a reader gets them back", async () => {
@@ -78,6 +79,10 @@ test("text never becomes a formula in XLSX and control characters are removed", 
     assert.ok(!sheet.includes("<f>"));
     assert.ok(sheet.includes("ab&lt;&amp;&gt;"));
     assert.ok(sheet.includes('t="inlineStr"'));
+    // bidi controls are left out, as in the CSV: no name reads as another one in Excel
+    const bidi = unzipSync(toXlsx(toGrid(computePivot(encode([{ k: "invoice\u202Etxt.exe", v: 1 }]), { rows: ["k"], values: [{ field: "v", agg: "sum" }] })), { sheetName: "Q\u20664" }));
+    assert.ok(!/[\u202a-\u202e\u2066-\u2069]/.test(strFromU8(bidi["xl/worksheets/sheet1.xml"]) + strFromU8(bidi["xl/workbook.xml"])));
+    assert.ok(strFromU8(bidi["xl/worksheets/sheet1.xml"]).includes("invoicetxt.exe"));
 });
 
 test("CSV: separator by locale, quoting, repeated row labels", () => {
@@ -104,6 +109,18 @@ test("CSV: separator by locale, quoting, repeated row labels", () => {
     assert.equal(de[3], "Smith, John;y;1000,25");
 });
 
+test("rows without values export their labels only: no empty column, no total row (#155, #156)", () => {
+    const g = toGrid(computePivot(data, { rows: ["Region", "Product"] }), { locale: "en-US" });
+    assert.deepEqual(toCsv(g, { bom: false }).split("\r\n"), ["Region,Product", "North,A", "North,B", "South,A", "South,B", "West,A", "(blank),A", ""]);
+    const json = JSON.parse(toJson(g));
+    assert.deepEqual(json.columns, []);
+    assert.deepEqual(json.rows.map((r) => r.labels), [["North", "A"], ["North", "B"], ["South", "A"], ["South", "B"], ["West", "A"], ["(blank)", "A"]]);
+    const sheet = strFromU8(unzipSync(toXlsx(g))["xl/worksheets/sheet1.xml"]);
+    assert.equal(sheet.match(/<col /g).length, 2);
+    assert.doesNotMatch(sheet, / r="C\d+"/);
+    assert.doesNotMatch(sheet, /Total/);
+});
+
 test("CSV formula injection: formulas get a leading quote, numbers and number ranges do not", () => {
     for (const s of ["=1+1", "+1+1", "-2+3", "-1+cmd|' /C calc'!A0", "@SUM(A1)", "\tx", "\rx", "  =1+1", "\n=1", "\u0001@x", "-x", "+A1"]) {
         assert.equal(neutralizeFormula(s), `'${s}`, JSON.stringify(s));
@@ -115,6 +132,27 @@ test("CSV formula injection: formulas get a leading quote, numbers and number ra
     const csv = toCsv(toGrid(computePivot(d, { rows: ["k"], values: [{ field: "v", agg: "sum" }] }), { locale: "en-US" }));
     assert.ok(csv.includes("'=cmd|' /C calc'!A0,-5"), csv);
     assert.ok(csv.includes("'@x,1"), csv);
+});
+
+test("CSV and TSV leave out bidi controls, as the import does: no text reads as another, no formula hides behind one", () => {
+    const d = encode([{ k: "invoice\u202Etxt.exe", v: 1 }, { k: "\u2066=1+1\u2069", v: 2 }, { k: "a\u200Fb\u061Cc\u202Ad\u202Ce", v: 3 }]);
+    const g = toGrid(computePivot(d, { rows: ["k"], values: [{ field: "v", agg: "sum" }] }), { locale: "en-US" });
+    const bidi = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+    for (const text of [toCsv(g), toTsv(g), toTsv([["\u202E=2+2", "x\u2067y"]])]) {
+        assert.ok(!bidi.test(text), JSON.stringify(text));
+    }
+    const csv = toCsv(g);
+    assert.ok(csv.includes("invoicetxt.exe,1"), csv);
+    assert.ok(csv.includes("'=1+1,2"), csv);
+    assert.ok(csv.includes("abcde,3"), csv);
+    assert.ok(toTsv([["\u202E=2+2"]]).startsWith("'=2+2"));
+});
+
+test("CSV formula guard looks past invisible characters to the first visible one", () => {
+    for (const s of ["\u200b=1", "\u2060=1", "\u00ad=1", "\u206a=1", "\u180e=1", "\u0085=1", "\ufeff@x", "\u200b-2+3"]) {
+        assert.equal(neutralizeFormula(s), `'${s}`, JSON.stringify(s));
+    }
+    assert.equal(neutralizeFormula("\u200b-5"), "\u200b-5");
 });
 
 test("CSV bytes start with a byte order mark unless switched off", () => {
@@ -224,6 +262,44 @@ test("XLSX theme: default colours of conditional formats can be replaced", () =>
     assert.match(sheetOf(toXlsx(g, { theme: { dataBar: "#123456" } })).sheetXml, /<color rgb="FF123456"\/>/);
 });
 
+/** Relative luminance (WCAG) of a #rrggbb colour. */
+const luminance = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+// #212: the default scale said "low = bad (red), high = good (green)", wrong for a temperature or a cost
+test("XLSX colour scale without colours of its own: a light low end and a strong high end, no red for low", () => {
+    const g = gridOf([{ k: "cold", v: -5 }, { k: "mild", v: 10 }, { k: "warm", v: 30 }], { rows: ["k"], values: [{ field: "v", agg: "average", conditional: { type: "colorScale" } }] });
+    const rule = (options) => sheetOf(toXlsx(g, options)).sheetXml.match(/<colorScale>(.*?)<\/colorScale>/)[1];
+    const [low, high] = [DEFAULT_THEME.colorScale[0], DEFAULT_THEME.colorScale.at(-1)];
+    assert.ok(luminance(low) > luminance(high) * 2, `${low} is not lighter than ${high}`);
+    assert.ok(!DEFAULT_THEME.colorScale.includes("#f8696b"), "Excel's red is no default low colour");
+    // the lowest value (min) gets the first colour
+    assert.equal(rule(), `<cfvo type="min"/><cfvo type="max"/><color rgb="FF${low.slice(1).toUpperCase()}"/><color rgb="FF${high.slice(1).toUpperCase()}"/>`);
+    // a host's colours (the report's resolved theme) replace them, in their order
+    assert.equal(rule({ theme: { colorScale: ["#0000ff", "#ffffff", "#ff0000"] } }), `<cfvo type="min"/><cfvo type="percentile" val="50"/><cfvo type="max"/><color rgb="FF0000FF"/><color rgb="FFFFFFFF"/><color rgb="FFFF0000"/>`);
+    // a view's own colours win over the theme's
+    const own = gridOf([{ k: "a", v: 1 }, { k: "b", v: 2 }], { rows: ["k"], values: [{ field: "v", agg: "sum", conditional: { type: "colorScale", colors: ["#5a8dee", "#e8554e"] } }] });
+    assert.match(sheetOf(toXlsx(own, { theme: { colorScale: ["#000000", "#111111"] } })).sheetXml, /<color rgb="FF5A8DEE"\/><color rgb="FFE8554E"\/>/);
+});
+
+// #212: Excel draws a merged cell's text at its bottom, so a group's label stood next to its last row
+test("XLSX: a row label merged over its group's rows sits at the top, as in the report", () => {
+    const rows = [["Europe", "Berlin"], ["Europe", "Oslo"], ["Europe", "Rome"], ["Asia", "Tokyo"]].map(([Continent, City], i) => ({ Continent, City, v: i }));
+    const g = gridOf(rows, { rows: ["Continent", "City"], values: [{ field: "v", agg: "sum" }] });
+    const files = unzipSync(toXlsx(g));
+    const sheet = parser.parse(strFromU8(files["xl/worksheets/sheet1.xml"])).worksheet;
+    const merge = [].concat(sheet.mergeCells.mergeCell).map((m) => m.ref).find((ref) => /^A\d+:A\d+$/.test(ref));
+    assert.ok(merge, "Europe's label is merged over its rows");
+    const first = merge.split(":")[0];
+    const cell = [].concat(sheet.sheetData.row).flatMap((r) => [].concat(r.c ?? [])).find((c) => c.r === first);
+    assert.equal(cell.is.t["#text"], "Europe");
+    const xf = [].concat(parser.parse(strFromU8(files["xl/styles.xml"])).styleSheet.cellXfs.xf)[Number(cell.s ?? 0)];
+    assert.equal(xf.alignment?.vertical, "top");
+    assert.equal(xf.applyAlignment, "1");
+});
+
 test("CSV numbers: tiny and huge values keep their value; minus zero is 0", () => {
     const csv = toCsv(gridOf([{ k: "a", v: -1.5e-20 }, { k: "b", v: 1e21 }, { k: "c", v: -0 }, { k: "d", v: 0.1 + 0.2 }], { rows: ["k"], values: [{ field: "v", agg: "sum" }], totals: { grandTotalRow: false } }));
     assert.deepEqual(csv.split("\r\n").slice(1, 5), ["a,-1.5e-20", "b,1e+21", "c,0", "d,0.3"]);
@@ -258,11 +334,4 @@ test("CSV writes a percent and a show-as value as the table shows them; other nu
     assert.equal(d[2], "b,-1.8,-58.3%");
     // a fraction times 100 keeps 15 significant digits, without binary noise
     assert.equal(toCsv(gridOf([{ k: "a", v: 7 }, { k: "b", v: 93 }], { rows: ["k"], values: [{ field: "v", agg: "sum", showAs: "percentOfGrandTotal" }] })).split("\r\n")[1], "a,7%");
-});
-
-test("CSV guards signed aggregate dates while ordinary dates stay unchanged (#97)", () => {
-    for (const date of ["-000001-01-01", "+010000-02-29", "2026-01-01"]) {
-        const grid = toGrid(computePivot(encode([{Date: date}]), {values: [{field: "Date", agg: "min"}]}));
-        assert.ok(toCsv(grid).includes(`${/^[+-]/.test(date) ? "'" : ""}${date}`));
-    }
 });

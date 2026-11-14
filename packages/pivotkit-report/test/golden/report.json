@@ -1,0 +1,186 @@
+{
+  "rowHeaders": [
+    "Region",
+    "Product"
+  ],
+  "columns": [
+    {
+      "labels": [
+        "2025",
+        "Summe von Units"
+      ],
+      "value": "Summe von Units",
+      "total": 0
+    },
+    {
+      "labels": [
+        "2025",
+        "% der Spaltensumme von Durchschnitt von Price"
+      ],
+      "value": "% der Spaltensumme von Durchschnitt von Price",
+      "total": 0
+    },
+    {
+      "labels": [
+        "2026",
+        "Summe von Units"
+      ],
+      "value": "Summe von Units",
+      "total": 0
+    },
+    {
+      "labels": [
+        "2026",
+        "% der Spaltensumme von Durchschnitt von Price"
+      ],
+      "value": "% der Spaltensumme von Durchschnitt von Price",
+      "total": 0
+    },
+    {
+      "labels": [
+        "Gesamtergebnis",
+        "Summe von Units"
+      ],
+      "value": "Summe von Units",
+      "total": 2
+    },
+    {
+      "labels": [
+        "Gesamtergebnis",
+        "% der Spaltensumme von Durchschnitt von Price"
+      ],
+      "value": "% der Spaltensumme von Durchschnitt von Price",
+      "total": 2
+    }
+  ],
+  "rows": [
+    {
+      "labels": [
+        "North",
+        "A"
+      ],
+      "total": 0,
+      "collapsed": false,
+      "values": [
+        8,
+        1,
+        null,
+        null,
+        8,
+        0.652542372881356
+      ]
+    },
+    {
+      "labels": [
+        "North",
+        "B"
+      ],
+      "total": 0,
+      "collapsed": false,
+      "values": [
+        null,
+        null,
+        2,
+        1.04166666666667,
+        2,
+        1.1864406779661
+      ]
+    },
+    {
+      "labels": [
+        "North gesamt",
+        ""
+      ],
+      "total": 1,
+      "collapsed": false,
+      "values": [
+        8,
+        1,
+        2,
+        1.04166666666667,
+        10,
+        0.830508474576271
+      ]
+    },
+    {
+      "labels": [
+        "South",
+        "A"
+      ],
+      "total": 0,
+      "collapsed": false,
+      "values": [
+        null,
+        null,
+        7,
+        0.520833333333333,
+        7,
+        0.593220338983051
+      ]
+    },
+    {
+      "labels": [
+        "South",
+        "B"
+      ],
+      "total": 0,
+      "collapsed": false,
+      "values": [
+        null,
+        null,
+        5,
+        1.43229166666667,
+        5,
+        1.63135593220339
+      ]
+    },
+    {
+      "labels": [
+        "South gesamt",
+        ""
+      ],
+      "total": 1,
+      "collapsed": false,
+      "values": [
+        null,
+        null,
+        12,
+        1.12847222222222,
+        12,
+        1.28531073446328
+      ]
+    },
+    {
+      "labels": [
+        "West",
+        "A"
+      ],
+      "total": 0,
+      "collapsed": false,
+      "values": [
+        null,
+        null,
+        4,
+        0.572916666666667,
+        4,
+        0.652542372881356
+      ]
+    },
+    {
+      "labels": [
+        "Gesamtergebnis",
+        ""
+      ],
+      "total": 2,
+      "collapsed": false,
+      "values": [
+        8,
+        1,
+        18,
+        1,
+        26,
+        1
+      ]
+    }
+  ]
+}
