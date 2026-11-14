@@ -6,6 +6,20 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+
+- `exportData={{ columns: [...] }}`: Source data and the drill-down's copies and files hold only
+  those columns, in that order (matched case-insensitively, derived fields never). A name the data
+  lacks is left out and said once in the console; with no column left, or `columns` that is no list
+  (said once too), Source data and the drill-down's Export menu are off; an `exportData` of another
+  shape is off, as `false` ([#259](https://github.com/eizedev/pivotkit/issues/259)).
+
+### Changed
+
+- Source data as CSV is built in pieces of whole lines (pivotkit-core's `dataToCsvParts`), so the
+  browser holds about twice the file's size while it is made, not about five times
+  ([#260](https://github.com/eizedev/pivotkit/issues/260)).
+
 ### Fixed
 
 - Filter level: a rule's × clicked while its value still waits to apply (a moment after typing)

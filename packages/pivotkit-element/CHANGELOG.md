@@ -8,6 +8,10 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 
 ### Added
 
+- `export-data` takes a JSON object for some columns only (`export-data='{"columns":["Region","Revenue"]}'`,
+  or the `exportData` property as an object), as pivotkit-react's `exportData`: Source data and the
+  drill-down's copies and files hold those columns. Text it cannot read is off and said once in the
+  console ([#259](https://github.com/eizedev/pivotkit/issues/259)).
 - `importWorkerUrl` (a property, no attribute): where an app serves the import worker of
   `allow-import` (`dist/import-worker.js`), relative to the page, for an app that bundles the element
   under a base href such as `/reports/`. Without it the worker is next to the element's own code
