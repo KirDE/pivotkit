@@ -389,8 +389,10 @@ node scripts/check-readme-links.js site   # after `zensical build`: the READMEs'
   A new visual value gets a token, and an existing literal becomes one when its rule is touched. Shapes
   (`999px` pills, `50%` circles, `0`) are not theme values. Reviews check this rule for every change
   of the UI.
-- A host's field labels and descriptions (`fieldDefaults`) are optional extras: a field without them
-  looks and works exactly as without `fieldDefaults` (no "i", no extra text, its own name); labels are
+- A host's field labels and descriptions (`fieldDefaults`) are optional extras: a non-date field without them
+  looks and works exactly as without `fieldDefaults` (no "i", no extra text, its own name). The
+  date-context design (#109) is the exception: date fields may show their computed data range
+  without host metadata; this is display-only and never changes `fieldDefaults`. Labels are
   display only, views keep field names. A schema is data: local `$ref`s only, nothing fetched, sizes
   capped (`SCHEMA_CAPS` in `schema.js`).
 - Tips are rows of `TIPS` (`tips.js`): a pure condition, a text in every language, an optional

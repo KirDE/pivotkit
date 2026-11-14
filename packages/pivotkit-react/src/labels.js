@@ -21,6 +21,7 @@ import { GROUPING_NAMES, PivotkitError, REPORT_LABELS } from "pivotkit-core";
 export const en = {
     /** the language of the texts, for the report's lang attribute */
     lang: "en",
+    dateYearsCombined: "{years} combined",
     /** the name of the report's region landmark */
     report: "Pivot report",
     core: /** @type {import("pivotkit-core").Labels} */ (REPORT_LABELS.en),
@@ -107,12 +108,12 @@ export const en = {
     headerSorted: "{field} sorted: {order}",
     units: {
         year: "Year", yearQuarter: "Quarter", yearMonth: "Month", yearWeek: "Week", day: "Day",
-        quarter: "Quarter of year", month: "Month of year", week: "Week of year", weekday: "Weekday", hour: "Hour of day",
+        quarter: "Quarter of year", month: "Month of year", week: "Week of year", weekday: "Day of week", hour: "Hour of day",
         bin: "Ranges"
     },
     // a date grouping's name: "Date by month"; the unit as it reads inside it (unitInName); pivotkit-core's GROUPING_NAMES
     derivedName: GROUPING_NAMES.en.name,
-    unitInName: { ...GROUPING_NAMES.en.units },
+    unitInName: { ...GROUPING_NAMES.en.units, weekday: "day of week" },
     binsName: GROUPING_NAMES.en.bins,
     top: "Top",
     topBadge: "Top {count}",
@@ -353,6 +354,7 @@ export const en = {
 
 export const de = {
     lang: "de",
+    dateYearsCombined: "{years} zusammengefasst",
     report: "Pivot-Bericht",
     core: /** @type {import("pivotkit-core").Labels} */ (REPORT_LABELS.de),
     zones: { rows: "Zeilen", cols: "Spalten", values: "Werte", filters: "Filter" },
@@ -431,7 +433,7 @@ export const de = {
         bin: "Bereiche"
     },
     derivedName: GROUPING_NAMES.de.name,
-    unitInName: { ...GROUPING_NAMES.de.units },
+    unitInName: { ...GROUPING_NAMES.de.units, weekday: GROUPING_NAMES.de.units.weekday },
     binsName: GROUPING_NAMES.de.bins,
     top: "Oberste",
     topBadge: "Top {count}",

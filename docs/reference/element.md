@@ -403,11 +403,11 @@ numbers):
 
 | Loaded | Files | Size | gzip |
 | --- | ---: | ---: | ---: |
-| First (`index.js` and its static imports: React, ReactDOM, pivotkit-react, pivotkit-core, @dnd-kit, styles) | 11 | 528 KiB | 172 KiB |
+| First (`index.js` and its static imports: React, ReactDOM, pivotkit-react, pivotkit-core, @dnd-kit, styles) | 11 | 535 KiB | 175 KiB |
 | On the first chart (ECharts with bar, line, pie (also the donut), heatmap, the components they use, the title among them, the canvas renderer, and the layout of the chart's labels) | 2 | 631 KiB | 216 KiB |
 | On the first export or copy (pivotkit-core's export, and fflate as a chunk it shares with the link; the Export menu and the drill-down's start loading it when they open) | 3 | 27 KiB | 12 KiB |
 | On the first shared link, Copy link or loaded link (pivotkit-core's link with fflate) | 2 | 15 KiB | 7 KiB |
-| Right after the first render (the menus' panels with their levels, the Filter level with its summary, quick choices, items and rules, the Export menu, the drill-down's panel and its table, sharing's copy, download and load, and the English texts only they show) | 1 | 139 KiB | 45 KiB |
+| Right after the first render (the menus' panels with their levels, the Filter level with its summary, quick choices, items and rules, the Export menu, the drill-down's panel and its table, sharing's copy, download and load, and the English texts only they show) | 1 | 143 KiB | 47 KiB |
 | With the menus, for a German report only (the menus' German texts) | 1 | 20 KiB | 7 KiB |
 | When a view has unused parts (their plain words: English, and German for a German report) | 2 | 16 KiB | 5 KiB |
 | With `allow-import`, on the first use of the Data menu, a drop or the empty report's Load data… (the import UI with its English and German texts, pivotkit-core's readers) | 5 | 50 KiB | 20 KiB |

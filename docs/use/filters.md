@@ -145,8 +145,8 @@ grouping by day: days and weeks too; by year: years alone, without a choice of u
 
 ### Years combined
 
-A grouping that puts the same period of every year together (month of the year, quarter of the year,
-week of the year, day of the week, hour of the day) has no quick choices: "This year" would leave a
+A grouping that puts the same period of every year together (month of the year, quarter of year,
+week of the year, day of week, hour of the day) has no quick choices: "This year" would leave a
 lone December. Instead, **Years combined** shows one toggle per year in the data (with two to twelve
 years), each with its rows, all on at first. Switch a year off and the table combines the others; the
 summary's small line says which ("2024–2025 combined", "2025 only") and the chip says the years
