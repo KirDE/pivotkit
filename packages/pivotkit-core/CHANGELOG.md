@@ -8,6 +8,11 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ### Added
 
+- The type `EncodeIssue`: an issue of `encode()` (`columnCase`, `columnCaseValue`,
+  `columnCaseLeftOut`), with `params.row` documented as 0-based; `Issue` stays the type of a view's
+  issue ([#321](https://github.com/eizedev/pivotkit/issues/321)).
+- `limitError`'s `details` have `what`, what was counted (`"rows"`, `"shared strings and formats"`),
+  so a UI can tell two counts of one limit apart ([#325](https://github.com/eizedev/pivotkit/issues/325)).
 - `dataToCsvParts(data, options)` in `pivotkit-core/export`: the bytes of `dataToCsvBytes` in pieces
   of whole lines, for a Blob; the text is never held whole, so a large file takes about twice its size
   while it is made, not about five times. `dataToCsv` and `dataToCsvBytes` build their output from

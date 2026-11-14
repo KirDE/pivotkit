@@ -22,6 +22,10 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Fixed
 
+- A workbook whose shared strings and formats reach `limits.importCells` is said as "more than …
+  different texts and formats" (`labels.dataImport.workbookCells`), chosen by the reader's
+  `details.what`, not as "values (rows x columns)", which stays for a table's own extent
+  ([#325](https://github.com/eizedev/pivotkit/issues/325)).
 - Filter level: a rule's × clicked while its value still waits to apply (a moment after typing)
   takes the rule away; before, the field's blur applied the value and the click was lost. What waits
   in a removed row applies nothing ([#320](https://github.com/eizedev/pivotkit/issues/320)).
