@@ -319,7 +319,7 @@ function otherRangeText(f, labels, locale, timeZone, now, span, weekStart) {
     }
     // bounds at midnight (a rolling range from a date of its own) are said as days, not as "12:00 AM"
     const days = (range.from === null || range.from.endsWith("T00:00")) && range.to.endsWith("T00:00");
-    const point = (iso) => pointText(days ? iso.slice(0, 10) : iso, locale);
+    const point = (iso) => pointText(days ? iso.split("T")[0] : iso, locale);
     const to = point(range.to);
     return fill(labels.withRange, { text, range: range.from === null ? fill(more.until, { to }) : range.from === range.to ? to : `${point(range.from)} – ${to}` });
 }
@@ -340,8 +340,13 @@ function precisionText(iso, precision, locale) {
 }
 
 /** A day ("2026-03-01") or a minute ("2026-03-01T14:00") as the locale writes it. */
-const pointText = (iso, locale) =>
-    iso.includes("T") ? new Date(`${iso}Z`).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }) : dayText(iso, locale);
+const pointText = (iso, locale) => {
+    if (!iso.includes("T")) return dayText(iso, locale);
+    const date = new Date(`${iso}Z`);
+    return date.toLocaleString(locale, date.getUTCFullYear() <= 0
+        ? { year: "numeric", month: "short", day: "numeric", era: "short", hour: "numeric", minute: "2-digit", timeZone: "UTC" }
+        : { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
+};
 
 /**
  * The years two calendar days bound as whole years (Jan 1 to Dec 31, clamped at Date limits), or null: the days a comparison

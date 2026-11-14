@@ -615,7 +615,7 @@ export function dateRuleValue(text) {
 }
 
 /** A bound of relativeDateRange() as wall-clock ms: a day ("2026-03-01") or a minute ("2026-03-01T14:00"). */
-const boundMs = (text) => Date.parse(text.length > 10 ? `${text}Z` : `${text}T00:00Z`);
+const boundMs = (text) => Date.parse(text.includes("T") ? `${text}Z` : `${text}T00:00Z`);
 
 /**
  * The rows of a date column in the dates of a relative range (pivotkit-core's relativeDateRange:
@@ -627,7 +627,7 @@ const boundMs = (text) => Date.parse(text.length > 10 ? `${text}Z` : `${text}T00
 export function rowsInRange(range, dict, counts) {
     const from = range.from === null ? -Infinity : boundMs(range.from);
     // the end's whole day, or its whole minute
-    const to = boundMs(range.to) + (range.to.length > 10 ? 60_000 : 86_400_000);
+    const to = boundMs(range.to) + (range.to.includes("T") ? 60_000 : 86_400_000);
     let rows = 0;
     for (let code = 0; code < dict.length; code++) {
         const v = dict[code];
