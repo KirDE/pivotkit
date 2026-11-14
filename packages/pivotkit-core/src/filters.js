@@ -35,7 +35,7 @@ import { DERIVED } from "./derive.js";
 import { RELATIVE_ANCHORS, RELATIVE_DIRECTIONS, RELATIVE_MAX_COUNT, RELATIVE_UNITS, WEEK_START, rangeOf, startOf } from "./relative.js";
 import { PivotkitError } from "./errors.js";
 import { ITEM_LENGTH } from "./limits.js";
-import { isDateMs, resolveTimeZone, toWallMs, wallClock } from "./time.js";
+import { parseIso, isDateMs, resolveTimeZone, toWallMs, wallClock } from "./time.js";
 import { MS_PER_DAY, finite, get, isPlainObject, optionsOf, shown } from "./util.js";
 
 /** The comparisons of a text filter; `not` inverts each ("does not contain"). */
@@ -384,7 +384,9 @@ function normalizeCompare(flt, spec, f, path, ctx, view) {
         }
         // wall-clock ms beyond what a Date holds (±8.64e15) have no calendar day; a grouping
         // compared by its source dates takes days as text only (a number would be its key)
-        const ms = value === undefined || (f.type !== "date" && typeof value !== "string") ? undefined : itemFor("date", value);
+        // Expanded ISO recognition belongs to compare values, not source inference or other filters.
+        const parsed = typeof value === "string" ? parseIso(value, true) : null;
+        const ms = parsed ? parsed.ms - (parsed.offsetMinutes ?? 0) * 60_000 : value === undefined || (f.type !== "date" && typeof value !== "string") ? undefined : itemFor("date", value);
         return typeof ms === "number" && isDateMs(ms) ? precisionText(ms, /** @type {string} */ (precision)) : null;
     };
     const opIn = get(flt, "op");

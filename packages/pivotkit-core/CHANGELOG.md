@@ -6,6 +6,8 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ## [Unreleased]
 
+- Read signed six-digit ISO years in compare date values, matching the saved-view writer (#97). Reject offsets that put the instant outside the Date range.
+
 ### Changed
 
 - An unknown aggregator named as other tools name it gets ours as the hint: `avg` and `mean`

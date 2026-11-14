@@ -23,7 +23,7 @@ export const MAX_DATE_MS = 8.64e15;
 /** Whether a number (instant or wall-clock ms) is a time a Date holds; `new Date(ms)` of any other is invalid and its formatting throws. */
 export const isDateMs = (ms) => typeof ms === "number" && Math.abs(ms) <= MAX_DATE_MS;
 
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}(?::?\d{2})?)?)?$/;
+const ISO_DATE = /^(\d{4}|[+-]\d{6})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}(?::?\d{2})?)?)?$/;
 
 /**
  * Milliseconds of a UTC date and time, years 0-99 included (Date.UTC maps them to 1900-1999).
@@ -41,11 +41,12 @@ function utc(y, mo, d, h = 0, mi = 0, s = 0, ms = 0) {
  * Parses an ISO date string; null when it is not one or names a day or time that does not exist
  * (2026-02-30, 10:61).
  * @param {string} text
+ * @param {boolean} [expanded]  compare values only; source-date recognition keeps its existing grammar
  * @returns {{ ms: number, offsetMinutes: number | null } | null}  ms: the wall clock as written
  */
-export function parseIso(text) {
+export function parseIso(text, expanded = false) {
     const m = ISO_DATE.exec(text.trim());
-    if (!m) {
+    if (!m || m[1] === "-000000" || (!expanded && m[1].length !== 4)) {
         return null;
     }
     const zone = m[8];
@@ -78,6 +79,7 @@ export function parseIso(text) {
             offsetMinutes = (zone[0] === "-" ? -1 : 1) * (oh * 60 + om);
         }
     }
+    if (offsetMinutes !== null && !isDateMs(ms - offsetMinutes * 60_000)) return null;
     return { ms, offsetMinutes };
 }
 

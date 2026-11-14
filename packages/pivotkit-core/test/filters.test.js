@@ -472,3 +472,15 @@ test("each filter says how many rows are left after it, in the order the filters
     assert.equal(r.rows.length, 2);
     assert.deepEqual(computePivot(data, { rows: ["Region"] }).filters, []);
 });
+
+test("expanded-year compare days survive normalize and saved-view round trips (#97)", () => {
+    for (const [value, value2] of [[-8.64e15, 8.64e15], ["-000001-02-28", "+010000-02-29"]]) {
+        const first = normalize({ filters: [{ field: "Date", type: "compare", op: "between", value, value2 }] }, data);
+        assert.deepEqual(first.issues, []);
+        const again = normalize(first.view, data);
+        assert.deepEqual(again.issues, []);
+        assert.deepEqual(again.view, first.view);
+        const saved = fromViewFile(viewFileText(toViewFile(first.view)));
+        assert.deepEqual(normalize(saved.view, data).view, first.view);
+    }
+});
