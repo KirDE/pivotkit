@@ -58,9 +58,18 @@ export function resolvePolicy(server = {}, source = {}, profile = undefined) {
     const pick = (key) => profile?.[key] ?? source?.[key] ?? server?.[key] ?? POLICY_DEFAULTS[key];
     /** @type {Map<string, "show" | "summary" | "hide">} */
     const fields = new Map();
+    // the source's rules override the server's; two names of one part that match the same field
+    // ("Customer Name" and "customer  name") keep the stricter level, whichever comes last
+    const strictness = { show: 0, summary: 1, hide: 2 };
     for (const part of [server?.fields, source?.fields]) {
+        const own = new Map();
         for (const [name, level] of Object.entries(part ?? {})) {
-            fields.set(fieldKey(name), level);
+            const key = fieldKey(name);
+            const before = own.get(key);
+            own.set(key, before !== undefined && strictness[before] > strictness[level] ? before : level);
+        }
+        for (const [key, level] of own) {
+            fields.set(key, level);
         }
     }
     let level = source?.default ?? server?.default ?? POLICY_DEFAULTS.default;
@@ -85,7 +94,9 @@ export function resolvePolicy(server = {}, source = {}, profile = undefined) {
 
 /** A field's level. */
 /** A field name as the policy matches it: Unicode NFC (a file from macOS may write "ö" as two code points), trimmed, lower case. */
-export const fieldKey = (name) => String(name).normalize("NFC").trim().toLowerCase();
+// whitespace counts as one space, whichever kind (a no-break or ideographic space, a doubled one: an
+// Excel header often has them), so a rule on "Customer Name" also matches such a column
+export const fieldKey = (name) => String(name).normalize("NFC").replace(/\s+/gu, " ").trim().toLowerCase();
 
 /** A reader's name for a repeated header ("Email (2)", "email (3)"): the part before it is the first one's name. */
 const REPEATED = /^(.*\S) \(\d+\)$/;
