@@ -90,10 +90,13 @@ export function valueConditionText(view, f, labels, locale) {
 }
 
 /** A calendar day ("2022-03-01") as the locale writes a date. */
-export const dayText = (iso, locale) => new Date(`${iso}T00:00Z`).toLocaleDateString(locale, { dateStyle: "medium", timeZone: "UTC" });
+export const dayText = (iso, locale) => {
+    const date = new Date(`${iso}T00:00Z`);
+    return date.toLocaleDateString(locale, date.getUTCFullYear() <= 0 ? {year: "numeric", month: "short", day: "numeric", era: "short", timeZone: "UTC"} : { dateStyle: "medium", timeZone: "UTC" });
+};
 
 /** A calendar day of wall-clock ms ("2022-03-01"), as a date column holds dates. */
-export const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+export const isoDay = (ms) => new Date(ms).toISOString().split("T")[0];
 
 /** The next and the previous calendar day of an ISO day. */
 const dayAfter = (iso, n = 1) => isoDay(Date.parse(`${iso}T00:00Z`) + n * 86_400_000);
@@ -135,9 +138,13 @@ export const plainRange = (f) =>
  * @param {string} locale
  */
 export function periodText(range, unit, locale) {
-    const month = (iso) => new Date(`${iso.slice(0, 10)}T00:00Z`).toLocaleDateString(locale, { month: "short", year: "numeric", timeZone: "UTC" });
-    const quarter = (iso) => `Q${Math.floor((Number(iso.slice(5, 7)) - 1) / 3) + 1} ${iso.slice(0, 4)}`;
-    const text = unit === "year" ? (iso) => iso.slice(0, 4) : unit === "quarter" ? quarter : unit === "month" ? month : (iso) => dayText(iso.slice(0, 10), locale);
+    range = { from: range.from.split("T")[0], to: range.to.split("T")[0] };
+    const month = (iso) => {
+        const date = new Date(`${iso}T00:00Z`);
+        return date.toLocaleDateString(locale, { month: "short", year: "numeric", timeZone: "UTC", ...(date.getUTCFullYear() <= 0 ? {era: "short"} : {}) });
+    };
+    const quarter = (iso) => `Q${Math.floor(new Date(`${iso}T00:00Z`).getUTCMonth() / 3) + 1} ${iso.slice(0, -6)}`;
+    const text = unit === "year" ? (iso) => iso.slice(0, -6) : unit === "quarter" ? quarter : unit === "month" ? month : (iso) => dayText(iso, locale);
     const [from, to] = [text(range.from), text(range.to)];
     return from === to ? from : `${from}–${to}`;
 }
@@ -168,17 +175,18 @@ export function rangeText(f, locale, timeZone, now, latest) {
  *   periods have no data, for the words ("2026 has no data", "2021–2022 have no data")
  */
 export function rangeShare(range, unit, span, locale) {
+    const dayValue = (iso) => Date.parse(`${iso}T00:00Z`);
     // the data cover the whole period (year, month, day) their first and last date fall in; a quarter
     // is measured in months, a week in days
     const grain = unit === "quarter" ? "month" : unit === "week" ? "day" : unit;
-    range = { from: range.from.slice(0, 10), to: range.to.slice(0, 10) };
+    range = { from: range.from.split("T")[0], to: range.to.split("T")[0] };
     const [first, last] = [periodStart(isoDay(span.min), grain), periodEnd(isoDay(span.max), grain)];
-    if (first <= range.from && last >= range.to) {
+    if (dayValue(first) <= dayValue(range.from) && dayValue(last) >= dayValue(range.to)) {
         return null;
     }
-    const from = range.from > first ? range.from : first;
-    const to = range.to < last ? range.to : last;
-    if (from > to) {
+    const from = dayValue(range.from) > dayValue(first) ? range.from : first;
+    const to = dayValue(range.to) < dayValue(last) ? range.to : last;
+    if (dayValue(from) > dayValue(to)) {
         return { none: true };
     }
     const missing = [];
@@ -186,7 +194,7 @@ export function rangeShare(range, unit, span, locale) {
     /** A part of the range without data: its years that have no data at all, the rest as the unit writes it. */
     const part = (a, b, dataYear) => {
         const years = [];
-        const [ya, yb] = [Number(a.slice(0, 4)), Number(b.slice(0, 4))];
+        const [ya, yb] = [Number(a.slice(0, -6)), Number(b.slice(0, -6))];
         // the years outside the data's own: whole years without data, written as years
         for (let y = ya; y <= yb; y++) {
             if (y !== dataYear) {
@@ -199,32 +207,37 @@ export function rangeShare(range, unit, span, locale) {
         }
         if (ya <= dataYear && dataYear <= yb) {
             // the remainder inside a year that has data
-            const yearFrom = `${String(dataYear).padStart(4, "0")}-01-01`;
-            const yearTo = `${String(dataYear).padStart(4, "0")}-12-31`;
-            const rest = { from: a > yearFrom ? a : yearFrom, to: b < yearTo ? b : yearTo };
+            const year = dataYear >= 0 && dataYear <= 9999 ? String(dataYear).padStart(4, "0") : `${dataYear < 0 ? "-" : "+"}${String(Math.abs(dataYear)).padStart(6, "0")}`;
+            const yearFrom = `${year}-01-01`;
+            const yearTo = `${year}-12-31`;
+            const rest = { from: dayValue(a) > dayValue(yearFrom) ? a : yearFrom, to: dayValue(b) < dayValue(yearTo) ? b : yearTo };
             missing.push(periodText(rest, unit, locale));
             count += periodText({ from: rest.from, to: rest.from }, unit, locale) === periodText({ from: rest.to, to: rest.to }, unit, locale) ? 1 : 2;
         }
     };
-    if (range.from < first) {
-        part(range.from, dayAfter(first, -1), Number(first.slice(0, 4)));
+    if (dayValue(range.from) < dayValue(first)) {
+        part(range.from, dayAfter(first, -1), Number(first.slice(0, -6)));
     }
-    if (range.to > last) {
-        part(dayAfter(last), range.to, Number(last.slice(0, 4)));
+    if (dayValue(range.to) > dayValue(last)) {
+        part(dayAfter(last), range.to, Number(last.slice(0, -6)));
     }
     return { none: false, data: periodText({ from, to }, unit, locale), missing, count };
 }
 
 /** The first day of the year, month or day an ISO day falls in. */
-const periodStart = (iso, unit) => (unit === "year" ? `${iso.slice(0, 4)}-01-01` : unit === "month" ? `${iso.slice(0, 7)}-01` : iso);
+function periodStart(iso, unit) {
+    const first = unit === "year" ? `${iso.slice(0, -6)}-01-01` : unit === "month" ? `${iso.slice(0, -3)}-01` : iso;
+    return Number.isNaN(Date.parse(`${first}T00:00Z`)) ? isoDay(-8.64e15) : first;
+}
 
 /** The last day of the year, month or day an ISO day falls in. */
 function periodEnd(iso, unit) {
     if (unit === "day") {
         return iso;
     }
-    const [y, m] = [Number(iso.slice(0, 4)), Number(iso.slice(5, 7))];
-    return isoDay(unit === "year" ? Date.UTC(y, 11, 31) : Date.UTC(y, m, 0));
+    const date = new Date(`${iso}T00:00Z`);
+    date.setUTCFullYear(date.getUTCFullYear(), unit === "year" ? 11 : date.getUTCMonth() + 1, unit === "year" ? 31 : 0);
+    return isoDay(Number.isNaN(date.getTime()) ? 8.64e15 : date.getTime());
 }
 
 /**
@@ -306,7 +319,7 @@ function otherRangeText(f, labels, locale, timeZone, now, span, weekStart) {
     }
     // bounds at midnight (a rolling range from a date of its own) are said as days, not as "12:00 AM"
     const days = (range.from === null || range.from.endsWith("T00:00")) && range.to.endsWith("T00:00");
-    const point = (iso) => pointText(days ? iso.slice(0, 10) : iso, locale);
+    const point = (iso) => pointText(days ? iso.split("T")[0] : iso, locale);
     const to = point(range.to);
     return fill(labels.withRange, { text, range: range.from === null ? fill(more.until, { to }) : range.from === range.to ? to : `${point(range.from)} – ${to}` });
 }
@@ -317,7 +330,7 @@ function otherRangeText(f, labels, locale, timeZone, now, span, weekStart) {
  */
 function precisionText(iso, precision, locale) {
     if (precision === "year" || precision === "quarter" || precision === "month") {
-        const at = new Date(`${iso.slice(0, 10)}T00:00Z`);
+        const at = new Date(`${iso.split("T")[0]}T00:00Z`);
         if (precision === "month") {
             return at.toLocaleDateString(locale, { month: "short", year: "numeric", timeZone: "UTC" });
         }
@@ -327,17 +340,22 @@ function precisionText(iso, precision, locale) {
 }
 
 /** A day ("2026-03-01") or a minute ("2026-03-01T14:00") as the locale writes it. */
-const pointText = (iso, locale) =>
-    iso.length > 10 ? new Date(`${iso.slice(0, 16)}Z`).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }) : dayText(iso, locale);
+const pointText = (iso, locale) => {
+    if (!iso.includes("T")) return dayText(iso, locale);
+    const date = new Date(`${iso}Z`);
+    return date.toLocaleString(locale, date.getUTCFullYear() <= 0
+        ? { year: "numeric", month: "short", day: "numeric", era: "short", hour: "numeric", minute: "2-digit", timeZone: "UTC" }
+        : { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
+};
 
 /**
- * The years two calendar days bound as whole years (Jan 1 to Dec 31), or null: the days a comparison
+ * The years two calendar days bound as whole years (Jan 1 to Dec 31, clamped at Date limits), or null: the days a comparison
  * on a date grouping's source dates gets from Years combined.
  * @returns {[string, string] | null}
  */
 export function wholeYears(from, to) {
-    const whole = typeof from === "string" && typeof to === "string" && /^\d{4}-01-01$/.test(from) && /^\d{4}-12-31$/.test(to);
-    return whole ? [from.slice(0, 4), to.slice(0, 4)] : null;
+    const whole = typeof from === "string" && typeof to === "string" && (/^(?:\d{4}|[+-]\d{6})-01-01$/.test(from) || from === "-271821-04-20") && (/^(?:\d{4}|[+-]\d{6})-12-31$/.test(to) || to === "+275760-09-13");
+    return whole ? [from.slice(0, -6), to.slice(0, -6)] : null;
 }
 
 /**
@@ -354,8 +372,9 @@ export function compareText(f, labels, locale, { date, labelOf }) {
     const forms = labels.compareShort;
     const op = ruleOp(f);
     if (op === "between" || op === "notBetween") {
-        // the smaller first, as the engine reads them (ISO days sort as text)
-        const [from, to] = f.value2 !== undefined && f.value2 < f.value ? [f.value2, f.value] : [f.value, f.value2];
+        // Signed expanded ISO years must be ordered by day, not their leading sign.
+        const order = (v) => typeof v === "string" ? Date.parse(v.includes("T") ? `${v}Z` : `${v}T00:00Z`) : v;
+        const [from, to] = f.value2 !== undefined && order(f.value2) < order(f.value) ? [f.value2, f.value] : [f.value, f.value2];
         // whole years of days (Years combined): "2024 to 2025", "2025", "not 2025"
         const years = wholeYears(from, to);
         if (years) {

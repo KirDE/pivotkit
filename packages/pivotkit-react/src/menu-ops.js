@@ -7,7 +7,7 @@
 
 import { CATALOG, MATCH_DEFAULTS, computePivot, isFormat } from "pivotkit-core";
 import { fill } from "./labels.js";
-import { itemRuleText, valueConditionText, wholeYears } from "./names.js";
+import { isoDay, itemRuleText, valueConditionText, wholeYears } from "./names.js";
 import { axisOf, clone, emptyPick, filterZoneFields, filtersOf, groupingOf, numericResult, opOf, pickFilter, same, sameRef, sourceOf } from "./view-ops.js";
 
 /** Aggregators whose result counts rows or items instead of being a value of the field (its unit). */
@@ -334,7 +334,13 @@ export function yearRules(field, years, all, blanks = "exclude") {
     if (!years.length || years.length === all.length) {
         return [];
     }
-    const day = (y, last) => `${String(y).padStart(4, "0")}-${last ? "12-31" : "01-01"}`;
+    const day = (y, last) => {
+        // The first and last supported years contain only part of a calendar year.
+        if (y === -271821 && !last) return isoDay(-8.64e15);
+        if (y === 275760 && last) return isoDay(8.64e15);
+        const year = y >= 0 && y <= 9999 ? String(y).padStart(4, "0") : `${y < 0 ? "-" : "+"}${String(Math.abs(y)).padStart(6, "0")}`;
+        return `${year}-${last ? "12-31" : "01-01"}`;
+    };
     const rule = (not, from, to) => ({ field, type: "compare", op: "between", value: day(from, false), value2: day(to, true), not, blanks });
     const rules = [rule(false, years[0], years[years.length - 1])];
     for (let i = 1; i < years.length; i++) {
@@ -597,8 +603,19 @@ export function filterState(view, field, state, labels, locale) {
     return parts.length ? parts.join(", ") : null;
 }
 
+/** An editable ISO day, including signed six-digit years and HTML's unsigned large years.
+ * @param {string} text @returns {string | null} */
+export function dateRuleValue(text) {
+    const m = /^(\d{4,6}|[+-]\d{6})-(\d{2})-(\d{2})$/.exec(text);
+    if (!m || m[1] === "-000000") return null;
+    const year = m[1];
+    const iso = /^\d{5,6}$/.test(year) ? `+${year.padStart(6, "0")}${text.slice(year.length)}` : text;
+    const date = new Date(`${iso}T00:00:00.000Z`);
+    return date.getUTCFullYear() === +year && date.getUTCMonth() + 1 === +m[2] && date.getUTCDate() === +m[3] ? iso : null;
+}
+
 /** A bound of relativeDateRange() as wall-clock ms: a day ("2026-03-01") or a minute ("2026-03-01T14:00"). */
-const boundMs = (text) => Date.parse(text.length > 10 ? `${text}Z` : `${text}T00:00Z`);
+const boundMs = (text) => Date.parse(text.includes("T") ? `${text}Z` : `${text}T00:00Z`);
 
 /**
  * The rows of a date column in the dates of a relative range (pivotkit-core's relativeDateRange:
@@ -610,7 +627,7 @@ const boundMs = (text) => Date.parse(text.length > 10 ? `${text}Z` : `${text}T00
 export function rowsInRange(range, dict, counts) {
     const from = range.from === null ? -Infinity : boundMs(range.from);
     // the end's whole day, or its whole minute
-    const to = boundMs(range.to) + (range.to.length > 10 ? 60_000 : 86_400_000);
+    const to = boundMs(range.to) + (range.to.includes("T") ? 60_000 : 86_400_000);
     let rows = 0;
     for (let code = 0; code < dict.length; code++) {
         const v = dict[code];

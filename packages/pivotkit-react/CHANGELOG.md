@@ -6,6 +6,15 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Fixed
+
+- Clamp Years combined filters to representable days in the partial minimum and maximum years (#97).
+
+- Preserve saved year-zero edits, signed Years combined rules, maximum-date menus and chronological expanded-date summaries (#97).
+
+- Keep signed expanded-year date rules visible and editable, using ISO text where the native
+  calendar cannot represent the year (#97).
+
 ### Added
 
 - `onSaveTemplate(name, view, { scope, source })` and `onPublishTemplate(name, view, { source })`

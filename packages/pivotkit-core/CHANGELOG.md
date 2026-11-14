@@ -6,6 +6,10 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep Date-boundary ISO week/month groups valid and guard signed aggregate dates in CSV.
+
 ### Changed
 
 - An unknown aggregator named as other tools name it gets ours as the hint: `avg` and `mean`

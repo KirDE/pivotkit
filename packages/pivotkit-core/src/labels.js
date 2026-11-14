@@ -239,8 +239,13 @@ export function labelOf(column, value, locale, labels = DEFAULT_LABELS) {
         return column.labeler(value, locale);
     }
     switch (column.type) {
-        case "date":
-            return dateTimeFormat(locale, column.dateOnly ? DATE : DATE_TIME).format(new Date(Number(value)));
+        case "date": {
+            const date = new Date(Number(value));
+            const options = date.getUTCFullYear() <= 0
+                ? { year: "numeric", month: "short", day: "numeric", era: "short", timeZone: "UTC", ...(column.dateOnly ? {} : {hour: "numeric", minute: "2-digit"}) }
+                : column.dateOnly ? DATE : DATE_TIME;
+            return dateTimeFormat(locale, /** @type {Intl.DateTimeFormatOptions} */ (options)).format(date);
+        }
         case "boolean":
             return value ? (labels.true ?? "true") : (labels.false ?? "false");
         default:

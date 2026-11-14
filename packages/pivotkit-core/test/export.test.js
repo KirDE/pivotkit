@@ -335,3 +335,10 @@ test("CSV writes a percent and a show-as value as the table shows them; other nu
     // a fraction times 100 keeps 15 significant digits, without binary noise
     assert.equal(toCsv(gridOf([{ k: "a", v: 7 }, { k: "b", v: 93 }], { rows: ["k"], values: [{ field: "v", agg: "sum", showAs: "percentOfGrandTotal" }] })).split("\r\n")[1], "a,7%");
 });
+
+test("CSV guards signed aggregate dates while ordinary dates stay unchanged (#97)", () => {
+    for (const date of ["-000001-01-01", "+010000-02-29", "2026-01-01"]) {
+        const grid = toGrid(computePivot(encode([{Date: date}]), {values: [{field: "Date", agg: "min"}]}));
+        assert.ok(toCsv(grid).includes(`${/^[+-]/.test(date) ? "'" : ""}${date}`));
+    }
+});
