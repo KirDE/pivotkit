@@ -72,6 +72,16 @@ shown; the others keep the type found.
   file, or columns renamed, added or in another order, make it other data, and the application's data
   and other files do not show them ([saved views](views.md);
   [how a file is named](../reference/import.md#how-a-loaded-file-is-named)).
+- A view saved on a sheet of a workbook remembers the sheet. While a workbook of that name is shown,
+  **Views** lists the views of its other sheets too, with the sheet next to each ("Sheet “Q3”").
+  Opening one reads that sheet of the file again and shows the view on it, so after a reload you load
+  the workbook as it comes (the preview starts on the first sheet) and open the view. An application
+  that checks the files you load checks that sheet too and may refuse it: then the view is not
+  opened, and a note says so. **Undo** takes back the view, then reading the sheet. **Cancel** while
+  the sheet is read leaves the sheet and the view you had. A view whose sheet the workbook no longer
+  has says so ("“Q3 by region” was made for the sheet “Q3”, which quarters.xlsx does not have.") and
+  is shown on the sheet you have. A view file or link made on a sheet does the same under **Open view
+  file…**.
 
 ## Back to the original data
 
@@ -87,12 +97,13 @@ shown; the others keep the type found.
 
 ## When a file cannot be loaded
 
-The data you had stays, and a note says why, in the words of the reader:
+The data you had stays, and a note says why: a file over a limit in the report's language, any other
+reason in the words of the reader (English):
 
 | Note | What to do |
 | --- | --- |
 | "tickets.csv could not be loaded: the quote that opens a value in line 12 is never closed." | Fix the line in the file, or export it again. |
-| "… has more than 1,000,000 rows (limits.rows) …" | Load a smaller extract; the application can raise the limit. |
+| "big.csv could not be loaded: it has more than 1,000,000 rows (limits.rows): load a smaller extract of it, or a host can raise this limit" | Load a smaller extract; the application can raise the limit. An application can allow fewer rows for a file than its own data has. The same note names columns, bytes or values (rows x columns), and for a workbook the parts in its ZIP directory or the bytes it unpacks to. |
 | "… the workbook holds macros …", "… an Excel 97-2003 workbook …", "… protected with a password …" | Save it as an Excel workbook (`.xlsx`) without macros, or as CSV. |
 | "… no reader for this kind of file." | The report does not read this format (a PDF, say); save the data as CSV. |
 | "Drop one file at a time." | More than one file was dropped. |
@@ -126,6 +137,8 @@ A sheet of a workbook that cannot be read says why above the sheet list; pick an
     component) turns it on. Excel needs the [pivotkit-xlsx plugin](../reference/plugins.md#pivotkit-xlsx)
     in `plugins`; `onDataLoad` (React) or the event `pivot-data-load` reports every change of the data
     shown and can refuse a file. A file comes back after a new mount of the report only with a
-    `storageKey` ([details](../reference/react.md#prop-allowimport)). See the [React props](../reference/react.md#prop-allowimport), the
+    `storageKey` ([details](../reference/react.md#prop-allowimport)). A file's limits are
+    [`importLimits`](../reference/react.md#prop-importlimits) over `limits`, so uploads can be kept
+    smaller than the host's data. See the [React props](../reference/react.md#prop-allowimport), the
     [element reference](../reference/element.md#prop-allowimport) and
     [Loading files](../reference/import.md) for what the readers do.

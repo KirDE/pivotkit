@@ -14,12 +14,11 @@
 import React, { useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { encode } from "pivotkit-core";
-import { IMPORT_TYPES, fileName, retype } from "pivotkit-core/import";
+import { IMPORT_TYPES, fileName, retype, shownName, sourceIdOf } from "pivotkit-core/import";
 import { useFormName, useModal } from "./dom.js";
 import { Icon } from "./icons.jsx";
-import { importLabels, noteText } from "./import-labels.js";
+import { errorText, importLabels, noteText } from "./import-labels.js";
 import { formatsOf, readImport, sheetsOf } from "./import-run.js";
-import { shownName, sourceIdOf } from "./import-source.js";
 import { fill, messageOf, plural } from "./labels.js";
 import { Group, LayerContext, Option, hasTopLayer, useTopLayer } from "./popover.jsx";
 
@@ -131,13 +130,6 @@ export function SourceLine({ labels, source }) {
     );
 }
 
-/** The reader's message without the file's name in front, which the note names already. */
-function readerMessage(error, name) {
-    const text = messageOf(error);
-    const prefix = `"${name}": `;
-    return text.startsWith(prefix) ? text.slice(prefix.length) : text;
-}
-
 /** A value of the preview as text: a number in the locale, a yes or no, a date as it was read. */
 function cellText(value, type, t, locale) {
     if (value === null || value === undefined) {
@@ -156,9 +148,11 @@ function cellText(value, type, t, locale) {
 /**
  * @typedef {object} LoadedData  what "Load data" hands the report
  * @property {import("pivotkit-core").Encoded} encoded
- * @property {{ id: string, name: string }} source  the id for the saved views (import-source.js), the name shown
+ * @property {{ id: string, name: string }} source  the id for the saved views (pivotkit-core/import's sourceIdOf), the name shown
  * @property {{ name: string, size: number, type: string }} file
  * @property {string | null} sheet
+ * @property {readonly string[]} sheets  the names of the workbook's sheets ([] for a file with one table)
+ * @property {File} blob  the file itself, to read another of its sheets (a view made on it, sheet-views.js)
  * @property {number} rows
  * @property {Array<{ name: string, type: string }>} columns
  * @property {Array<{ code: string, params: Record<string, unknown>, message: string }>} notes
@@ -168,8 +162,10 @@ function cellText(value, type, t, locale) {
  * Reads a file (progress, Cancel) and shows it before it replaces the data: the sheet, the first
  * rows with a type per column, the readers' notes; "Load data" or Cancel. Modal, in the top layer:
  * the focus moves in, Tab stays inside, Escape cancels, the focus goes back to where it was. A file
- * that cannot be read closes it with a note; the report's data stays.
- * @param {{ job: { file: File, n: number }, labels: any, locale: string, plugins: any[], worker?: () => Worker,
+ * that cannot be read closes it with a note; the report's data stays. A job with `sheet` starts on that
+ * sheet (a name); with `auto` it loads as soon as the sheet is read, without waiting for "Load data"
+ * (a saved view opened on another sheet of the file shown: the person asked for that sheet already).
+ * @param {{ job: { file: File, n: number, sheet?: string, auto?: boolean }, labels: any, locale: string, plugins: any[], worker?: () => Worker,
  *   limits?: object, timeZone?: string, onApply: (data: LoadedData) => void, onClose: () => void,
  *   announce: (text: string, extra?: { tone?: "error" }) => void }} props
  */
@@ -179,22 +175,23 @@ export function ImportDialog({ job, labels, locale, plugins, worker, limits, tim
     const { layer } = useContext(LayerContext);
     const file = job.file;
     const name = useMemo(() => fileName(file, {}), [file]);
-    const [sheet, setSheet] = useState(/** @type {number | undefined} */ (undefined));
+    // the sheet asked for: an index picked in the list, a name a job starts on, else the reader's first
+    const [sheet, setSheet] = useState(/** @type {number | string | undefined} */ (job.sheet));
     const [sheets, setSheets] = useState(/** @type {import("pivotkit-core/import").SheetInfo[]} */ ([]));
-    const [read, setRead] = useState(/** @type {{ table: import("pivotkit-core/import").ImportTable, sheet: number | undefined } | null} */ (null));
+    const [read, setRead] = useState(/** @type {{ table: import("pivotkit-core/import").ImportTable, sheet: number | string | undefined } | null} */ (null));
     const [types, setTypes] = useState(/** @type {import("pivotkit-core/import").ImportType[] | null} */ (null));
     const [progress, setProgress] = useState(/** @type {import("pivotkit-core/import").ImportProgress | null} */ (null));
     const [error, setError] = useState(/** @type {string | null} */ (null));
     const [busy, setBusy] = useState(false);
     // the sheet whose read failed: no preview and no Load data, the sheet list stays to pick another
-    const [failed, setFailed] = useState(/** @type {number | undefined | null} */ (null));
+    const [failed, setFailed] = useState(/** @type {number | string | undefined | null} */ (null));
     const current = read && read.sheet === sheet ? read : null;
     const reading = !current && failed !== sheet;
     // what a read takes from the report, read when it starts: a host that passes new plugins or a new
     // worker function on every render does not start the read again
-    const latest = useRef({ onClose, announce, t, name, plugins, worker, locale, limits });
+    const latest = useRef({ onClose, announce, t, name, plugins, worker, locale, limits, where });
     useEffect(() => {
-        latest.current = { onClose, announce, t, name, plugins, worker, locale, limits };
+        latest.current = { onClose, announce, t, name, plugins, worker, locale, limits, where };
     });
 
     // the file, and again for another sheet; Cancel or a new file stops it
@@ -228,7 +225,7 @@ export function ImportDialog({ job, labels, locale, plugins, worker, limits, tim
                 if (controller.signal.aborted) {
                     return;
                 }
-                const text = fill(latest.current.t.failed, { name: latest.current.name, message: readerMessage(e, latest.current.name) });
+                const text = fill(latest.current.t.failed, { name: latest.current.name, message: errorText(e, latest.current.name, latest.current.t, latest.current.where) });
                 if (sheet === undefined) {
                     // the file itself: the dialog closes, the note stays until it is closed
                     latest.current.announce(text, { tone: "error" });
@@ -294,7 +291,7 @@ export function ImportDialog({ job, labels, locale, plugins, worker, limits, tim
         const n = shown?.notes.find((x) => x.code === "SHEET");
         return n && n.params?.sheet !== undefined ? String(n.params.sheet) : null;
     })();
-    const sheetIndex = sheet ?? sheets.find((s) => s.name === sheetName)?.index ?? 0;
+    const sheetIndex = typeof sheet === "number" ? sheet : (sheets.find((s) => s.name === sheetName)?.index ?? 0);
 
     const apply = async () => {
         if (!shown || busy) {
@@ -314,17 +311,28 @@ export function ImportDialog({ job, labels, locale, plugins, worker, limits, tim
                 source: { id, name: shownName(name) },
                 file: { name, size: file.size, type: file.type },
                 sheet: sheetName,
+                sheets: sheets.map((s) => s.name),
+                blob: file,
                 rows: shown.rowCount,
                 columns: shown.columns.map((c, i) => ({ name: c, type: shown.types[i] })),
                 notes: shown.notes.map((n) => ({ code: n.code, params: { ...n.params }, message: n.message }))
             });
         } catch (e) {
             if (live.current) {
-                setError(fill(t.failed, { name, message: readerMessage(e, name) }));
+                setError(fill(t.failed, { name, message: errorText(e, name, t, where) }));
                 setBusy(false);
             }
         }
     };
+
+    // a job that loads by itself: once, when the sheet's rows are there and nothing is wrong
+    const autoDone = useRef(false);
+    useEffect(() => {
+        if (job.auto && ready && shown && shown.rowCount > 0 && !typed.error && !autoDone.current) {
+            autoDone.current = true;
+            void apply();
+        }
+    });
 
     if (!layer) {
         return null;

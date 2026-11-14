@@ -47,7 +47,7 @@ supported.
 | `canPublish` | `can-publish` (boolean) | `boolean` | `false` | Offers "Publish as shared view" on the user's views and Save on a shared view loaded (without it Save is greyed out there: "Shared view: you cannot change it. Use Save as."); both are a `pivot-template-publish` event. The element only shows what the page allows: the server must check who may save, publish or delete. |
 | `fieldDefaults` |  | `{ [field]: { agg?, format?, drillFormat?, order?, label?, description?, href?, type? } }` |  | The aggregator and format a field gets in Values (another aggregator in the value's menu keeps the format while the result is in the field's unit, not for a count). [More](#prop-fielddefaults) |
 | `labels` |  | partial labels |  | Texts merged over the language's labels (the keys are in pivotkit-react's `LABELS.en`). |
-| `limits` |  | `Partial<Limits>` |  | pivotkit-core's [limits](../concepts/limits.md#limits), as the `limits` prop of pivotkit-react. |
+| `limits` |  | `Partial<Limits>` |  | pivotkit-core's [limits](../concepts/limits.md#limits) for the page's data, as the `limits` prop of pivotkit-react. |
 | `locale` | `locale` | `string` | `"en-US"` | Numbers, dates, sorting and the language of the labels (`de-*` is German). Without it the element's own `lang` attribute is used; the page's language is not. |
 | `theme` | `theme` | `"auto"` or `"light"` or `"dark"` | `"auto"` | `auto` follows the nearest `data-theme="light"` or `data-theme="dark"` on the element or above it (`<html>`), then `prefers-color-scheme`, and changes with them. |
 | `height` | `height` | `number` or `string` | `640` | Pixels (`height="480"`) or a CSS length; `"100%"` fills the element, which then needs a height from the page (`pivot-report { height: 70vh }`). [More](#prop-height) |
@@ -55,6 +55,7 @@ supported.
 | `fileName` | `file-name` | `string` | `"pivot"` | Name of exported files, without the extension; made safe. |
 | `label` | `label` | `string` | `labels.report` | The name of the report's region landmark; give each report on a page its own (`label="Tickets"`). |
 | `drillDown` | `drill-down` | `boolean` | `true` | The panel with the rows behind a clicked value; `drill-down="false"` turns it off. |
+| `exportData` | `export-data` | `boolean` | `false` | Export → Source data: every row and column of the data as a CSV or JSON file (`pivot-data.csv`), for the user's own analysis or the command line; a boolean attribute (`<pivot-report export-data>`). It holds columns no view places and rows the filters leave out: [Security](../security.md#source-data). |
 | `drillDownLimit` | `drill-down-limit` | `number` | `1000` | Rows passed to the panel and to `pivot-cell-click`; the panel's exports hold these rows and say when there are more ("1,000 of 4,212 rows"). |
 | `tips` | `tips` | `string` | `"on"` | The tips above the result: `"on"`, `"off"` (none, and no switch in Options) or the tip ids allowed, comma-separated (`tips="top,cells"`); the ids are in the [React reference](react.md#tips). |
 | `storageKey` | `storage-key` | `string` |  | Remembers dismissed tips and the help switches in `localStorage` under `pivotkit:tips:<key>`; give each element on a page its own. [More](#prop-storagekey) |
@@ -73,12 +74,13 @@ supported.
 | `persistView` | `persist-view` | `"session"` |  | `"session"` keeps the view for this tab (`sessionStorage`, per `storage-key`). |
 | `loading` | `loading` (boolean) | `boolean` | `false` | The page is loading the data: the skeleton before the first data, the result covered on later loads. |
 | `allowImport` | `allow-import` (boolean) | `boolean` | `false` | People may load a file into the report in the browser: a **Data** button, a file dropped onto the report, a preview first; nothing is uploaded. [More](#prop-allowimport) |
+| `importLimits` |  | `Partial<Limits>` | `limits` | The limits of a file loaded with `allow-import`, merged key by key over `limits`; the page's data keeps `limits`. As the [`importLimits`](react.md#prop-importlimits) prop. |
 | `plugins` |  | `ReaderPlugin[]` |  | Reader plugins for more formats with `allow-import`: [pivotkit-xlsx](plugins.md#pivotkit-xlsx) for Excel. CSV, TSV, text and JSON are built in. |
 
 Properties with an attribute reflect it, as native elements do: `report.theme = "dark"` sets
 `theme="dark"`, `null` removes it. `view` and `default-view` are parsed as JSON objects (a text that
 is not one is ignored with a console warning); setting the property does not write the attribute.
-Data, templates, sources, labels, field defaults, limits and dismissed tips are properties only. A view is user input either
+Data, templates, sources, labels, field defaults, limits, import limits, plugins and dismissed tips are properties only. A view is user input either
 way: pivotkit-core normalizes it against the data and it cannot run code.
 
 The element sets `data-pk-theme="light|dark"` on itself, the theme the report shows. It is an
@@ -155,7 +157,13 @@ a row; kept in the page's memory only, as for the React prop. Behaviour:
 The element reads CSV and JSON files in a worker of its own, `dist/import-worker.js` (pivotkit-core's
 readers in one file, about 10 KiB gzip), started from its chunk by relative URL: serve it with `dist/`.
 It is a file of the page's origin, never a `blob:` URL, so `script-src 'self'` (or `worker-src`)
-allows it; where it cannot start, the element reads on the page. The import UI is the load group
+allows it; where it cannot start, the element reads on the page (and Firefox and WebKit log the
+failed worker in the console). The element resolves `../import-worker.js` against the URL of the
+file its code is in (`import.meta.url`): in `dist/` that file is a chunk in `dist/chunks/`, so the
+worker is `dist/import-worker.js`. An app that bundles the element serves the worker where that URL
+points from the app's own file that holds the element's code; where that is depends on the bundler's
+output layout. For Angular's flat output it is the site's root, with `angular.json` copying the file
+as an asset: [Angular](../getting-started/web-component.md#angular). The import UI is the load group
 "import", loaded on first use ([Bundle size](#bundle-size)).
 
 ```html
@@ -165,6 +173,7 @@ allows it; where it cannot start, the element reads on the page. The import UI i
     const report = document.querySelector("pivot-report");
     report.data = rows;
     report.plugins = [xlsxReader];
+    report.importLimits = { rows: 200_000 };   // files people load; the page's rows keep report.limits
     report.addEventListener("pivot-data-load", (e) => {
         if (e.detail.cause === "load" && e.detail.rows > 200_000) e.preventDefault();
     });
@@ -209,9 +218,9 @@ would for the data itself.
 | --- | --- |
 | `pivot-view-change` | Every change of the view, normalized.<br><small>`detail`: `{ view }`</small> |
 | `pivot-cell-click` | A click (or Enter) on a value or a chart point: key paths, the value, the number of source rows and the first `drillDownLimit` of them (the page's own row objects).<br><small>`detail`: `{ row, col, value, valueIndex, text, count, rows }`</small> |
-| `pivot-template-save` | "Save current view", Save as… and Save of a user's view (with `save-templates`); `scope` is `"user"`. The name may exist: replace that view (an upsert by name).<br><small>`detail`: `{ name, view, scope, respondWith }`</small> |
+| `pivot-template-save` | "Save current view", Save as… and Save of a user's view (with `save-templates`); `scope` is `"user"`. The name may exist: replace that view (an upsert by name).<br><small>`detail`: `{ name, view, scope, source, respondWith }`; `source` the data shown, `{ id, name, params }` (a loaded workbook's sheet in `params.sheet`), or `null`</small> |
 | `pivot-template-delete` | Delete of a template marked `deletable`, after the user confirmed in the menu; `scope` is its group (`"shared"` or `"user"`). Not sent for a view of the browser store.<br><small>`detail`: `{ name, scope, respondWith }`</small> |
-| `pivot-template-publish` | "Publish as shared view" on one of the user's views, or Save on a shared view (with `can-publish`), after the user confirmed: add it to the shared views, or replace the one of that name, and set `templates`.<br><small>`detail`: `{ name, view, respondWith }`</small> |
+| `pivot-template-publish` | "Publish as shared view" on one of the user's views, or Save on a shared view (with `can-publish`), after the user confirmed: add it to the shared views, or replace the one of that name, and set `templates`.<br><small>`detail`: `{ name, view, source, respondWith }`; `source` the data the view was made for: the data shown, as for `pivot-template-save`, for a view that names no data of its own; the data a view file or a view of the browser store names (its `id`, `params.sheet`, and `name` when it is the data shown)</small> |
 | `pivot-export` | Every exported file before its download and every copy before it goes on the clipboard; cancelable. [More](#event-pivot-export)<br><small>`detail`: `{ kind, fileName, blob, text, rows }`</small> |
 | `pivot-tip-dismiss` | A tip dismissed (`id`), all tips switched off (`id` `"*"`) or back on (`id` `null`), with every dismissed id, for a page that stores them itself and sets `dismissedTips`.<br><small>`detail`: `{ id, dismissed }`</small> |
 | `pivot-source-switch` | "Switch to “name” and load" for a view made for one of `sources`: show that data with `view` as its start view. [More](#event-pivot-source-switch)<br><small>`detail`: `{ source, view, name }`</small> |
@@ -247,7 +256,7 @@ The events whose line in the table ends in "More", in full.
 
 `detail`: `{ kind, fileName, blob, text, rows }`.
 
-Every exported file before its download and every copy before it goes on the clipboard: `"xlsx"`, `"csv"`, `"png"`, `"json"` for the view file of "Download view"; the copies `"copy-table"` and `"copy-json"` (Export, Copy table and Copy data as JSON); the drill-down panel's `"drill-copy"`, `"drill-json"`, `"drill-csv"` and `"drill-xlsx"`. A copy also has its `text` and the `fileName` it would have as a file (`pivot.tsv`); a drill-down export has `rows: { shown, count }`. Cancelable: `preventDefault()` skips the download or the copy, the page keeps the blob (to upload it, say). Not sent for an empty report (no field placed): its Export entries are greyed out ("Add a field first.").
+Every exported file before its download and every copy before it goes on the clipboard: `"xlsx"`, `"csv"`, `"html"`, `"png"`, `"svg"`, `"json"` for the view file of "Download view"; `"data-csv"` and `"data-json"`, Source data (with `export-data`); `"print"`, the HTML report before the print dialog opens (`preventDefault()` prints nothing); the copies `"copy-table"` and `"copy-json"` (Export, Copy table and Copy data as JSON); the drill-down panel's `"drill-copy"`, `"drill-json"`, `"drill-csv"` and `"drill-xlsx"`. A copy also has its `text` and the `fileName` it would have as a file (`pivot.tsv`); a drill-down export has `rows: { shown, count }`. Cancelable: `preventDefault()` skips the download or the copy, the page keeps the blob (to upload it, say). Not sent for the table's exports of an empty report (no field placed): they are greyed out ("Add a field first."); Source data stays.
 
 ### `pivot-source-switch` { #event-pivot-source-switch }
 
@@ -260,7 +269,8 @@ Every exported file before its download and every copy before it goes on the cli
 `detail`: `{ cause, source, file, sheet, rows, columns, notes }`.
 
 `cause` is `"load"` for a file, sent before it is shown: `preventDefault()` refuses it and the data
-stays (cancelable for `"load"` only); `"original"` when "Back to original data" shows the page's
+stays (cancelable for `"load"` only); also for another sheet of the workbook shown that a saved view
+opened (refused, the view is not opened and a note says so); `"original"` when "Back to original data" shows the page's
 data; `"undo"` and `"redo"` when one of those steps is undone or redone; `"restore"` when an element
 with `storage-key` put back into the page shows the file it had. `source` is `{ id, name }` of
 the data shown now (the file's, or the element's `source-id` and `source-name`), `file` its
@@ -345,7 +355,8 @@ declares `<pivot-report>` with its properties and `on<event>` props in React's J
 
 ## Angular and zone.js
 
-The Angular example is in [Getting started](../getting-started/web-component.md#angular). Not built or tested in this repository.
+The Angular example is in [Getting started](../getting-started/web-component.md#angular): a zoneless
+Angular 22 app in `examples/angular/`, built and tested in CI.
 
 `[data]="rows"` sets the property (Angular binds properties of an element with the schema); a new
 array is a new data set. For the controlled form bind `[view]="view"` and set `this.view` in the
@@ -353,8 +364,10 @@ handler. Binding the stored view back as `[defaultView]` is fine: the element ig
 reported itself.
 
 Change detection: the element runs React's scheduler, ECharts' pointer listeners and animation
-frames in whatever zone created it. Inside Angular's zone (zone.js) each of them may trigger change
-detection of the app. Not measured here; if it shows, create and feed the element outside the zone
+frames in whatever zone created it. A zoneless app, as the example,
+runs change detection only for its own bindings, signals and event handlers. Inside Angular's zone
+(zone.js) each of them may trigger change detection of the app. Not measured here, since the example
+is zoneless; if it shows, create and feed the element outside the zone
 and come back in for the app's own state:
 
 ```ts
@@ -381,20 +394,22 @@ above.
 
 ## Bundle size
 
-What a page loads, measured with `npm run size -w pivotkit-element` on one Mac (esbuild 0.28.2,
-gzip level 9 per file, sizes add up per group; approximate, they change with every dependency
-update). CI runs the same command; it fails when a group is over `SIZE_BUDGET_KIB` in `build.js`
-(the first-load budget is 161.75 KiB; Node 24 measures about 161.5 KiB with expanded-year
-Date-boundary summaries, leaving about 0.25 KiB headroom; later-load groups have separate budgets):
+What a page loads, measured with `npm run size -w pivotkit-element` on one Mac on 2026-11-13
+(esbuild 0.28.2, gzip level 9 per file, sizes add up per group; approximate, they change with every
+dependency update). CI runs the same command; it fails when a group is over `SIZE_BUDGET_KIB` in
+`build.js` (173 KiB for the first load, about 0.3 above what CI measures; 1 to 7 per cent
+above what CI measures for the groups loaded later; CI reads up to about 0.7 KiB more than these
+numbers):
 
 | Loaded | Files | Size | gzip |
 | --- | ---: | ---: | ---: |
-| First (`index.js` and its static imports: React, ReactDOM, pivotkit-react, pivotkit-core, @dnd-kit, styles) | 8 | 493 KiB | 160 KiB |
-| On the first chart (ECharts with bar, line, pie (also the donut), heatmap, the components they use, the title among them, the canvas renderer, and the layout of the chart's labels) | 1 | 604 KiB | 204 KiB |
-| On the first export or copy (pivotkit-core's export, and fflate as a chunk it shares with the link; the Export menu and the drill-down's start loading it when they open) | 2 | 24 KiB | 11 KiB |
-| On the first shared link, Copy link or loaded link (pivotkit-core's link with fflate) | 2 | 14 KiB | 7 KiB |
-| Right after the first render (the menus' panels with their levels, the Filter level with its summary, quick choices, items and rules, the Export menu, the drill-down's panel and its table, sharing's copy, download and load, and the English texts only they show) | 1 | 123 KiB | 40 KiB |
-| With the menus, for a German report only (the menus' German texts) | 1 | 17 KiB | 6 KiB |
+| First (`index.js` and its static imports: React, ReactDOM, pivotkit-react, pivotkit-core, @dnd-kit, styles) | 11 | 528 KiB | 172 KiB |
+| On the first chart (ECharts with bar, line, pie (also the donut), heatmap, the components they use, the title among them, the canvas renderer, and the layout of the chart's labels) | 2 | 631 KiB | 216 KiB |
+| On the first export or copy (pivotkit-core's export, and fflate as a chunk it shares with the link; the Export menu and the drill-down's start loading it when they open) | 3 | 27 KiB | 12 KiB |
+| On the first shared link, Copy link or loaded link (pivotkit-core's link with fflate) | 2 | 15 KiB | 7 KiB |
+| Right after the first render (the menus' panels with their levels, the Filter level with its summary, quick choices, items and rules, the Export menu, the drill-down's panel and its table, sharing's copy, download and load, and the English texts only they show) | 1 | 139 KiB | 45 KiB |
+| With the menus, for a German report only (the menus' German texts) | 1 | 20 KiB | 7 KiB |
+| When a view has unused parts (their plain words: English, and German for a German report) | 2 | 16 KiB | 5 KiB |
 | With `allow-import`, on the first use of the Data menu, a drop or the empty report's Load data… (the import UI with its English and German texts, pivotkit-core's readers) | 5 | 50 KiB | 20 KiB |
 | With `allow-import`, the worker of a CSV or JSON file (`dist/import-worker.js`, one file) | 1 | 25 KiB | 10 KiB |
 

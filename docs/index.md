@@ -1,6 +1,6 @@
 ---
 title: Overview
-description: pivotkit is a pivot report builder for the web - drag-and-drop fields, table and chart, filters, drill-down, views as JSON files and native Excel export - as a JavaScript engine, a React component and a web component.
+description: pivotkit is Excel's PivotTable for web applications and the command line - people load their own file, drag fields, filter, chart and export to Excel, and the report is a safe JSON view that renders again in CI. React, web component, engine, CLI, REST service and MCP server; MIT.
 hide:
   - navigation
   - toc
@@ -8,108 +8,120 @@ hide:
 
 <div class="hero" markdown>
 
-<p class="hero-kicker">Pivot tables · React · Web component · Excel export</p>
+<p class="hero-kicker">Pivot tables · React · Web component · CLI · REST · MCP · Excel export</p>
 
 # pivotkit
 
-<p class="hero-lead">A pivot report builder for the web, with Excel's PivotTable as the reference: people drag fields into rows, columns and values, filter, drill into the rows behind a number, switch to a chart and export to Excel - and the whole report is a small JSON object you can save, share as a link or a file and load again.</p>
+<p class="hero-lead">Excel's PivotTable for your web application: people load their data, drag fields into rows, columns and values, and take the result to Excel - and the same report runs again on the command line.</p>
 
-[I build reports](use/index.md){ .md-button .md-button--primary title="For the people who build reports in an application: fields, filters, charts, export" }
-[I embed pivotkit](embed/index.md){ .md-button .md-button--primary title="For developers: React, web component, engine" }
+MIT · the report runs in the browser, nothing uploaded · React, web component, Node, command line, REST, MCP
+
+[I build reports](use/index.md){ .md-button .md-button--primary title="For the people who build reports in an application: load data, fields, filters, charts, export" }
+[I embed or automate pivotkit](embed/index.md){ .md-button .md-button--primary title="For developers: React, web component, engine, reports, the command line, REST and MCP" }
 [Try the live demo](demo.md){ .md-button }
 
 </div>
 
-![The pivot report in the light theme with real weather data: field list on the left, the Filters, Columns, Rows and Values zones, and the average temperature of 14 cities by month as a colour scale](assets/screenshots/report-light.png#only-light)
-![The pivot report in the dark theme with real weather data: field list on the left, the Filters, Columns, Rows and Values zones, and the average temperature of 14 cities by month as a colour scale](assets/screenshots/report-dark.png#only-dark)
+<div class="grid" markdown>
+
+<figure markdown>
+![The pivot report: average temperature of 14 cities by month as a colour scale](assets/screenshots/report-light.png#only-light)
+![The pivot report in the dark theme: average temperature of 14 cities by month as a colour scale](assets/screenshots/report-dark.png#only-dark)
+<figcaption>The report: fields in Rows, Columns and Values, a colour scale.</figcaption>
+</figure>
+
+<figure markdown>
+![The preview of a loaded CSV file: its first rows with a type under each column name, notes on what was read, Cancel and Load data](assets/screenshots/import-preview-light.png#only-light)
+![The preview of a loaded CSV file in the dark theme: its first rows with a type under each column name, notes on what was read, Cancel and Load data](assets/screenshots/import-preview-dark.png#only-dark)
+<figcaption>Your own file: a preview with a type per column before it replaces the data.</figcaption>
+</figure>
+
+<figure markdown>
+![The same report as an Excel workbook: cities down, months across, Grand Total in bold, numbers as numbers](assets/screenshots/xlsx-result-light.png#only-light)
+![The same report as an Excel workbook: cities down, months across, Grand Total in bold, numbers as numbers](assets/screenshots/xlsx-result-dark.png#only-dark)
+<figcaption>The same report as a workbook (here in the macOS preview; Excel also shows its colour scale).</figcaption>
+</figure>
+
+</div>
 
 <small>Weather data by [Open-Meteo.com](https://open-meteo.com/) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)); contains modified Copernicus Climate Change Service information ([attribution](learn.md#query-it-live)).</small>
+
+## What it does well
+
+1. **Bring your own file.** Where the application allows it, drop a CSV, JSON or Excel file onto
+   the report: a preview shows a type
+   under each column, lets you change it and pick the sheet of a workbook; German numbers and dates,
+   title lines above the header and leading zeros ("01067") are read right; Undo brings the
+   application's data back. Nothing is uploaded ([load your own data](use/load-data.md)).
+2. **Filters that say what they keep.** Pick items with their row counts, take "last 3 months" or
+   "this quarter" that stay right over time, a top 10 with ties, or a rule on a total ("Sum of
+   Revenue > 1,000"); each one says how many items it keeps ([filters](use/filters.md)).
+3. **Excel with the layout kept.** The workbook keeps merged headers, bold totals, number formats,
+   and colour scales and data bars as Excel's own conditional formats. Next to the table's exports,
+   the rows behind it download as CSV or JSON for your own analysis
+   ([export](use/export.md), [the table or the rows](use/export.md#the-table-or-the-rows-behind-it)).
+4. **Keyboard and screen reader for every action.** Every step has a button or a menu entry, drag
+   and drop is never the only way, chips move with the arrow keys and say where they are
+   ([keyboard and screen readers](use/keyboard.md)).
+5. **Safe views, reports without a browser.** A report is a small JSON view that holds names only and
+   cannot run code ([security](security.md#views-are-untrusted-input)); `pivotkit render` makes the
+   same report from it on the command line or in CI, as HTML, CSV or Excel, and `pivotkit describe
+   --suggest` a first view from a CSV or Excel file's fields
+   ([command line](getting-started/cli.md)).
 
 <div class="grid" markdown>
 
 <div markdown>
 
-## For the people who build reports
+## For the people who build reports { #for-the-people-who-build-reports }
 
 <span id="what-people-can-do-with-it"></span>
 
-Start with the [quick start](use/quick-start.md) (your first report in six steps), then
-[learn with real data](learn.md). Every task has a page of its own:
-
-- Drag fields into **Rows**, **Columns**, **Values** and **Filters**, or use the menu every field
-  has: drag and drop is never the only way ([fields and zones](use/fields.md)).
-- Sum, count, average, median, minimum, maximum, distinct count and the usual statistics; show a
-  value as a share of a total, a running total, a difference or a rank ([values](use/values.md)).
-- Dates are grouped by year, quarter, month, week, day or hour as soon as they are placed; numbers
-  go into ranges ([dates and ranges](use/values.md#dates-and-number-ranges)).
-- Filter a field by its values with their row counts, a quick choice for dates ("last 2 years",
-  only where the data reach), rules ("from 2022", "Sum of Revenue > 1,000") or its top N; the menu
-  says what a filter shows and why not the rest ([filters](use/filters.md)).
-- Click a number to see the rows behind it, then copy or download them ([drill-down](use/drill-down.md)).
-- Switch to a chart: the type follows the data (lines over dates, else bars) until you pick bars,
-  lines, area, pie, donut or heatmap, with value labels, legend, title and group labels
-  ([charts](use/charts.md)).
-- Undo and redo every step; Start over has Reset (back to the start) and New (an empty report). Pick a shared view
-  or one of your own under Views, save changes to it with one click or under a new name, publish it
-  for everyone where allowed, or share it as a link, as JSON or as a
-  view file; a view for other data asks first ([views and sharing](use/views.md)).
-- Export the table to Excel or CSV and the chart to PNG, or copy the table into a spreadsheet
-  ([export and copy](use/export.md)).
-- Where the application allows it, load a CSV, JSON or Excel file of your own: drop it onto the report,
-  check the preview and the column types, go back with Undo ([load your own data](use/load-data.md)).
-- Enlarge the result or put the report on the full screen; tips, one at a time, say what the report
-  shows and what to do next; an "i" explains each zone, field and setting that needs it, a field's
-  menu says on its first level what is set and opens each topic in a level of its own, and every text
-  field in a menu has an × that empties it
-  ([small screens, menus and tips](use/layout.md)).
-- Works with a keyboard and a screen reader, from a phone to a wide screen
-  ([keyboard](use/keyboard.md)), in English and German, light and dark.
+Your first report in six steps: the [quick start](use/quick-start.md). Then
+[learn with real data](learn.md) (weather, countries, earthquakes, Nobel laureates, software end of
+life), or [load your own](use/load-data.md). Every task has its page under
+[Use a report](use/index.md); every feature is in the [feature list](features.md).
 
 </div>
 
 <div markdown>
 
-## For developers
+## For developers { #for-developers }
 
 <span id="quick-start"></span><span id="three-packages"></span>
 
-```bash
-npm install pivotkit-react react react-dom echarts
-```
+| You want | Start here |
+| --- | --- |
+| The report in a React 18 or 19 app | [React](getting-started/react.md): `npm install pivotkit-react react react-dom echarts` |
+| The report on a page without React (Angular, PHP, plain HTML) | [Web component](getting-started/web-component.md): `<pivot-report>` |
+| Pivots, grids and exports in your own code, browser or Node | [Engine](getting-started/engine.md): `pivotkit-core` |
+| Reports as files from a script or a server | [Reports in code](getting-started/report.md): `pivotkit-report` |
+| Reports and view checks in a terminal or CI | [Command line](getting-started/cli.md): `pivotkit example` |
+| Reports for programs over HTTP (scripts, PowerShell, schedulers), with an OpenAPI document | [REST service](getting-started/rest.md): `pivotkit-server serve`, or the [container image](reference/container.md) |
+| Reports from an AI client (Claude, VS Code), without the model reading the data | [MCP server](getting-started/mcp.md): `npx -y pivotkit-mcp` |
+| A PowerShell Universal app | [PowerShell Universal](getting-started/react.md#powershell-universal): `New-UDPivotReport` |
 
-Start with [Embed pivotkit](embed/index.md): which package fits, and a first report in a few lines.
-
-- One React component, `<PivotReport>`, for React 18 and 19 ([React](getting-started/react.md)).
-- The web component `<pivot-report>` for pages without React: Angular, PHP, plain HTML ([web component](getting-started/web-component.md)).
-- Runs in PowerShell Universal on the React it provides ([PowerShell Universal](getting-started/react.md#powershell-universal)), ready-made as `New-UDPivotReport` in [PowerShellUniversal.Component.Pivot](https://powershell-universal-components.eize.dev/pivot/).
-- The engine alone, in the browser or in Node: pivots, grids, chart options, XLSX and CSV ([engine](getting-started/engine.md)).
-- CSV, TSV and JSON files read in the browser into typed columns, Excel workbooks with the plugin pivotkit-xlsx, limits checked before parsing ([loading files](reference/import.md), [plugins](reference/plugins.md)); `allowImport` lets people load them into the report themselves, with a preview and `onDataLoad` ([React props](reference/react.md#prop-allowimport)).
-- The report is a JSON view: store it, pass it back, controlled or not ([views](concepts/views.md)).
-- A view is user input: names only (and the values chosen in its filters), checked against fixed lists and limits, never run ([security](security.md)).
-- Field labels, descriptions and links, also from a JSON Schema or OpenAPI document ([fields](concepts/fields.md)).
-- `chartOptions` merges plain JSON over the ECharts option, for what the menus do not offer ([charts](concepts/charts.md#chartoptions-for-developers)).
-- `shareLink` and `persistView` share and keep views; a view travels as a [view file](reference/view-file.md) with a JSON Schema, `toViewFile` and `fromViewFile` read and write it ([sharing](concepts/sharing.md)).
-- Templates in two groups, shared views and my views, kept by the host's callbacks or by the browser (`templateStore`), also from an OpenAPI document's `x-pivotkit-views` ([templates](concepts/templates.md)).
-- `source`, `sources` and `onSourceSwitch` name the data a view is made for and let a view for other data switch to it ([sharing](concepts/sharing.md#the-source-of-a-view-for-developers)).
-- `loading` shows the skeleton while the host fetches data ([React props](reference/react.md#props)).
-- Every file and every copy passes `onExport` first, so the host can keep it ([React props](reference/react.md#props)).
-- Theming through `--pk-*` tokens, inside a shadow root too ([theming](reference/theming.md)); every text replaceable, English and German built in ([localisation](reference/localisation.md)).
-- Designed for about 100,000 rows; heavy parts load on first use ([performance](reference/react.md#performance), [bundle size](reference/element.md#bundle-size)).
+Which package fits, what a host switches on, and the recipes: [Embed pivotkit](embed/index.md).
 
 </div>
 
 </div>
 
-Every behaviour, also the small ones, is in the [feature list](features.md), with a link to its page.
+!!! note "What pivotkit does not do"
 
-## Designed for
-
-- **Up to about 100,000 rows** in the browser: typed columns, no object per row in the hot loops. A
-  change stays within a frame or two (see [Performance](reference/react.md#performance)).
-- **Safe input**: a view is user input. It holds names only (and the values chosen in its filters), cannot run code and is checked against
-  limits before anything big is allocated. Exports are safe to open. See [Security](security.md).
-- **Excel as the reference**: subtotals, "show values as", top N and the export behave as people know
-  them from Excel's PivotTable; the [concepts](concepts/views.md) name the few places that differ.
+    - The report fetches no data and makes no network request: the application passes the rows, or a
+      person loads a file; only the REST service and the MCP server, which you run yourself, answer
+      requests, and they read the files you configure ([FAQ](faq.md#my-data-is-on-a-server-does-pivotkit-fetch-it)).
+    - It is not access control: whoever sees the report can read every row the application passes
+      ([security](security.md#pivotkit-is-not-access-control)).
+    - The report computes on the page, not in WebAssembly or on a server (the REST service and the MCP
+      server compute on yours): measured up to 1,000,000 rows, where
+      the first table takes 1 to 2.5 s and the page waits meanwhile; for more, aggregate on the server
+      first ([limits](concepts/limits.md#measured-in-the-browser)).
+    - It draws bars, lines, area, pie, donut and heatmap, not dozens of chart types, and ships English
+      and German (every text replaceable) ([charts](use/charts.md), [localisation](reference/localisation.md)).
+    - It is a pivot report, not a data grid, a dashboard tool or a BI server
+      ([comparison](compare.md)).
 
 ## License
 

@@ -72,6 +72,138 @@ export const DEFAULT_LABELS = Object.freeze({
 });
 
 /**
+ * The texts of a report in a language, as pivotkit-react's report shows them and pivotkit-report
+ * writes them: DEFAULT_LABELS with words for yes/no and the aggregators' longer names, and German.
+ * Every text can still be replaced through toGrid's `labels` option.
+ * @type {Readonly<Record<"en" | "de", Labels>>}
+ */
+export const REPORT_LABELS = Object.freeze({
+    en: Object.freeze({
+        ...DEFAULT_LABELS,
+        // a yes/no field in the table, the filter list and the drill-down: words, not true/false
+        true: "Yes",
+        false: "No",
+        aggregators: {
+            count: "Count",
+            countUnique: "Distinct count",
+            listUnique: "List of distinct values",
+            sum: "Sum",
+            average: "Average",
+            median: "Median",
+            min: "Minimum",
+            max: "Maximum",
+            stdev: "Standard deviation (sample)",
+            stdevp: "Standard deviation (population)",
+            var: "Variance (sample)",
+            varp: "Variance (population)",
+            first: "First value",
+            last: "Last value"
+        }
+    }),
+    de: Object.freeze({
+        ...DEFAULT_LABELS,
+        blank: "(Leer)",
+        total: "{label} gesamt",
+        grandTotal: "Gesamtergebnis",
+        values: "Werte",
+        valueName: "{agg} von {field}",
+        countRows: "Anzahl",
+        true: "Ja",
+        false: "Nein",
+        aggregators: {
+            count: "Anzahl",
+            countUnique: "Anzahl verschiedener Werte",
+            listUnique: "Liste verschiedener Werte",
+            sum: "Summe",
+            average: "Durchschnitt",
+            median: "Median",
+            min: "Minimum",
+            max: "Maximum",
+            stdev: "Standardabweichung (Stichprobe)",
+            stdevp: "Standardabweichung (Grundgesamtheit)",
+            var: "Varianz (Stichprobe)",
+            varp: "Varianz (Grundgesamtheit)",
+            first: "Erster Wert",
+            last: "Letzter Wert"
+        },
+        showAsName: "{showAs} von {value}",
+        showAs: {
+            percentOfGrandTotal: "% des Gesamtergebnisses",
+            percentOfRowTotal: "% der Zeilensumme",
+            percentOfColumnTotal: "% der Spaltensumme",
+            percentOfParentRow: "% der übergeordneten Zeile",
+            percentOfParentColumn: "% der übergeordneten Spalte",
+            differenceFromPrevious: "Differenz zum vorherigen",
+            percentDifferenceFromPrevious: "% Differenz zum vorherigen",
+            runningTotal: "Laufende Summe",
+            percentRunningTotal: "% laufende Summe",
+            rankAscending: "Rang (kleinster zuerst)",
+            rankDescending: "Rang (größter zuerst)"
+        }
+    })
+});
+
+/**
+ * The name a grouping of a field gets, as the report names one placed from its field list: "Date by
+ * month" (`name`, with the unit as it reads inside a name, `units`), "Revenue (by 500)" for number
+ * ranges (`bins`). pivotkit-react's labels (`derivedName`, `unitInName`, `binsName`) take them from
+ * here, and pivotkit-core's viewFromLayout names the groupings it makes with them.
+ * @type {Readonly<Record<"en" | "de", Readonly<{ name: string, units: Readonly<Record<string, string>>, bins: string }>>>}
+ */
+export const GROUPING_NAMES = Object.freeze({
+    en: Object.freeze({
+        name: "{field} by {unit}",
+        units: Object.freeze({
+            year: "year", yearQuarter: "quarter", yearMonth: "month", yearWeek: "week", day: "day",
+            quarter: "quarter of year", month: "month of year", week: "week of year", weekday: "weekday", hour: "hour of day",
+            bin: "ranges"
+        }),
+        bins: "{field} (by {size})"
+    }),
+    de: Object.freeze({
+        name: "{field} nach {unit}",
+        units: Object.freeze({
+            year: "Jahr", yearQuarter: "Quartal", yearMonth: "Monat", yearWeek: "Woche", day: "Tag",
+            quarter: "Quartal im Jahr", month: "Monat im Jahr", week: "Woche im Jahr", weekday: "Wochentag", hour: "Stunde am Tag",
+            bin: "Bereichen"
+        }),
+        bins: "{field} (je {size})"
+    })
+});
+
+/**
+ * The name of a grouping in a locale's language (English for any language but German): "Date by
+ * month", "Datum nach Monat", "Revenue (by 500)".
+ * @param {string} field
+ * @param {string} unit  a DERIVE_UNITS name
+ * @param {{ locale?: string, size?: number }} [options]
+ */
+export function groupingName(field, unit, options = {}) {
+    const names = String(options.locale ?? "").split("-")[0].toLowerCase() === "de" ? GROUPING_NAMES.de : GROUPING_NAMES.en;
+    if (unit === "bin") {
+        return names.bins.replace("{field}", () => field).replace("{size}", () => String(options.size));
+    }
+    const inName = Object.hasOwn(names.units, unit) ? names.units[unit] : unit;
+    return names.name.replace("{field}", () => field).replace("{unit}", () => inName);
+}
+
+// their nested tables too: a report shares them, nobody may change them in place
+for (const labels of Object.values(REPORT_LABELS)) {
+    Object.freeze(labels.aggregators);
+    Object.freeze(labels.showAs);
+}
+
+/**
+ * The REPORT_LABELS of a locale's language ("de-DE": German), English for any other.
+ * @param {string} [locale]
+ * @returns {Labels}
+ */
+export function reportLabels(locale) {
+    const lang = String(locale ?? "").split("-")[0].toLowerCase();
+    return lang === "de" ? REPORT_LABELS.de : REPORT_LABELS.en;
+}
+
+/**
  * The display name of a field: its entry in `labels.fields` (matched case-insensitively, own entries
  * only), else the name itself. Display only; a view always holds the field's own name.
  * @param {string} field

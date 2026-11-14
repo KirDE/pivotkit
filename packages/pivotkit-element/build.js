@@ -15,10 +15,12 @@
 //   node build.js          build
 //   node build.js --size   build, print the gzip size of what a page loads, fail above SIZE_BUDGET_KIB
 import * as esbuild from "esbuild";
-import { readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { options as reactOptions } from "../pivotkit-react/build.js";
+import { thirdPartyLicenses } from "../../scripts/third-party-licenses.js";
+export { bundledPackages } from "../../scripts/third-party-licenses.js";
 import { hostStyles } from "./src/host-css.js";
 
 const here = new URL(".", import.meta.url).pathname;
@@ -71,58 +73,11 @@ export const workerOptions = {
     metafile: false
 };
 
-/**
- * The package directories (node_modules/<name> or node_modules/@scope/<name>) of the bundled inputs.
- * @param {import("esbuild").Metafile} metafile
- */
-export function bundledPackages(metafile) {
-    const dirs = new Set();
-    for (const input of Object.keys(metafile.inputs)) {
-        const m = /^(.*node_modules[\\/](?:@[^\\/]+[\\/])?[^\\/]+)[\\/]/.exec(input);
-        if (m) {
-            dirs.add(m[1]);
-        }
-    }
-    return [...dirs].sort();
-}
-
 /** The license and notice files of the bundled packages, as one text. */
 async function licenses(metafile) {
-    const parts = [
-        "pivotkit-element bundles the following packages. Their license texts follow; pivotkit-core and",
-        "pivotkit-react are part of pivotkit (MIT, see LICENSE).",
-        ""
-    ];
-    // one entry per name and version: tslib, say, is bundled from two directories
-    const seen = new Set();
-    for (const dir of bundledPackages(metafile)) {
-        const abs = join(here, dir);
-        const meta = JSON.parse(await readFile(join(abs, "package.json"), "utf8"));
-        if (seen.has(`${meta.name}@${meta.version}`)) {
-            continue;
-        }
-        seen.add(`${meta.name}@${meta.version}`);
-        parts.push("=".repeat(78), `${meta.name} ${meta.version} (${meta.license})`, "=".repeat(78), "");
-        // LICENSE, NOTICE and the like; a licenses/ directory (ECharts: code it took from d3) too
-        const files = [];
-        for (const entry of await readdir(abs, { withFileTypes: true })) {
-            if (!/^(licen[cs]es?|notice|copying)/i.test(entry.name)) {
-                continue;
-            }
-            if (entry.isFile()) {
-                files.push(entry.name);
-            } else if (entry.isDirectory()) {
-                files.push(...(await readdir(join(abs, entry.name))).map((f) => join(entry.name, f)));
-            }
-        }
-        if (files.length === 0) {
-            throw new Error(`${meta.name}: no license file to bundle`);
-        }
-        for (const f of files.sort()) {
-            parts.push(`--- ${f} ---`, "", (await readFile(join(abs, f), "utf8")).trim(), "");
-        }
-    }
-    return parts.join("\n");
+    return thirdPartyLicenses(metafile, here,
+        "pivotkit-element bundles the following packages. Their license texts follow; pivotkit-core,\n" +
+        "pivotkit-react and pivotkit-report are part of pivotkit (MIT, see LICENSE).");
 }
 
 /**
@@ -222,12 +177,44 @@ answers checked, a plugin's minimal table completed, failed sheets, the host's e
  * because esbuild splits the modules the import UI shares with the first load into two more files,
  * each compressed on its own. First load 160.0 measured on a Mac (CI about 160.3), budget 161.5;
  * the menus 39.7 with the Data menu's panel, within 41.
+ * View version 2 (#165): normalize() reads every view through migrate() from version 1, checks keys
+ * inside each part with did-you-mean hints, folds text for the filters, and the report reads and
+ * writes the new filter shape: first load 163.8 measured on a Mac; with the words of the new relative
+ * ranges a chip shows for a loaded view (English and German, labels.js) 165.8, budget 167.5. The
+ * plain words of a view's unused parts grow with the new issue codes: 5.1, budget 5.5. With the
+ * describe, precision and ties steps, the cap on a view's issues and the check of long items the first
+ * load is 167.7 measured on a Mac (CI about 0.3 more), budget 169; the unused words 5.4.
+ * The Filter level edits what view version 2 can say: "does not begin with" and "does not end with",
+ * "Also keep items without a value", a date's quick choices with a unit (This, Last, Next, Before the
+ * last, the current period, rolling, counted from the first record or a date) under More choices,
+ * Top items with the items tied with the last one: the menus from 40.0 to 41.8 measured on a Mac (CI
+ * about 0.3 more), budget 43; the first load 168.0 (the chips' words for quarters, weeks and "this").
+ * CI measures the first load about 0.5 more than a Mac, not 0.3: 168.8 in CI run 43332518926
+ * (de76a55) against 168.3 on a Mac (#198). With the tip on column subtotals and its button (English
+ * and German), the subtotal column's edge and title (#156) the first load is 168.6 on a Mac (CI about
+ * 169.1), budget 170.5. The link is 7.2 on both, 0.1 below its old budget: 7.5.
+ * The HTML report, the chart as SVG and printing (#165): pivotkit-report with ECharts' SVG renderer is
+ * the group "report", loaded on the first of these exports, counted as what it adds to the chart group
+ * it loads first: 19.9 measured on a Mac, budget 21. Two things go elsewhere because esbuild assigns a
+ * module to the chunks of every entry whose imports reach it, even through a barrel module that only
+ * re-exports it: zrender's SVG painter (ECharts' renderers barrel, shared with the chart) lands in the
+ * chart group, 215.8 measured (204.4 before), budget 222.5; and pivotkit-core's describe.js (behind the
+ * core's index.js) with chartPlan, now pivotkit-core's, in the first load: 170.0 measured (168.3 before),
+ * budget 171.5. The Export menu's three entries and the report's export and print code took the menus
+ * to 43.6 (42.3 before), budget 45. Together with the column subtotals' tip (#156) and the report's
+ * closest() hints: first load 170.7 on a Mac (CI about 171.2), budget 172; menus 43.8; report 20.2.
+ * The chart's text size as a token (#221: textSize, the layout's fontSize, the room of title and legend
+ * from the sizes, in pivotkit-core's chart option of the first load): 171.9 on a Mac (CI 172.5, at
+ * the budget of 172.5), budget 173.
+ * Bidi controls left out of the HTML report and the SVG (pivotkit-report) and the CSV and XLSX
+ * (pivotkit-core): report 21.0 on a Mac (CI 21.1, 20.9 before), budget 21.5.
+ * A view from field names (#253): the one walk over the places a view names a field
+ * (pivotkit-core's mapFieldRefs, shared by viewFileFields of the first load and renameFields) and the
+ * grouping names and identifier rule now in pivotkit-core: first load 172.9 on a Mac (172.5 before;
+ * CI about 173.5), budget 174. The layout code itself stays out (its constants are marked pure).
  * `--size` fails above it; raise it on purpose, with the reason in the commit.
  */
-// Expanded-year boundary read-back (#97) adds two clamped endpoints to the shared
-// filter summary. Node 24 measures 161.5 KiB (just above 161.5 before rounding);
-// keep a quarter-KiB allowance rather than omit Date-limit correctness.
-export const SIZE_BUDGET_KIB = { initial: 161.75, chart: 211, export: 11.5, link: 7.3, menus: 41, texts: 6.8, unused: 5, import: 21 };
+export const SIZE_BUDGET_KIB = { initial: 174, chart: 222.5, export: 12, link: 7.5, menus: 46, texts: 7, unused: 5.5, import: 21.5, report: 22 };
 
 /**
  * What a page loads, from the build's metafile: the entry with its static imports ("initial"), and
@@ -235,7 +222,8 @@ export const SIZE_BUDGET_KIB = { initial: 161.75, chart: 211, export: 11.5, link
  * a view in a link, pivotkit-core/link with fflate's deflate and inflate, "menus": the menus' panels,
  * "texts": the menus' texts of a language besides English, "unused": the plain words of a view's
  * unused parts, English and every other language, "import": loading data with allow-import, the import
- * UI with its texts and pivotkit-core/import with its CSV and JSON readers).
+ * UI with its texts and pivotkit-core/import with its CSV and JSON readers, "report": the HTML report,
+ * the chart as SVG and printing, pivotkit-report with ECharts' SVG renderer, beyond the chart group).
  * @param {import("esbuild").Metafile} metafile
  * @returns {{ group: string, files: string[] }[]}
  */
@@ -270,11 +258,17 @@ export function loadGroups(metafile) {
     };
     scan(initial);
     const groupOf = (file) =>
-        /[\\/]echarts-[^\\/]+$/.test(file) ? "chart" : /[\\/]import-(?:ui|csv|json)-[^\\/]+$/.test(file) ? "import" : /[\\/]link-[^\\/]+$/.test(file) ? "link" : /[\\/]menus-[^\\/]+$/.test(file) ? "menus" : /[\\/]menu-texts-[^\\/]+$/.test(file) ? "texts" : /[\\/]unused-texts-[^\\/]+$/.test(file) ? "unused" : "export";
+        /[\\/]echarts-[^\\/]+$/.test(file) ? "chart" : /[\\/]report-run-[^\\/]+$/.test(file) ? "report" : /[\\/]import-(?:ui|csv|json)-[^\\/]+$/.test(file) ? "import" : /[\\/]link-[^\\/]+$/.test(file) ? "link" : /[\\/]menus-[^\\/]+$/.test(file) ? "menus" : /[\\/]menu-texts-[^\\/]+$/.test(file) ? "texts" : /[\\/]unused-texts-[^\\/]+$/.test(file) ? "unused" : "export";
     const groups = [{ group: "initial", files: [...initial] }];
-    for (const name of ["chart", "export", "link", "menus", "texts", "unused", "import"]) {
+    for (const name of ["chart", "export", "link", "menus", "texts", "unused", "import", "report"]) {
         const files = [...closure(dynamic.filter((f) => groupOf(f) === name))].filter((f) => !initial.has(f));
         groups.push({ group: name, files });
+    }
+    // the report always loads the chart first (ECharts draws its SVG): it counts what it adds to it
+    const chart = new Set(groups.find((g) => g.group === "chart")?.files);
+    const report = groups.find((g) => g.group === "report");
+    if (report) {
+        report.files = report.files.filter((f) => !chart.has(f));
     }
     return groups;
 }

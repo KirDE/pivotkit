@@ -1,6 +1,6 @@
 ---
 title: Security
-description: How pivotkit treats views and loaded files as untrusted input, keeps memory use bounded, renders no markup from data, writes safe exports, and runs under a strict Content-Security-Policy.
+description: Why pivotkit is not access control, how it treats views and loaded files as untrusted input, keeps memory use bounded, renders no markup from data, writes safe exports, what its MCP server lets a model see and its REST service lets a program fetch, and runs under a strict Content-Security-Policy.
 ---
 
 # Security
@@ -9,6 +9,39 @@ Reports are built by the people who use them, and views travel: they are saved o
 templates and passed in URLs. pivotkit is built for that. To report a vulnerability, use the private
 channel described in the repository's
 [security policy](https://github.com/eizedev/pivotkit/blob/main/SECURITY.md).
+
+## pivotkit is not access control
+
+pivotkit shows every row and column it is given: in the table and the chart, in the drill-down, in
+the exports of the source rows, and in what `onCellClick` and the events pass on. Filters, the start
+view and templates are not permissions: a person can remove a filter, load another view or open a
+link, and sees the rest of the data. `drillDownLimit` caps how many rows a drill-down holds for
+memory, not who sees them.
+
+- Send only the rows and columns this viewer may see, filtered on your server for this user, before
+  they reach the browser: whatever the browser holds, the person can read with its developer tools.
+- A link or a view file names its data by a source id ([Sharing](concepts/sharing.md#opening-a-link-on-another-page)).
+  Load the data behind that id with the rights of the person who opens it, not of the person who
+  shared it, and answer a source they may not see as you answer an unknown one. Check the link's
+  allowed `params` the same way: they come from the link, not from you.
+- A shared view holds the values chosen in its filters, so a view can show a value to someone who
+  could not see the rows ([Privacy](reference/view-file.md#privacy)).
+
+### Source data { #source-data }
+
+Export → **Source data** (`exportData`, `export-data`; off by default) downloads every row and every
+column of the data the report holds, as CSV or JSON: also the columns no view places, the rows the
+report's filters leave out, and a field the host only relabels or describes (`fieldDefaults` changes
+how a field is shown, not whether it is there). It makes one click of what the browser's developer
+tools already reach, so turn it on only where the viewer may take every row home, and keep rows
+the viewer must not have off the page (aggregate on your server). The drill-down hands out rows too:
+up to `drillDownLimit` rows behind a value (the grand total's are every row), with every column, in
+its panel, its exports and `onCellClick`; turn it off with `drillDown={false}` where rows must stay
+in. `onExport` (the element's `pivot-export`) sees the file first (`kind` `"data-csv"` or
+`"data-json"`) and can log it, upload it or refuse it (`false`); it is a hook for your own code, not a
+barrier against a person with developer tools. Nothing is stored or sent: the file is made in the
+browser. Its size counts against `limits.cells` (rows times fields, default 2,000,000), checked before
+the file is built; the browser holds a few times the file's size while it is made.
 
 ## Views are untrusted input
 
@@ -67,13 +100,25 @@ reference depth and the number of schema objects it reads.
 ## Exports
 
 - **CSV**: text that a spreadsheet would run as a formula gets a leading `'`: text starting with a tab
-  or a carriage return, text whose first visible character (after spaces, line breaks and control
-  characters) is `=` or `@`, and text starting with `+` or `-` unless it is a number as a locale writes it (`-5%`, `-1.234,5`, `-1’234.5`, `-5,3 %`, `-€1.50`) or a
-  number range such as the bin label `-10 – 0`.
+  or a carriage return, text whose first visible character (after spaces, line breaks, control
+  characters and invisible ones such as a zero-width space) is `=` or `@`, and text starting with `+` or `-` unless it is a number as a locale writes it (`-5%`, `-1.234,5`, `-1’234.5`, `-5,3 %`, `-€1.50`) or a
+  number range such as the bin label `-10 – 0`. Characters that change the direction of text
+  (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069) are left out, as the import leaves them
+  out, so a name cannot read as another one and no formula hides behind one.
+- **Source data as CSV**: the same guard on every value and on the field names of its header, so
+  a field named `=x` is written `'=x` and a script reading the file gets that name; **as JSON**:
+  every text and name as it is (no guard, no bidi controls removed: JSON is read by programs,
+  not run by a spreadsheet; a program that turns it into CSV applies its own guard).
 - **Copies** (Copy table, the drill-down's Copy): the same guard on every cell, since a spreadsheet
   runs a pasted formula too. Copy as JSON writes values, never markup or code.
-- **XLSX**: text is written as inline strings, never as formulas. The XML is written by pivotkit-core
+- **XLSX**: text is written as inline strings, never as formulas, without bidi controls, as in the CSV. The XML is written by pivotkit-core
   itself; no spreadsheet library is involved. Excel's sheet limits are checked before writing.
+- **HTML report and SVG** ([pivotkit-report](reference/report.md)): every text is escaped and loses
+  its bidi controls, as in the CSV (in the SVG also when written as a numeric reference); a
+  [print template](reference/print-template.md) may hold placeholders in text and a few attributes
+  only, checked before anything is rendered; the report's Content-Security-Policy loads and runs
+  nothing, its chart is an image; the SVG is checked element by element (no script, event attribute,
+  link or style attribute). Printing from the page fills a frame sandboxed without scripts.
 - Downloads use a blob URL on an `<a download>`; nothing is sent anywhere. File names are made safe:
   path separators and characters a file system refuses are replaced. With `onExport` (or the
   cancelable `pivot-export` event) your page gets every file and every copy first and can keep it
@@ -86,14 +131,16 @@ uploaded, and a hostile file affects only that person's tab. Its readers treat i
 
 - **Limits before the expensive step**: the file's size before a byte is read; rows, columns and
   values while they are read; for a workbook, the number of ZIP parts and the size they unpack to,
-  from the ZIP's directory, before anything is unpacked. Each part is unpacked into a buffer of the
-  size the directory states and stops when it would grow beyond it, so a ZIP bomb or a forged
-  directory cannot take more memory than the limits allow. A sheet's values are checked against
+  from the ZIP's directory, before anything is unpacked. Each part is unpacked as a stream that stops
+  when it would grow beyond the size the directory states, so a ZIP bomb or a forged directory cannot
+  unpack more than the limits allow. `unpackedBytes` bounds what is unpacked, not the memory a read
+  takes: see [Untrusted workbooks](#untrusted-workbooks). A sheet's values are checked against
   `rows`, `columns` and `importCells` by the row and column they stand in, while the sheet streams
   in and before it is parsed: a file of a few hundred bytes with a value in row 300,000 and column
   XFD would otherwise become a dense array of billions of cells in the parser. Leaving out rows
   without a value (a used range of formatted empty cells) saves time and memory; the limits do not
-  depend on it.
+  depend on it. A host can give loaded files lower limits than its own data
+  ([`importLimits`](concepts/limits.md#limits-of-a-loaded-file)).
 - **Nothing in a file runs**: no formula is evaluated (a workbook's saved values are read), a workbook
   with macros (`.xlsm`, `vbaProject.bin`) is refused, and an XML part that declares a document type or
   entities (`<!DOCTYPE`, `<!ENTITY`) is refused before it is parsed, which rules out entity expansion
@@ -117,6 +164,125 @@ uploaded, and a hostile file affects only that person's tab. Its readers treat i
   views are kept or shared: the source id of a saved view, a view file or a link names the file
   (up to 120 characters and a hash), and a view file lists the fields it uses. Undo keeps at most three data sets, so loading one
   file after another does not keep every one in memory.
+
+### Untrusted workbooks
+
+`unpackedBytes` (500 MiB) bounds how much of a workbook is unpacked; the memory a read takes depends
+on what of it is kept. Before read-excel-file parses a part, pivotkit-xlsx leaves out what it never
+reads (rows without a value, anything between rows that is no row, what follows `</sheetData>`), cuts
+runs of whitespace to 128 KiB and refuses a text of more than 1 MiB or a tag of more than 256 KiB as `DAMAGED`, so a small
+file padded with whitespace costs time in proportion to its unpacked size, and memory mostly for the
+pieces being unpacked, which the garbage collector frees as it goes (up to about 2 to 3 times the
+unpacked size at its peak). What is kept costs a few times its size, as for any workbook that large. Measured with Node 26 on an
+Apple M4, peak memory of the whole process (approximate; machines differ):
+
+| Workbook | Unpacked | Time | Memory |
+| --- | --- | --- | --- |
+| 54 KB, sheet XML padded with whitespace | 50 MiB | 0.4 s | about 200 MB |
+| 105 KB, whitespace before, in and after the rows, in a tag, in shared strings | 100 MiB | 0.4 to 0.8 s | about 190 to 310 MB |
+| 257 KB, 6 million one-letter shared strings | 100 MiB | 2.4 s | about 660 MB |
+
+At the default 500 MiB, content of the last kind would take several gigabytes (extrapolated, not
+measured). For workbooks from people you do not trust, lower `unpackedBytes` to what your workbooks
+need (`importLimits` in the report, `--limit unpackedBytes=104857600` on the
+[command line](reference/cli.md#files)) and run a server-side read with a time and memory limit of
+its own (a worker or a container).
+
+## The command line
+
+`pivotkit` ([pivotkit-cli](reference/cli.md#files)) reads a file once, as a regular file, after its
+size is checked; writes through a temporary file; never replaces a link or a directory; and with
+`--allow-dir` reads and writes only inside the directories named, by real path. `--allow-dir` is not a
+sandbox: a hard link inside an allowed directory reaches the file it names, and another process of
+the same user can change the directories while the CLI runs. Its messages never hold a file's
+content, and `describe` shows a data file's values only when asked (`--items`).
+
+## The MCP server { #mcp }
+
+[pivotkit-mcp](reference/mcp.md) lets an AI model build reports over data the operator names. It
+treats the model as a caller that may have been steered by text it read, and the data as text that
+may try to steer it:
+
+- **The model never gets the data.** It gets what the [exposure policy](reference/mcp.md#policy)
+  allows per field: by default names, types and counts; values only of fields marked `show`; nothing
+  of fields marked `hide`, which are dropped when the data is read. A view that touches a field whose
+  values are not shown has its result written to a file, and its row count, size and content are
+  withheld from the model. Findings that would tell whether an item exists are left out for such
+  fields.
+- **The policy is not confidentiality.** A model can still learn from what it may see (results over
+  `show` fields, counts), every number in a report is real (a small group can identify a person), and
+  field names are data too. Leave out of the data, or `hide`, what the model must not learn about.
+- **Data values are text, never instructions**: names and values reach the model only inside the
+  result's JSON, cleaned of control and direction characters and cut at 80 characters, never in the
+  sentence a tool answers with, the tool descriptions or the instructions. A model can still be
+  misled by them; the skill and the instructions tell it they are data.
+- **Files**: no directory is open to the model by default. With `files.allowDirs` it may name files
+  inside those directories, checked by real path on the path and again on the open file; a hard link
+  is refused; a file missing, outside or replaced gets one answer, so paths outside cannot be probed.
+  Not a sandbox (see [the command line](#the-command-line)): run the server as a user that can only
+  read what it should. Configured sources are the operator's paths and need no allowed directory; a
+  `file:` path to one of them is that source, with its scopes and policy. The output directory may
+  not lie inside an allowed directory. Every file in an allowed directory can be read: its first line
+  becomes field names the model sees, so keep only data files there.
+- **Output** goes only to the operator's output directory, as new files that never replace one,
+  with names cleaned to letters, digits, spaces, dots and dashes. A directory a web server serves
+  gets names that start with 22 random characters; protect that server as you would the data.
+- **Templates and recipients**: a print template comes from the operator, never from the model.
+  A schedule is a draft a person approves in the host; recipients are names, never addresses.
+- **Resources**: reports are computed in worker threads with a memory and a time limit (a run over
+  it is stopped), at most a few at once, with pivotkit-core's [limits](concepts/limits.md) and a
+  default of 50 MiB per file.
+- **HTTP**: it listens on 127.0.0.1 by default and refuses another address without authentication
+  unless told the network is trusted; it checks the `Host` header against an allow-list (DNS
+  rebinding) and refuses browser origins it does not know, as the MCP transport spec requires; bodies
+  are capped at 2 MiB. Authentication is a static token (compared in constant time, never logged) or
+  OAuth 2.1 as the [MCP authorization spec](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)
+  describes: JWT access tokens checked for signature, issuer, audience (the server itself), expiry and
+  algorithm, never passed on; scopes per tool and per source. The quick-start page at `/` is not
+  behind authentication and shows no source ids unless the operator turns that on
+  (`http.page.sources`); without sign-in (`auth` `none`) it lists them by default.
+- **The log** names tools, source ids, file base names and the client (a token's name or an OAuth
+  client id), never a view, a value, a token, a person's id or a full path.
+
+## The REST service { #rest }
+
+[pivotkit-server](reference/rest.md) serves the same operations to programs, on the same core as the
+MCP server: the exposure policy, the workers and their limits, the output directory, the Host check
+and the sign-in above hold for it too. What differs:
+
+- **A caller gets what its policy allows, never more.** A program is not a model, but a field at
+  `summary` keeps its values out of every answer and `hide` drops it. A **profile** can give one
+  caller more (values, downloads): it is bound to a token or an OAuth client or scope in the
+  configuration, never chosen by the caller, and a field the source hides stays hidden in every
+  profile. A token without a profile gets the server's policy.
+- **Downloads** (`POST /api/v1/views/render/file`) need a policy with `results: true`; whether one is
+  allowed never depends on the view's fields. The file comes as an attachment with
+  `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` and
+  `Content-Security-Policy: sandbox; default-src 'none'`, so an HTML or SVG report runs nothing when
+  a browser opens it.
+- **No files by path**: `file:` sources are refused, whatever the MCP server's `files.allowDirs` says.
+  Inline results are off unless the operator turns them on, since a program can enumerate through
+  them.
+- **Sign-in**: only the `Authorization` header is read (no cookie, no Basic, no token in the address,
+  no second header), so a page on another site cannot call the service with a browser's
+  credentials. With OAuth the REST service is a resource of its own: a token for the MCP endpoint does
+  not reach it, and the other way round.
+- **CORS** is off: a browser request is refused unless its origin is listed exactly
+  (`rest.cors.origins`, never `*`).
+- **Limits** per caller (requests per minute, requests at once) and per address for refused tokens
+  slow down scripts and token guessing; they live in one process's memory.
+- **Errors** are problem documents with a stable code; a message names no file content, and a 5xx
+  carries a fixed text. A source the caller may not use answers as a missing one.
+
+### The container image { #container }
+
+The [image](reference/container.md) runs as the user 10001 on a distroless Node 22 base (no shell, no
+package manager), pinned by digest, with its packages installed from the repository's lock file
+without install scripts. Run it with a read-only root file system, no capabilities and
+`no-new-privileges`, data mounted read-only, tokens as secret files (environment variables show in
+`docker inspect`). It refuses to listen on every address without sign-in. Each release's image is
+signed with cosign (keyless) and has provenance and SBOM attestations; [check them](reference/container.md#verify)
+before you run it.
 
 ## Content-Security-Policy
 

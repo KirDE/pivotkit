@@ -143,6 +143,11 @@ line: "None yet. Saved views stay in this browser only." At most 100 views are k
 changed in another tab since you opened the menu, a delete here deletes nothing and says so: "The view
 could not be deleted: the views were changed in another tab; open the menu again".
 
+Views saved on a file you loaded belong to that file, and on a workbook to its sheet: while that
+workbook is shown, a view of another of its sheets says which ("Sheet “Q3”") and opens on that sheet
+([Load your own data](load-data.md#after-loading)). The file's name decides which views belong to it:
+another workbook of the same name offers them too (its own sheets are read).
+
 ## Share a view
 
 **Share this view**, the last group of the Views menu, has:
@@ -204,7 +209,8 @@ not take the focus; one opened later in the tab is a step Undo takes back once l
   open with one line per part in plain words, until you dismiss it with its **×** or load another
   view; a line goes once you change its part by hand ([details](behaviour.md#parts-of-a-view-that-were-not-used)).
   A saved view from **Views** that the data cannot fully use (a field that is gone) shows the same
-  warning, as does one that has more fields in a zone than the limits allow.
+  warning, as does one that has more fields in a zone than the limits allow. Warning counts
+  keep the report’s number formatting even when a calculation limit prevents the result.
 - Real errors (a damaged link, an application that could not save) stay in the status line until
   you close them.
 

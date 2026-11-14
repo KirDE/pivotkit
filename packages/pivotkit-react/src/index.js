@@ -34,6 +34,14 @@
 /**
  * @typedef {object} TemplateScope  where a template is or goes
  * @property {"shared" | "user"} scope
+ * @property {TemplateSource | null} [source]  for a save: the data shown
+ */
+
+/**
+ * @typedef {object} TemplateSource  the data a view is saved or published from, as a view file names it
+ * @property {string} id  the source's id (the host's `source.id`, a loaded file's name and hash)
+ * @property {string} [name]
+ * @property {Record<string, string>} [params]  a loaded workbook's sheet: `{ sheet }`
  */
 
 /**
@@ -72,8 +80,11 @@
 /**
  * @typedef {object} ExportFile  a file the report made, before it is downloaded, or a text before it
  *   goes on the clipboard
- * @property {"xlsx" | "csv" | "png" | "json" | "copy-table" | "copy-json" | "drill-copy" | "drill-json" | "drill-csv" | "drill-xlsx"} kind
- *   "json": the view file (Views, "Download view"); "copy-table", "copy-json": Export → Copy table,
+ * @property {"xlsx" | "csv" | "png" | "html" | "svg" | "print" | "json" | "data-csv" | "data-json" | "copy-table" | "copy-json" | "drill-copy" | "drill-json" | "drill-csv" | "drill-xlsx"} kind
+ *   "html": the HTML report; "svg": the chart as SVG; "print": the HTML report before it is printed
+ *   (returning false prints nothing: the host prints it, e.g. as a PDF of its own);
+ *   "json": the view file (Views, "Download view"); "data-csv", "data-json": Export → Source data, every
+ *   row of the data shown as it is (`<fileName>-data.csv`, `<fileName>-data.json`); "copy-table", "copy-json": Export → Copy table,
  *   Copy data as JSON; "drill-*": the drill-down panel's Export menu (Copy, Copy as JSON, Download
  *   CSV, Download Excel)
  * @property {string} fileName  with the extension ("pivot.xlsx"), made safe; for a copy the name it
@@ -96,13 +107,16 @@
  * @property {(view: View) => void} [onViewChange]  every change, normalized
  * @property {Template[]} [templates]  the entries of the Views menu, in two groups by `scope`
  * @property {(name: string, view: View, where: TemplateScope) => unknown} [onSaveTemplate]  shows
- *   "Save" when set (`where.scope` is "user"); "saved" is shown when it returns or the promise it
- *   returns resolves, an error when it throws or rejects. It wins over `templateStore`
+ *   "Save" when set (`where.scope` is "user", `where.source` the data shown, null without a source id);
+ *   "saved" is shown when it returns or the promise it returns resolves, an error when it throws or
+ *   rejects. It wins over `templateStore`
  * @property {(name: string, where: TemplateScope) => unknown} [onDeleteTemplate]  deletes a template
  *   marked `deletable` (`where.scope`: its group); the entry goes when it returns (or its promise resolves)
- * @property {(name: string, view: ViewInput) => unknown} [onPublishTemplate]  with `canPublish`:
+ * @property {(name: string, view: ViewInput, where: { source: TemplateSource | null }) => unknown} [onPublishTemplate]  with `canPublish`:
  *   "Publish as shared view" on each of the user's views; the host makes it a shared entry of
- *   `templates`; "published" is shown when it returns or its promise resolves
+ *   `templates`; "published" is shown when it returns or its promise resolves; `where.source` the data the
+ *   view was made for: the data shown (null without a source id), or the data a view file or a view of
+ *   the browser store names (its id and sheet; its name when that is the data shown)
  * @property {boolean} [canPublish]  the user may publish views for everyone (an admin); default false
  * @property {"browser"} [templateStore]  "browser": the user's own views are kept in this browser's
  *   localStorage under `storageKey` (only this browser and device, lost when the site's data is
@@ -122,7 +136,11 @@
  *   (the page scrolls); with it the report stays inside that height and its result scrolls
  * @property {"on" | "off"} [grow]  whether the report grows past its height to keep the result's
  *   least height: "on" by default without `height`, "off" with it
- * @property {Partial<import("pivotkit-core").Limits>} [limits]
+ * @property {Partial<import("pivotkit-core").Limits>} [limits]  pivotkit-core's limits for the host's data
+ *   (and for a loaded file, where `importLimits` leaves a key out)
+ * @property {Partial<import("pivotkit-core").Limits>} [importLimits]  the limits a file loaded with
+ *   `allowImport` is read and shown with, merged key by key over `limits` (default: `limits`), so a
+ *   host can keep uploads small without capping its own data
  * @property {string} [label]  the name of the report's region landmark (default the labels' `report`);
  *   several reports on one page each need their own
  * @property {string} [className]
@@ -130,6 +148,9 @@
  * @property {(file: ExportFile) => unknown} [onExport]  every exported file before its download, and
  *   every copy before it goes on the clipboard; returning false skips the download or the copy (the
  *   host keeps the file or the text, for example to upload it)
+ * @property {boolean} [exportData]  the Export menu's "Source data": every row and every column of the
+ *   data shown, as a CSV or JSON file, for the user's own analysis or the command line. Default false:
+ *   the rows may hold more than the report shows (docs/security.md)
  * @property {"on" | "off" | string | string[]} [tips]  the tips above the result: "on" (default), "off"
  *   (none, and no switch in Options), or the ids of the tips allowed (an array, or a comma-separated text)
  * @property {string} [storageKey]  remembers dismissed tips in localStorage under this key (one per
@@ -162,8 +183,8 @@
  * @property {ViewSource[]} [sources]  the other data the host can show: a view made for one of them
  *   offers "Switch to <name> and load" (with `onSourceSwitch`)
  * @property {string | null} [schemaUrl]  the `$schema` of the view files the report writes: by default
- *   https://pivotkit.eize.dev/schema/view-file-1.json, a host's own copy of the schema (it ships in
- *   pivotkit-core as "pivotkit-core/schema/view-file-1.json"), or null or "" to leave it out; loading a
+ *   https://pivotkit.eize.dev/schema/view-file-2.json, a host's own copy of the schema (it ships in
+ *   pivotkit-core as "pivotkit-core/schema/view-file-2.json"), or null or "" to leave it out; loading a
  *   view never depends on it
  * @property {(request: SourceSwitch) => void} [onSourceSwitch]  the user chose to switch to the data a
  *   view was made for and load it there: the host shows that data and the view (as its start view)
