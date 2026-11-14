@@ -27,7 +27,7 @@ test("a single weather year labels cyclic items, not combined years #109", async
     await expect(page.getByTestId("date-range")).toContainText("2023");
 });
 
-test("cyclic chip IDs stay stable and downloaded headers keep year context #109", async ({page}) => {
+test("cyclic chip IDs stay stable and downloaded headers omit display-only year context #109", async ({page}) => {
     await page.goto("?data=weather&preset=0");
     await openZones(page);
     await page.getByTestId("chip-menu-Date by month of year").click();
@@ -36,7 +36,8 @@ test("cyclic chip IDs stay stable and downloaded headers keep year context #109"
     await page.getByTestId("export").click();
     const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-csv").click()]);
     const text = await readFile(await download.path(), "utf8");
-    expect(text).toContain("2023–2025 combined");
+    expect(text).not.toContain("combined");
+    expect(text).toContain("Date by month of year");
 });
 
 test("field information and footer use the loaded view locale #109", async ({page}) => {

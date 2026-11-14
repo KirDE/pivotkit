@@ -1,4 +1,4 @@
-import { MAX_DATE_MS } from "./date-limits.js";
+import { MAX_DATE_MS } from "pivotkit-core";
 /*
  * The changes the first load makes to a view (placing, moving, sorting by a header, totals, the tips'
  * actions; those only the menus make are in menu-ops.js, loaded with them), as pure functions:

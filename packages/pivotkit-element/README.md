@@ -73,3 +73,6 @@ report.addEventListener("pivot-view-change", (e) => localStorage.setItem("view",
 
 [MIT](https://github.com/eizedev/pivotkit/blob/main/LICENSE); the bundled packages under their own
 licenses, see `dist/THIRD_PARTY_LICENSES.txt`.
+
+Date fields show their data range and grouping hints; cyclic groupings explain which years they combine.
+See [dates and grouping](https://pivotkit.eize.dev/use/values/).

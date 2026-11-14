@@ -8,6 +8,7 @@
 Excel's PivotTable for web applications and the command line: people load their data, build the
 report by dragging fields, and take it to Excel; the same report renders again in CI.
 
+- Date ranges and data-driven grouping hints make time-based reports easier to read.
 - Bring your own file: CSV, JSON or Excel dropped onto the report (where the application allows
   it), with a preview and a type per column; nothing is uploaded ([load your own data](https://pivotkit.eize.dev/use/load-data/)).
 - Excel with the layout kept, and the rows behind the report as CSV or JSON

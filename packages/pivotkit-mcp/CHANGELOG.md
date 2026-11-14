@@ -6,11 +6,61 @@ All notable changes to `pivotkit-mcp` are documented in this file. The format is
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-14
+
+### Upgrading from 0.1.0
+
+What an operator checks; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-6-0) has the details.
+
+- Over HTTP, each caller is limited (`mcp.rateLimit`: 120 per minute, burst 30; `mcp.concurrency`: 4);
+  over a limit the answer is 429 with `Retry-After`. A method other than `POST` on `/mcp` is 405.
+- Reports and drafts are named `<name>.pivotkit-out.<format>`; reports written by 0.1.0 are neither
+  counted nor deleted: remove them by hand once. `output.maxMb` (default 1024) is new. A missing
+  `--output` directory is made at start instead of failing it; `output.create: false` keeps the
+  error.
+- A static token with characters a bearer token cannot carry is refused at start.
+
+### Added
+
+- A missing `--output` directory is made at start with mode 0700 (0755 narrowed by the umask when
+  `output.baseUrl` is set), as pivotkit-server does; the former error is opt-in with
+  `output.create: false`.
+- Request limits over HTTP, as the REST service has them: `mcp.rateLimit.perMinute`, `.burst`,
+  `.failedAuthPerMinute` and `mcp.concurrency`; over a limit the answer is 429 with `Retry-After`
+  ([#270](https://github.com/eizedev/pivotkit/issues/270)). `/mcp` answers a method other than
+  `POST` with 405 before it takes a request slot.
+
+### Changed
+
+- A token is checked once per request; the Host list, the body cap, the default port and the common
+  flags come from pivotkit-server ([#291](https://github.com/eizedev/pivotkit/issues/291)).
+- The output directory and `--check-config` follow pivotkit-server's: reports and drafts are named
+  `<name>.pivotkit-out.<format>`, a full directory deletes its oldest reports (never drafts), `output.maxMb`, `NO_OUTPUT` with a hint for a directory the server
+  cannot write, and a warning for a policy rule that names no column
+  ([#269](https://github.com/eizedev/pivotkit/issues/269), [#288](https://github.com/eizedev/pivotkit/issues/288),
+  [#297](https://github.com/eizedev/pivotkit/issues/297), [#298](https://github.com/eizedev/pivotkit/issues/298)).
+
+### Fixed
+
+- `create_link` and `draft_schedule` given a `layout` answer with one short error that says to make
+  the view with `validate_view` first, instead of the input schema's list of what is missing;
+  `draft_schedule` with a `layout` that also lacks schedule fields still lists those fields first
+  ([#303](https://github.com/eizedev/pivotkit/issues/303)).
+- The HTTP server's connection limits, request targets, start-time token checks and issuer
+  metadata refresh follow pivotkit-server's ([#289](https://github.com/eizedev/pivotkit/issues/289),
+  [#299](https://github.com/eizedev/pivotkit/issues/299), [#271](https://github.com/eizedev/pivotkit/issues/271)).
+- `render_view` says `noRowsKept` when the filters of a view of shown fields keep no rows, and
+  `suggest_view` reads no span or counts the policy keeps back (pivotkit-server's,
+  [#302](https://github.com/eizedev/pivotkit/issues/302), [#296](https://github.com/eizedev/pivotkit/issues/296)).
+
+## [0.1.0] - 2026-11-14
+
+First release.
+
 ### Added
 
 - The tool `suggest_view`, and a `layout` (a view by field names) for `validate_view` and
   `render_view`; the skill names both ([#253](https://github.com/eizedev/pivotkit/issues/253)).
-
 - The MCP server `pivotkit-mcp` ([#165](https://github.com/eizedev/pivotkit/issues/165), step 3):
   the tools `list_sources`, `describe_source`, `get_view_guide`, `validate_view`, `describe_view`,
   `render_view`, `create_link` and `draft_schedule` from pivotkit-report's operation table, over
@@ -36,3 +86,7 @@ All notable changes to `pivotkit-mcp` are documented in this file. The format is
 - On SIGTERM the HTTP server lets running requests finish (`http.graceMs`, 25 seconds by default);
   two `Authorization` headers are refused, also when node:http would keep only the first; an input
   nested deeper than 64 levels is `INVALID_INPUT` before it reaches a worker.
+
+[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-mcp@0.1.1...HEAD
+[0.1.1]: https://github.com/eizedev/pivotkit/compare/pivotkit-mcp@0.1.0...pivotkit-mcp@0.1.1
+[0.1.0]: https://github.com/eizedev/pivotkit/releases/tag/pivotkit-mcp@0.1.0

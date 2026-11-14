@@ -181,11 +181,9 @@ dependency), `pivotkit-xlsx` (core), `pivotkit-report` (core), `pivotkit-react` 
 `pivotkit-report/operations` and `pivotkit-cli/files`, so both are released before it when they
 changed), `pivotkit-mcp` (report, server: released after pivotkit-server whenever that changed).
 pivotkit-server loads pivotkit-mcp by name when it is installed beside it and does not depend on it,
-so there is no cycle. `pivotkit-server` and `pivotkit-mcp` are not on npm yet: the first release of
-each needs steps 2 and 3 above (a manual first publish, then its trusted publisher), pivotkit-server
-first. A package that depends on pivotkit-core takes `^<its version>`,
-which in 0.x admits that minor only: when core's minor moves (0.4 to 0.5), pivotkit-xlsx,
-pivotkit-report, pivotkit-react, pivotkit-cli and pivotkit-mcp are released too, even without a change of their
+so there is no cycle. A package that depends on pivotkit-core takes `^<its version>`,
+which in 0.x admits that minor only: when core's minor moves (0.5 to 0.6), pivotkit-xlsx,
+pivotkit-report, pivotkit-react, pivotkit-cli, pivotkit-server and pivotkit-mcp are released too, even without a change of their
 own, or their published ranges keep the old core and a host gets two copies (`tests/ci.test.js`
 requires every range to be the version in this repository).
 
@@ -199,8 +197,12 @@ For each release:
    (`tests/ci.test.js` fails on a range or devDependency that is not exactly the version in this
    repository, #206; `examples/reader-plugin/package.json` too, which takes pivotkit-core from npm);
    update the statements that name the current version, which `tests/ci.test.js`
-   checks against it: the pivotkit row of `docs/compare.md` (version and date) and the example's
-   `generator` in `docs/reference/view-file.md`. Docs and READMEs name no other version of their own.
+   checks against it: the pivotkit row of `docs/compare.md` (version and date), the example's
+   `generator` in `docs/reference/view-file.md` and the pivotkit-core minor that pivotkit-xlsx needs
+   in the official plugins table of `docs/reference/plugins.md`. Docs and READMEs name no other
+   version of their own. Two files carry a package's version and are checked by its tests:
+   `docs/openapi.json` (pivotkit-server's, made again with `node scripts/openapi.js`) and
+   `packages/pivotkit-mcp/.claude-plugin/plugin.json` (pivotkit-mcp's).
    Merge that pull request.
 2. Wait for CI on main, then tag the merge commit `<package>@<version>` and push the tags one at a
    time in the publish order, each after the previous one is published: the `build` job runs

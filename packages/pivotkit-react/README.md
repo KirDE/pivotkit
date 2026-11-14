@@ -79,3 +79,6 @@ the data; it cannot run code.
 ## License
 
 [MIT](https://github.com/eizedev/pivotkit/blob/main/LICENSE)
+
+Date fields show their data range and grouping hints; cyclic groupings explain which years they combine.
+See [dates and grouping](https://pivotkit.eize.dev/use/values/).

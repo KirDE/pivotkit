@@ -1,6 +1,7 @@
-import { MAX_DATE_MS } from "./date-limits.js";
+import { MAX_DATE_MS, isDateMs } from "pivotkit-core";
 // Group-level hints load only with the menus.
 import { CATALOG } from "pivotkit-core";
+import { yearText } from "./names.js";
 import { plural } from "./labels.js";
 import { dateFormatter, dateRangeText } from "./date-context.js";
 
@@ -12,15 +13,17 @@ export function groupStats(encoded, field) {
     let min = Infinity, max = -Infinity;
     const months = new Set();
     // Every representable Gregorian year fits this fixed 68 KiB bitmap.
-    const yearBits = new Uint8Array(Math.ceil(547582 / 8));
+    const minYear = new Date(-MAX_DATE_MS).getUTCFullYear();
+    const maxYear = new Date(MAX_DATE_MS).getUTCFullYear();
+    const yearBits = new Uint8Array(Math.ceil((maxYear - minYear + 1) / 8));
     let yearCount = 0;
     const date = new Date(0);
     for (const value of column.dict) {
-        if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > MAX_DATE_MS) continue;
+        if (!isDateMs(value)) continue;
         min = Math.min(min, value); max = Math.max(max, value);
         date.setTime(value);
         const month = date.getUTCMonth();
-        const yearIndex = date.getUTCFullYear() + 271821;
+        const yearIndex = date.getUTCFullYear() - minYear;
         const byte = yearIndex >> 3, mask = 1 << (yearIndex & 7);
         if (!(yearBits[byte] & mask)) { yearBits[byte] |= mask; yearCount++; }
         months.add(month);
@@ -40,7 +43,7 @@ export function groupHint(encoded, field, unit, locale, labels, stats = groupSta
     const y1 = first.getUTCFullYear(), y2 = last.getUTCFullYear();
     const era = y1 <= 0 ? "short" : undefined;
     // Year and quarter keys use the core labeler's Gregorian, ASCII years.
-    const firstYear = String(y1), lastYear = String(y2);
+    const firstYear = yearText(y1, locale), lastYear = yearText(y2, locale);
     if (CATALOG.cyclicUnits.includes(unit)) {
         let example = labels.unitHints[unit];
         if (unit === "month" || unit === "quarter") {

@@ -25,6 +25,8 @@ the short version, the [comparison](compare.md) sets it beside other pivot compo
   application's own data as objects or one array per column, typed, with `dataKey`, `encoded` and
   `loading` ([React props](reference/react.md#prop-allowimport), [pivotkit-core](reference/core.md#data)).
 
+- Date ranges, data-driven Group hints and year context for cyclic groupings ([dates](use/values.md)).
+
 ## The field list and the zones { #zones-and-fields }
 
 - Rows, Columns, Values and Filters; a field is dragged, clicked (numbers to Values, the rest to

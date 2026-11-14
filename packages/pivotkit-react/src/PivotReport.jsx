@@ -993,7 +993,7 @@ function Report(props) {
         [result, encodedProp, imported, data, drillDownLimit, onCellClick, drillDown, defaultsOf, nameOf, infoOf]
     );
 
-    const doExport = useExport({ fileName, result, encoded, exportData, locale, labels: context.labels, limits, root, chartRef, announce, onExport, title: viewName, source: sourceName, loadECharts });
+    const doExport = useExport({ fileName, result, encoded, exportData, locale, labels, limits, root, chartRef, announce, onExport, title: viewName, source: sourceName, loadECharts });
 
     // loading data (allowImport): the import UI (import-host.jsx) loads on first use (the Data menu, a
     // file dragged over the report, the empty report's button) and renders the file input, the drop
@@ -1498,7 +1498,7 @@ function Report(props) {
                                 templateActions={templateActions}
                                 onExport={doExport}
                                 prepareExport={prepareExporters}
-                                dataExport={exportData}
+                                dataExport={{ exportData, encoded }}
                                 chartReady={view.display === "chart" && chartReady}
                                 empty={empty}
                                 onShowFields={() => setDrawer(true)}
@@ -1624,7 +1624,7 @@ function Report(props) {
                             </section>
                             <div className="pk-status">
                                 <span data-testid="row-count">{result ? plural(labels.rowsCount, result.rows.length, { lang: labels.lang, locale }) : ""}</span>
-                                {context.ranges.map(({ field, text }) => <span key={field} data-testid="date-range" title={field}>{" · "}{context.ranges.length > 1 ? `${fieldLabel(field, labels.core)}: ` : ""}{text}</span>)}
+                                {context.ranges.map(({ field, text }) => <span key={field} data-testid="date-range" title={field}>{context.ranges.length > 1 ? `${fieldLabel(field, labels.core)}: ` : ""}{text}</span>)}
                                 {importMod ? <importMod.SourceLine api={api} /> : null}
                                 {rowLabel && showTable ? (
                                     <span className="pk-row-label" data-testid="row-label">
@@ -1638,7 +1638,7 @@ function Report(props) {
                             </div>
                         </div>
                         {/* inside the layout: clipped to the report's box with it (its slide-in too) */}
-                        {drill ? <MenuPanel name="DrillPanel" props={{ drill, onClose: () => setDrill(null), labels: context.labels, locale, exportContext: { encoded, onExport, announce, root } }} /> : null}
+                        {drill ? <MenuPanel name="DrillPanel" props={{ drill, onClose: () => setDrill(null), labels: context.labels, locale, exportContext: { encoded, onExport, announce, root, exportData } }} /> : null}
                     </div>
                     {/* the filter and the drill-down load with the menus (lazy-menus.jsx) */}
                     {filterTarget ? <MenuPanel name="FilterPopover" props={{ target: filterTarget, onClose: closeFilter, view, encoded, locale, labels, commit }} /> : null}

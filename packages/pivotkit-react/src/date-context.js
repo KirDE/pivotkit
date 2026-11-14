@@ -1,7 +1,8 @@
-import { MAX_DATE_MS } from "./date-limits.js";
+import { isDateMs } from "pivotkit-core";
 // Date context is display-only: never rename a saved derived field or change its grouping keys.
 import { CATALOG, fieldLabel } from "pivotkit-core";
 import { dateSpan, filterZoneFields, sourceOf } from "./view-ops.js";
+import { yearText } from "./names.js";
 import { fill } from "./labels.js";
 
 // Bound formatter retention across host-selected locales and option combinations.
@@ -32,7 +33,7 @@ export function dateDisplayLocale(locale) {
 
 /** @param {{min: number, max: number} | null} span @param {string} locale */
 export function dateRangeText(span, locale) {
-    if (!span || !Number.isFinite(span.min) || !Number.isFinite(span.max) || Math.abs(span.min) > MAX_DATE_MS || Math.abs(span.max) > MAX_DATE_MS) return "";
+    if (!span || !isDateMs(span.min) || !isDateMs(span.max)) return "";
     const fmt = dateFormatter(locale, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC", era: new Date(span.min).getUTCFullYear() <= 0 ? "short" : undefined });
     return `${fmt.format(span.min)} – ${fmt.format(span.max)}`;
 }
@@ -60,7 +61,7 @@ export function yearsOf(result, field) {
         for (const row of result.rows) {
             const code = column.codes[row];
             const value = column.dict[code];
-            if (typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= MAX_DATE_MS) {
+            if (isDateMs(value)) {
                 date.setTime(value);
                 const year = date.getUTCFullYear();
                 const month = date.getUTCMonth() + 1;
@@ -79,14 +80,6 @@ export function yearsOf(result, field) {
     return sorted;
 }
 
-/** @param {number} year @param {string} locale */
-export function contextYear(year, locale) {
-    const date = new Date(0);
-    date.setUTCFullYear(year, 0, 1);
-    if (!Number.isFinite(date.getTime())) date.setTime(year < 0 ? -MAX_DATE_MS : MAX_DATE_MS);
-    return dateFormatter(locale, {year: "numeric", timeZone: "UTC", era: year <= 0 ? "short" : undefined}).format(date);
-}
-
 /** List only years actually included, coalescing consecutive runs.
  * @param {number[]} years @param {string} [locale] */
 export function yearSetText(years, locale = "en-US") {
@@ -96,7 +89,7 @@ export function yearSetText(years, locale = "en-US") {
     for (let i = 0; i < years.length; i++) {
         const first = years[i];
         while (i + 1 < years.length && years[i + 1] === years[i] + 1) i++;
-        runs.push(first === years[i] ? contextYear(first, locale) : `${contextYear(first, locale)}–${contextYear(years[i], locale)}`);
+        runs.push(first === years[i] ? yearText(first, locale) : `${yearText(first, locale)}–${yearText(years[i], locale)}`);
     }
     return runs.join(", ") + (truncated ? ", …" : "");
 }

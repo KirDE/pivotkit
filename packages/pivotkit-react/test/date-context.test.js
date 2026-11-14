@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { computePivot, encode, toGrid } from "pivotkit-core";
 import { dateContext, dateRangeText, yearSetText, yearsOf } from "../src/date-context.js";
 import { calendarDays, groupHint, groupStats } from "../src/group-context.js";
+import { yearText } from "../src/names.js";
 import { LABELS } from "../src/labels.js";
 import { en } from "../src/menu-labels.js";
 import { de } from "../src/menu-labels-de.js";
@@ -85,13 +86,14 @@ test("view-derived __proto__ is an own display label, not a prototype setter", (
 
 test("combined and single-year context follows the effective calendar and digits", () => {
     for (const locale of ["th-TH", "ar-EG"]) {
-        const fmt = new Intl.DateTimeFormat(locale,{year:"numeric",timeZone:"UTC"});
         const result = computePivot(data, {...view,formatting:{locale}});
+        const fmt = new Intl.DateTimeFormat(result.locale,{year:"numeric",timeZone:"UTC"});
+        const gregorian = ["gregory", "iso8601"].includes(fmt.resolvedOptions().calendar);
         const context = dateContext(result,LABELS.en);
-        assert.ok(context.labels.core.fields.Month.includes(fmt.format(Date.UTC(2024,0,1))));
+        assert.ok(context.labels.core.fields.Month.includes(gregorian ? yearText(2024,result.locale) : fmt.format(Date.UTC(2024,0,1))));
         const single = computePivot(data, {...view,formatting:{locale},filters:[{field:"Date",type:"compare",op:">=",value:"2025-01-01"}]});
         const monthFmt = new Intl.DateTimeFormat(locale,{month:"short",year:"numeric",timeZone:"UTC"});
-        const expected = locale === "th-TH" ? monthFmt.format(Date.UTC(2025,11,31)) : fmt.format(Date.UTC(2025,0,1));
+        const expected = locale === "th-TH" ? monthFmt.format(Date.UTC(2025,11,31)) : yearText(2025,result.locale);
         assert.ok(JSON.stringify(toGrid(dateContext(single,LABELS.en).result)).includes(expected));
     }
 });
@@ -179,7 +181,7 @@ test("historical cyclic year context distinguishes BCE and CE including year zer
     assert.match(combined.ranges[0].text, /BC/);
     const single = dateContext(computePivot(typed([values[0]]), view), LABELS.en);
     assert.match(JSON.stringify(toGrid(single.result)), /Jan 1 BC/);
-    assert.equal(groupHint(typed(values), "Date", "year", "en-US", {...LABELS.en,...en}), "0 … 1 (2)");
+    assert.equal(groupHint(typed(values), "Date", "year", "en-US", {...LABELS.en,...en}), "1 BC … 1 (2)");
 });
 
 test("cyclic month hints use Gregorian grouping semantics in non-Gregorian locales", () => {
@@ -193,11 +195,15 @@ test("cyclic month hints use Gregorian grouping semantics in non-Gregorian local
 
 test("single-year cyclic months describe observed calendar months, never synthetic year-2000 months", () => {
     for (const locale of ["en-US-u-ca-islamic", "he-IL-u-ca-hebrew", "ar-SA"]) {
-        const fmt = new Intl.DateTimeFormat(locale, {month:"short",year:"numeric",timeZone:"UTC"});
         for (const days of [["2024-01-15"], ["2024-01-01", "2024-01-31"]]) {
             const result = computePivot(encode(days.map(Date => ({Date, Amount:1}))), {...view, formatting:{locale}});
+            const fmt = new Intl.DateTimeFormat(result.locale, {month:"short",year:"numeric",timeZone:"UTC"});
             const grid = JSON.stringify(toGrid(dateContext(result,LABELS.en).result));
-            for (const day of days) assert.ok(grid.includes(fmt.format(Date.parse(day))), grid);
+            for (const day of days) {
+                const gregorian = ["gregory", "iso8601"].includes(fmt.resolvedOptions().calendar);
+                const expected = gregorian ? `${new Intl.DateTimeFormat(result.locale,{month:"short",timeZone:"UTC"}).format(Date.parse(day))} ${yearText(new Date(day).getUTCFullYear(), result.locale)}` : fmt.format(Date.parse(day));
+                assert.ok(grid.includes(expected), grid);
+            }
         }
     }
 });
