@@ -8,14 +8,80 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ### Fixed
 
-- Keep Date-boundary ISO week/month groups valid and guard signed aggregate dates in CSV.
+- Preserve signed expanded-year days and minutes in descriptions, relative anchors and ranges.
+
+
+## [0.6.1] - 2026-11-14
+
+### Upgrading from 0.6.0
+
+The [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#bce-0-6-1) has the details.
+
+- Date labels of years before 1 AD carry the era ("Q1 2 BC", was "Q1 -1"); `toCsv` and `toJson`
+  write dates before year 0 or after 9999 in signed ISO form.
+- `isIdentifierName` takes `HTTPId` and `ABCId` as identifiers.
+
+### Added
+
+- The type `EncodeIssue`: an issue of `encode()` (`columnCase`, `columnCaseValue`,
+  `columnCaseLeftOut`), with `params.row` documented as 0-based; `Issue` stays the type of a view's
+  issue ([#321](https://github.com/eizedev/pivotkit/issues/321)).
+- `limitError`'s `details` have `what`, what was counted (`"rows"`, `"shared strings and formats"`),
+  so a UI can tell two counts of one limit apart ([#325](https://github.com/eizedev/pivotkit/issues/325)).
+- `dataToCsvParts(data, options)` in `pivotkit-core/export`: the bytes of `dataToCsvBytes` in pieces
+  of whole lines, for a Blob; the text is never held whole, so a large file takes about twice its size
+  while it is made, not about five times. `dataToCsv` and `dataToCsvBytes` build their output from
+  the same pieces ([#260](https://github.com/eizedev/pivotkit/issues/260)).
+- `suggestLayout` and `viewFromLayout` take a date field's own `by` from the description instead of
+  the grouping its span would give, for a front end that keeps the span back
+  ([#296](https://github.com/eizedev/pivotkit/issues/296)).
+- `MAX_DATE_MS` and `isDateMs(ms)`: the range a `Date` holds, exported once for hosts and the other
+  packages ([#226](https://github.com/eizedev/pivotkit/issues/226)).
+- `encode`'s `issues` have a `code` and `params`: `columnCase`, `columnCaseValue` (a row with two
+  spellings of a column, one value lost) and `columnCaseLeftOut` ([#261](https://github.com/eizedev/pivotkit/issues/261)).
+- The type `LayoutView`: `viewFromLayout`'s view is declared with its parts instead of
+  `Record<string, any>` ([#300](https://github.com/eizedev/pivotkit/issues/300)).
 
 ### Changed
 
-- An unknown aggregator named as other tools name it gets ours as the hint: `avg` and `mean`
-  ("did you mean average?"), `cnt` (count), `total` (sum), `distinct` (countUnique), `stddev`
-  (stdev); they are still refused. `describeSource` counts in the singular for one row or field
-  ("1 row, 1 field").
+- A year before 1 AD is written with its era in every date label: `year` "2 BC", `yearQuarter`
+  "Q1 2 BC" (was "Q1 -1"), `yearWeek` "2 BC-W02", a date and the `date` and `datetime` formats
+  "Jan 11, 2 BC" (was "Jan 11, 2", the same as 2 AD), as `yearMonth` already did ("Jan 2 BC")
+  ([#225](https://github.com/eizedev/pivotkit/issues/225)).
+
+### Fixed
+
+- In a time zone other than UTC, an instant before 1 AD keeps its year (the zone's era is read; 2 BC
+  became 2 AD), and a wall clock past what a `Date` holds is blank instead of a value that throws
+  when shown ([#349](https://github.com/eizedev/pivotkit/issues/349)).
+- `toCsv` and `toJson` write a date value before year 0 or after 9999 in its signed ISO form
+  (`-000001-01-11`, was `00-1-01-11`), in the CSV with the formula guard
+  ([#349](https://github.com/eizedev/pivotkit/issues/349)).
+- A reader plugin's table built by hand (`columns`, `types`, `data`, `notes`) gets `rowCount`, `raw`,
+  `detected` and `hints` from `readFile`, so `retype` works on it; a field given wrong, a note
+  without a code or a field that throws is `INVALID_ARGUMENT` naming the plugin, and the table counts
+  against `rows`, `columns`, `importCells` and `textLength`. `ReaderModule.read` returns the new type
+  `PluginTable`, in which those four fields are optional
+  ([#130](https://github.com/eizedev/pivotkit/issues/130)).
+- The `week` and `yearWeek` groupings of the first days of the year -271820 (1 and 2 January,
+  whose ISO week belongs to the year before, the first a `Date` holds) are their week instead of
+  blank ([#97](https://github.com/eizedev/pivotkit/issues/97)).
+- ISO dates with a year before 0 or after 9999 in ECMAScript's form (a sign and six digits,
+  `"+010000-01-01"`) are dates, so a compare filter's day at the edge of the `Date` range, which
+  `normalize` writes so, reads the same in a saved or shared view instead of reporting
+  `filterCompareValue` ([#97](https://github.com/eizedev/pivotkit/issues/97)).
+- The `yearWeek` grouping of the years 0 to 99 and before year 0 is the ISO week and its year (was
+  1902-W02 for a day of the year 2, -1-W-98 for one of 2 BC; blank in the first year a `Date`
+  holds), and the month grouping of the first month a `Date` holds no longer throws
+  ([#225](https://github.com/eizedev/pivotkit/issues/225)).
+- `toViewFile` leaves `source` out when it has no id, name or fields, instead of writing `{}`
+  ([#276](https://github.com/eizedev/pivotkit/issues/276)).
+- `isIdentifierName` splits a run of capitals before a word: `HTTPId` and `ABCId` are identifiers
+  ([#281](https://github.com/eizedev/pivotkit/issues/281)).
+- A filter or sort without a field reports "names no field" instead of "unknown field undefined"
+  ([#284](https://github.com/eizedev/pivotkit/issues/284)).
+
+## [0.6.0] - 2026-11-14
 
 ### Added
 
@@ -28,12 +94,18 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 - `pivotkit-core/import`: `sourceIdOf(name, columns)`, `shownName` and `SHOWN_MAX`, the id a loaded
   file's views name it by (moved from pivotkit-react), so the command line names a file as the
   report does ([#253](https://github.com/eizedev/pivotkit/issues/253)).
-
 - `REPORT_LABELS` and `reportLabels(locale)`: the report's own words per language (English and
   German), as pivotkit-react's report shows them; pivotkit-report writes them for its locale.
 - `dataToCsv`, `dataToCsvBytes` and `dataToJson` in `pivotkit-core/export`: the data itself as a file
   to read again, every row with its values as they are and the fields under their own names, so a
   view file applies to it as it is (`pivotkit render <view> --data <file>` gives the report again).
+
+### Changed
+
+- An unknown aggregator named as other tools name it gets ours as the hint: `avg` and `mean`
+  ("did you mean average?"), `cnt` (count), `total` (sum), `distinct` (countUnique), `stddev`
+  (stdev); they are still refused. `describeSource` counts in the singular for one row or field
+  ("1 row, 1 field").
 
 ## [0.5.0] - 2026-11-13
 
@@ -396,7 +468,9 @@ First release.
   a cell, so a UI can leave a blank cell without rows unclickable.
 - `grid.showAs`: per value its "show values as" type, or null.
 
-[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.5.0...HEAD
+[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.6.1...HEAD
+[0.6.1]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.6.0...pivotkit-core@0.6.1
+[0.6.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.5.0...pivotkit-core@0.6.0
 [0.5.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.4.0...pivotkit-core@0.5.0
 [0.4.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.3.0...pivotkit-core@0.4.0
 [0.3.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.2.0...pivotkit-core@0.3.0

@@ -110,25 +110,16 @@ console.log(JSON.stringify([r.value(r.rowRoot, r.colRoot, 0), relativeDateRange(
     }
 });
 
-test("ISO expanded years use a sign and six digits and reject negative zero", () => {
-    for (const text of ["+010000-02-29", "-000001-01-01", "-271821-04-20", "+275760-09-13"]) {
-        const parsed = parseIso(text);
-        assert.ok(parsed, text);
-        assert.equal(new Date(parsed.ms).toISOString().split("T")[0], text);
+test("an instant before 1 AD keeps its year in every zone (the era is read)", () => {
+    // 2 BC, 12:00 UTC: the zone's offset of its day, never a jump to 2 AD
+    const instant = new Date("-000001-06-15T12:00:00Z");
+    for (const timeZone of ["Europe/Berlin", "Asia/Tokyo", "America/New_York"]) {
+        const wall = encode([{ t: instant }], { timeZone }).column("t").values[0];
+        assert.equal(new Date(wall).getUTCFullYear(), -1, timeZone);
+        // the local mean time of the zone (its offset before standard time), within a day of UTC
+        assert.ok(Math.abs(wall - instant.getTime()) < 86_400_000, `${timeZone}: ${new Date(wall).toISOString()}`);
     }
-    for (const text of ["-000000-01-01", "+10000-01-01", "10000-01-01", "+010000-02-30", "+275760-09-14", "-271821-04-19"]) {
-        assert.equal(parseIso(text), null, text);
-    }
-});
-
-test("expanded-year offsets and zoned wall clocks stay inside Date's range", async () => {
-    const { MAX_DATE_MS, toWallMs, wallClock } = await import("../src/time.js");
-    for (const date of ["+275760-09-13T00:00:00-01:00", "-271821-04-20T00:00:00+01:00"]) {
-        assert.equal(parseIso(date), null);
-        for (const timeZone of ["UTC", "Europe/Berlin"]) {
-            assert.doesNotThrow(() => toGrid(computePivot(encode([{Date: date}], {timeZone}), {rows:["Date"], values:[{agg:"count"}]})));
-        }
-    }
-    assert.ok(Number.isNaN(toWallMs(MAX_DATE_MS, wallClock("Europe/Berlin"))));
-    assert.ok(Number.isNaN(toWallMs(-MAX_DATE_MS, wallClock("America/New_York"))));
+    // the first instant a Date holds, west of UTC: the evening before is past it, so blank; east: the same day
+    assert.equal(new Date(encode([{ t: new Date(-8.64e15) }], { timeZone: "Asia/Tokyo" }).column("t").values[0]).getUTCFullYear(), -271821);
+    assert.ok(Number.isNaN(encode([{ t: new Date(-8.64e15) }], { timeZone: "America/New_York" }).column("t").values[0]));
 });

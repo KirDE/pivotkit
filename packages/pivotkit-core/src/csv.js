@@ -64,6 +64,7 @@ export function neutralizeFormula(text) {
     return formula ? `'${text}` : text;
 }
 
+/** A date value as ISO text: the day, and the time unless it is midnight; a year before 0 or after 9999 with its sign and six digits. */
 function isoOf(wallMs) {
     const d = new Date(wallMs);
     const date = d.toISOString().split("T")[0];

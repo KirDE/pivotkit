@@ -7,7 +7,7 @@ test("BCE dimensions and grouped month/quarter/week labels remain distinct",()=>
     const result=computePivot(data,{rows:["Date"],values:[{agg:"count"}]});
     const labels=result.rowRoot.children.map(n=>result.label("rows",n));
     assert.match(labels[0],/BC/); assert.notEqual(labels[0], labels[1]);
-    for(const [by,expected] of [["yearMonth",/Jan.*2 BC/],["yearQuarter",/^Q1 -1$/],["yearWeek",/^-1-W02$/]]) {
+    for(const [by,expected] of [["yearMonth",/Jan.*2 BC/],["yearQuarter",/^Q1 2 BC$/],["yearWeek",/^2 BC-W02$/]]) {
         const r=computePivot(data,{rows:["G"],derived:[{name:"G",field:"Date",by}],values:[{agg:"count"}]});
         assert.match(r.label("rows",r.rowRoot.children[0]),expected);
     }

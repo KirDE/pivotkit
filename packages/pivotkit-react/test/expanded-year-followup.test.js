@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {compareText} from "../src/names.js";
+import {compareText,yearText} from "../src/names.js";
 import {yearRules, quickChoice} from "../src/menu-ops.js";
 import {resolveLabels} from "../src/labels.js";
 import {menuLabels} from "../src/menu-labels.js";
@@ -12,7 +12,7 @@ test("expanded bounds are chronological, including whole years and BCE (#97)", (
             const forward = compareText({op,value:a,value2:b},labels,"en-US",{date:true});
             const reverse = compareText({op,value:b,value2:a},labels,"en-US",{date:true});
             assert.equal(forward,reverse);
-            assert.ok(forward.indexOf(a.slice(0,-6)) < forward.indexOf(b.slice(0,-6)) || !a.endsWith("01-01"));
+            assert.ok(forward.indexOf(yearText(Number(a.slice(0,-6)),"en-US")) < forward.indexOf(yearText(Number(b.slice(0,-6)),"en-US")) || !a.endsWith("01-01"));
         }
     }
 });

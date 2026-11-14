@@ -8,18 +8,94 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Fixed
 
-- Clamp Years combined filters to representable days in the partial minimum and maximum years (#97).
+- Count complete expanded-year days in relative quick choices.
 
-- Preserve saved year-zero edits, signed Years combined rules, maximum-date menus and chronological expanded-date summaries (#97).
 
-- Keep signed expanded-year date rules visible and editable, using ISO text where the native
-  calendar cannot represent the year (#97).
+## [0.6.1] - 2026-11-14
+
+### Added
+
+- `exportData={{ columns: [...] }}`: Source data and the drill-down's copies and files hold only
+  those columns, in that order (matched case-insensitively, derived fields never). A name the data
+  lacks is left out and said once in the console; with no column left, or `columns` that is no list
+  (said once too), Source data and the drill-down's Export menu are off; an `exportData` of another
+  shape is off, as `false` ([#259](https://github.com/eizedev/pivotkit/issues/259)).
+
+### Changed
+
+- Source data as CSV is built in pieces of whole lines (pivotkit-core's `dataToCsvParts`), so the
+  browser holds about twice the file's size while it is made, not about five times
+  ([#260](https://github.com/eizedev/pivotkit/issues/260)).
+
+### Fixed
+
+- Filter level: Years combined (its year buttons, "The table shows … only" and the summary) writes a
+  year before 1 AD as the table does ("5 BC", not "-4"); the reference date's field shows and takes a
+  day after 9999 ("+010000-01-01" was cut off and could not be typed), and whether a quick choice
+  reaches the data compares days, not their text, for years with a sign
+  ([#351](https://github.com/eizedev/pivotkit/issues/351)).
+- An open menu no longer moves when its own content is scrolled: a click on a control reached by
+  scrolling (Rolling under More choices of a date's quick choices) could land beside it when the
+  menu was placed again between the press and the release. A menu whose content grew while it was
+  already as tall as its room is placed again in the next frame instead
+  ([#222](https://github.com/eizedev/pivotkit/issues/222)).
+- A workbook whose shared strings and formats reach `limits.importCells` is said as "more than …
+  different texts and formats" (`labels.dataImport.workbookCells`), chosen by the reader's
+  `details.what`, not as "values (rows x columns)", which stays for a table's own extent
+  ([#325](https://github.com/eizedev/pivotkit/issues/325)).
+- Filter level: a rule's × clicked while its value still waits to apply (a moment after typing)
+  takes the rule away; before, the field's blur applied the value and the click was lost. What waits
+  in a removed row applies nothing ([#320](https://github.com/eizedev/pivotkit/issues/320)).
+- Filter level: emptying the value of a rule on the item or on its total takes the rule off, as
+  emptying the text of a rule on the name does; its row stays, says "Applies once it is complete."
+  and applies again with the next value, in its place among the rules. Before, the field looked empty
+  while the previous rule kept filtering ([#244](https://github.com/eizedev/pivotkit/issues/244)).
+- Filter level: a rule added while the text or number of a new rule still waits to apply is a row of
+  its own; the comparison and the value chosen next no longer change the first rule. The add buttons
+  keep the focus in the field until the click, and a new row not yet complete stays in its place when
+  another one is added ([#245](https://github.com/eizedev/pivotkit/issues/245)).
+- Filter level: a click on a date's quick choice (All, This, Last, …) focuses it in Safari too, as
+  Top items' choices do; both use one radio button that takes the focus on a click
+  ([#203](https://github.com/eizedev/pivotkit/issues/203)).
+- A saved view that reads another sheet of the loaded workbook no longer loads that sheet unseen when
+  the reader has notes on it (a used range, values not read, columns renamed): the preview stays
+  open with the notes and a line naming the view that needs the sheet, and **Load data** loads the
+  sheet and opens the view. Another sheet picked in that preview does not load by itself, and loaded
+  it does not open the view; a note says so
+  ([#274](https://github.com/eizedev/pivotkit/issues/274)). Browser tests cover Cancel, a host's
+  refusal, another file dropped during the read and a sheet without rows
+  ([#277](https://github.com/eizedev/pivotkit/issues/277)).
+- A controlled report whose host does not pass its views back (it rejects or ignores
+  `onViewChange`) keeps at most 100 of the views it told the host waiting, the newest ones, instead
+  of one more with every change ([#204](https://github.com/eizedev/pivotkit/issues/204)).
+- The dashed rule between the parts of a menu's group (the chart's Display: Value labels, Legend,
+  Title) uses `--pk-rule`, 3:1 against the menu as the rule between groups, instead of `--pk-border`
+  (about 1.3:1) ([#205](https://github.com/eizedev/pivotkit/issues/205)).
+- The filter's texts and Years combined read and write years before 0 and after 9999 (signed ISO
+  days), compare such days in time order, and write years before 1 AD as the table does ("2 BC");
+  Years combined keeps the first and last year a `Date` holds as far as it holds
+  ([#349](https://github.com/eizedev/pivotkit/issues/349)).
+- The import UI takes a plugin's table as pivotkit-core's `readFile` completes it; its own
+  `completeTable` is gone ([#130](https://github.com/eizedev/pivotkit/issues/130)).
+
+## [0.6.0] - 2026-11-14
+
+### Upgrading from 0.5
+
+What a host checks; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-5) has the details.
+
+- Export → **CSV file (.csv)** is called **Table as CSV (.csv)** (German **Tabelle als CSV (.csv)**);
+  its label key `exportCsv` and its `onExport` kind `"csv"` stay. Tests or screenshots that look for
+  the old text take the new one.
+- `exportData` (Export → Source data) is new and off by default.
+- pivotkit-core moves to `^0.6.0` with it.
 
 ### Added
 
 - `onSaveTemplate(name, view, { scope, source })` and `onPublishTemplate(name, view, { source })`
   get the data shown as a view file names it (`{ id, name, params }`, `null` without a source id),
-  so a host that keeps views can keep a workbook's sheet with them ([#252](https://github.com/eizedev/pivotkit/issues/252)).
+  so a host that keeps views can keep a workbook's sheet with them; Publish of a view file or of a
+  view of the browser store made for other data gives that data ([#252](https://github.com/eizedev/pivotkit/issues/252)).
 - `exportData` (default `false`): the Export menu's last group **Source data** with **All rows as CSV
   (.csv)** and **All rows as JSON (.json)**: every row of the data shown, every column except derived
   fields, under the fields' own names, values not formatted (`<fileName>-data.csv`,
@@ -31,14 +107,13 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 - The identifier rule of the field list (`isIdentifierName`), the names of groupings and a loaded
   file's source id come from pivotkit-core; nothing changes in the report ([#253](https://github.com/eizedev/pivotkit/issues/253)).
-
 - Export → **CSV file (.csv)** is called **Table as CSV (.csv)** (German **Tabelle als CSV (.csv)**),
   and its "i" says it is the table, not the rows behind it; its `kind` stays `"csv"`.
+- Depends on `pivotkit-core` `^0.6.0` (was `^0.5.0`) and `pivotkit-report` `^0.2.0` (was `^0.1.0`): a host
+  that also lists pivotkit-core updates both together, or it gets two copies.
 
 ### Fixed
 
-- `onPublishTemplate` carries the data shown as `source` for a host's view, which names no data of its own,
-  as `onSaveTemplate` does; it carried `null`.
 - A view made on a sheet of a loaded workbook other than the first opens on that sheet again after
   the same workbook is loaded anew: views saved, downloaded and linked from a workbook's sheet name it
   in `source.params.sheet`; while a workbook is shown, Views lists the views of its other sheets with
@@ -54,7 +129,7 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Upgrading from 0.4
 
-What a host checks; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/) has the details.
+What a host checks; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-4) has the details.
 
 - **Breaking:** views, view files and links are written in format version 2; pivotkit 0.4 refuses
   them as newer. Version 1 loads with the same result.
@@ -979,7 +1054,9 @@ First release.
   weather (Open-Meteo), countries (World Bank), earthquakes (USGS), Nobel laureates and the release
   cycles of software products (endoflife.date).
 
-[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.5.0...HEAD
+[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.6.1...HEAD
+[0.6.1]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.6.0...pivotkit-react@0.6.1
+[0.6.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.5.0...pivotkit-react@0.6.0
 [0.5.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.4.0...pivotkit-react@0.5.0
 [0.4.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.3.0...pivotkit-react@0.4.0
 [0.3.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.2.0...pivotkit-react@0.3.0

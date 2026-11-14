@@ -2,7 +2,7 @@
  * Display labels of dimension values and the natural sort order of a column's dictionary.
  */
 
-import { collator, dateTimeFormat } from "./intl.js";
+import { collator, dateFormatter } from "./intl.js";
 
 /** @type {Intl.DateTimeFormatOptions} */
 const DATE = { dateStyle: "medium", timeZone: "UTC" };
@@ -239,13 +239,8 @@ export function labelOf(column, value, locale, labels = DEFAULT_LABELS) {
         return column.labeler(value, locale);
     }
     switch (column.type) {
-        case "date": {
-            const date = new Date(Number(value));
-            const options = date.getUTCFullYear() <= 0
-                ? { year: "numeric", month: "short", day: "numeric", era: "short", timeZone: "UTC", ...(column.dateOnly ? {} : {hour: "numeric", minute: "2-digit"}) }
-                : column.dateOnly ? DATE : DATE_TIME;
-            return dateTimeFormat(locale, /** @type {Intl.DateTimeFormatOptions} */ (options)).format(date);
-        }
+        case "date":
+            return dateFormatter(locale, column.dateOnly ? DATE : DATE_TIME)(new Date(Number(value)));
         case "boolean":
             return value ? (labels.true ?? "true") : (labels.false ?? "false");
         default:

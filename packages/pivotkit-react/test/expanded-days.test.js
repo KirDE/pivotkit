@@ -4,8 +4,8 @@ import {isoDay,dayText,periodText,rangeShare,wholeYears,compareText} from "../sr
 test("date summaries preserve the complete ISO day and year",()=>{
     assert.equal(isoDay(Date.parse("+010000-02-29")),"+010000-02-29");
     assert.match(dayText("+010000-02-29","en-US"),/29/);
-    assert.equal(periodText({from:"+010000-01-01",to:"+010001-12-31"},"year","en-US"),"+010000–+010001");
-    assert.deepEqual(wholeYears("-000001-01-01","0002-12-31"),["-000001","0002"]);
+    assert.equal(periodText({from:"+010000-01-01",to:"+010001-12-31"},"year","en-US"),"10000–10001");
+    assert.deepEqual(wholeYears("-000001-01-01","0002-12-31"),[-1,2]);
     assert.equal(rangeShare({from:"9999-01-01",to:"+010000-12-31"},"year",{min:Date.parse("9999-01-01"),max:Date.parse("+010000-12-31")},"en-US"),null);
 });
 
@@ -24,7 +24,7 @@ test("minimum-date partial year/month is clamped before range intersection", () 
 
 test("view-v2 quarter and minute ranges retain complete expanded years", () => {
     const range = {from: "+010000-02-01T12:00", to: "+010000-05-01T14:00"};
-    assert.equal(periodText(range, "quarter", "en-US"), "Q1 +010000–Q2 +010000");
+    assert.equal(periodText(range, "quarter", "en-US"), "Q1 10000–Q2 10000");
     assert.match(periodText(range, "month", "en-US"), /Feb/);
 });
 
@@ -44,4 +44,13 @@ test("quick choices count whole expanded days but only one minute for timed boun
     const dict = [Date.parse(`${day}T00:00Z`), Date.parse(`${day}T12:00Z`), Date.parse("+010000-03-01T00:00Z")];
     assert.equal(rowsInRange({from: day, to: day}, dict, [1, 2, 4]), 3);
     assert.equal(rowsInRange({from: `${day}T00:00`, to: `${day}T00:00`}, dict, [1, 2, 4]), 1);
+});
+
+test("month comparisons distinguish BCE from CE", async () => {
+    const {resolveLabels} = await import("../src/labels.js");
+    const {menuLabels} = await import("../src/menu-labels.js");
+    const labels = menuLabels(resolveLabels("en-US"));
+    const text = value => compareText({op:"=",value,precision:"month"}, labels, "en-US", {date:true});
+    assert.match(text("-000001-01-01"), /BC/);
+    assert.notEqual(text("-000001-01-01"), text("0002-01-01"));
 });

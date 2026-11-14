@@ -9,7 +9,7 @@
  *   data gives the same pivot everywhere. Any IANA zone ("Europe/Berlin") can be chosen; "local"
  *   resolves to the machine's zone once, by name.
  *
- * Not part of the public API.
+ * Not part of the public API, except MAX_DATE_MS and isDateMs.
  */
 
 import { PivotkitError } from "./errors.js";
@@ -17,12 +17,18 @@ import { MS_PER_DAY } from "./util.js";
 
 export const DEFAULT_TIME_ZONE = "UTC";
 
-/** The most milliseconds from the epoch a Date holds, either way (±100,000,000 days). */
+/** The most milliseconds from the epoch a Date holds, either way (±100,000,000 days). Exported from the package. */
 export const MAX_DATE_MS = 8.64e15;
 
-/** Whether a number (instant or wall-clock ms) is a time a Date holds; `new Date(ms)` of any other is invalid and its formatting throws. */
+/**
+ * Whether a value is a number of milliseconds (an instant or wall-clock ms) a Date holds; `new Date(ms)`
+ * of any other is invalid and formatting it throws. Exported from the package.
+ * @param {unknown} ms
+ * @returns {ms is number}
+ */
 export const isDateMs = (ms) => typeof ms === "number" && Math.abs(ms) <= MAX_DATE_MS;
 
+// a year of four digits, or ECMAScript's expanded year: a sign and six digits ("+010000", "-000001")
 const ISO_DATE = /^(\d{4}|[+-]\d{6})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}(?::?\d{2})?)?)?$/;
 
 /**
@@ -38,8 +44,10 @@ function utc(y, mo, d, h = 0, mi = 0, s = 0, ms = 0) {
 }
 
 /**
- * Parses an ISO date string; null when it is not one or names a day or time that does not exist
- * (2026-02-30, 10:61).
+ * Parses an ISO date string; null when it is not one, names a day or time that does not exist
+ * (2026-02-30, 10:61), or one a Date cannot hold. A year before 0 or after 9999 is written with a sign
+ * and six digits, as `Date.prototype.toISOString` writes it ("+010000-01-01", "-000001-12-31"); "-000000"
+ * is not a year (ECMAScript forbids it).
  * @param {string} text
  * @returns {{ ms: number, offsetMinutes: number | null } | null}  ms: the wall clock as written
  */
@@ -77,8 +85,11 @@ export function parseIso(text) {
             }
             offsetMinutes = (zone[0] === "-" ? -1 : 1) * (oh * 60 + om);
         }
+        // on the first or last day a Date holds, the offset can move the instant past it
+        if (!isDateMs(ms - offsetMinutes * 60_000)) {
+            return null;
+        }
     }
-    if (offsetMinutes !== null && !isDateMs(ms - offsetMinutes * 60_000)) return null;
     return { ms, offsetMinutes };
 }
 
@@ -133,11 +144,12 @@ export function canonicalTimeZone(timeZone) {
  */
 export function wallClock(timeZone) {
     if (timeZone === "UTC") {
-        return (t) => isDateMs(t) ? t : NaN;
+        return (t) => t;
     }
     const dtf = new Intl.DateTimeFormat("en-US", {
         timeZone,
         hourCycle: "h23",
+        // the era too: without it 2 BC reads as the year 2
         era: "short",
         year: "numeric",
         month: "numeric",
@@ -150,15 +162,18 @@ export function wallClock(timeZone) {
         const p = {};
         let beforeCommonEra = false;
         for (const part of dtf.formatToParts(new Date(t))) {
-            if (part.type === "era") beforeCommonEra = part.value === "BC";
-            else p[part.type] = Number(part.value);
+            if (part.type === "era") {
+                beforeCommonEra = part.value === "BC";
+            } else {
+                p[part.type] = Number(part.value);
+            }
         }
         const whole = t - (((t % 1000) + 1000) % 1000);
+        // 1 BC is the year 0, 2 BC the year -1
         return utc(beforeCommonEra ? 1 - p.year : p.year, p.month, p.day, p.hour, p.minute, p.second) - whole;
     };
     const days = new Map();
     return (t) => {
-        if (!isDateMs(t)) return NaN;
         const day = Math.floor(t / MS_PER_DAY);
         let offset = days.get(day);
         if (offset === undefined) {
@@ -170,6 +185,7 @@ export function wallClock(timeZone) {
             days.set(day, offset);
         }
         const wall = t + (Number.isNaN(offset) ? offsetAt(t) : offset);
+        // near either end of what a Date holds, the wall clock can lie past it: no date then (blank)
         return isDateMs(wall) ? wall : NaN;
     };
 }
