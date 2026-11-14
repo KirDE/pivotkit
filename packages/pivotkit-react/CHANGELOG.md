@@ -22,6 +22,11 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ### Fixed
 
+- An open menu no longer moves when its own content is scrolled: a click on a control reached by
+  scrolling (Rolling under More choices of a date's quick choices) could land beside it when the
+  menu was placed again between the press and the release. A menu whose content grew while it was
+  already as tall as its room is placed again in the next frame instead
+  ([#222](https://github.com/eizedev/pivotkit/issues/222)).
 - A workbook whose shared strings and formats reach `limits.importCells` is said as "more than …
   different texts and formats" (`labels.dataImport.workbookCells`), chosen by the reader's
   `details.what`, not as "values (rows x columns)", which stays for a table's own extent
