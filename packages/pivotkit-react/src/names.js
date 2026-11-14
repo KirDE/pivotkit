@@ -138,6 +138,7 @@ export const plainRange = (f) =>
  * @param {string} locale
  */
 export function periodText(range, unit, locale) {
+    range = { from: range.from.split("T")[0], to: range.to.split("T")[0] };
     const month = (iso) => {
         const date = new Date(`${iso}T00:00Z`);
         return date.toLocaleDateString(locale, { month: "short", year: "numeric", timeZone: "UTC", ...(date.getUTCFullYear() <= 0 ? {era: "short"} : {}) });
@@ -367,7 +368,7 @@ export function compareText(f, labels, locale, { date, labelOf }) {
     const op = ruleOp(f);
     if (op === "between" || op === "notBetween") {
         // Signed expanded ISO years must be ordered by day, not their leading sign.
-        const order = (v) => typeof v === "string" ? Date.parse(`${v}T00:00Z`) : v;
+        const order = (v) => typeof v === "string" ? Date.parse(v.includes("T") ? `${v}Z` : `${v}T00:00Z`) : v;
         const [from, to] = f.value2 !== undefined && order(f.value2) < order(f.value) ? [f.value2, f.value] : [f.value, f.value2];
         // whole years of days (Years combined): "2024 to 2025", "2025", "not 2025"
         const years = wholeYears(from, to);

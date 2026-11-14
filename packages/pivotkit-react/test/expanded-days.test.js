@@ -21,3 +21,9 @@ test("minimum-date partial year/month is clamped before range intersection", () 
         assert.deepEqual(rangeShare({from: "2026-01-01", to: "2026-12-31"}, unit, span, "en-US"), {none: true});
     }
 });
+
+test("view-v2 quarter and minute ranges retain complete expanded years", () => {
+    const range = {from: "+010000-02-01T12:00", to: "+010000-05-01T14:00"};
+    assert.equal(periodText(range, "quarter", "en-US"), "Q1 +010000–Q2 +010000");
+    assert.match(periodText(range, "month", "en-US"), /Feb/);
+});
