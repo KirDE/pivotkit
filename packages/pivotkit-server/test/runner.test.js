@@ -121,3 +121,26 @@ test("/readyz says 503 when the output directory is not writable", { skip: proce
         await server.close();
     }
 });
+
+test("PIVOTKIT_PORT as Kubernetes service links set it (tcp://...): serve, check-config and healthcheck name it", () => {
+    const dir = workspace();
+    const env = { PIVOTKIT_PORT: "tcp://10.0.0.1:3333" };
+    const said = 'pivotkit-server: PIVOTKIT_PORT is "tcp://10.0.0.1:3333", which Kubernetes sets for a Service named pivotkit; set enableServiceLinks: false in the pod, or PIVOTKIT_PORT to the port number\n';
+    // healthcheck fails with 1: a container's health check reserves 2
+    for (const [args, status] of [[["serve", "--source", "sales=data/sales.csv"], 2], [["check-config", "--source", "sales=data/sales.csv"], 2], [["healthcheck"], 1]]) {
+        const r = run(args, { env, cwd: dir });
+        assert.equal(r.status, status, `${args[0]}: ${r.stderr}`);
+        assert.equal(r.stderr, said, args[0]);
+    }
+    // http.port in the configuration file wins for serve and check-config, as before; healthcheck
+    // still asks $PIVOTKIT_PORT first and says so
+    const config = join(dir, "port.json");
+    writeFileSync(config, JSON.stringify({ sources: { sales: { file: "data/sales.csv" } }, http: { port: 3333 } }));
+    const fromFile = run(["check-config"], { env: { ...env, PIVOTKIT_CONFIG: config }, cwd: dir });
+    assert.equal(fromFile.status, 0, fromFile.stderr);
+    assert.equal(run(["healthcheck"], { env: { ...env, PIVOTKIT_CONFIG: config }, cwd: dir }).stderr, said);
+    // a port given otherwise wins, as before: --port for serve, a URL for healthcheck
+    const check = run(["check-config", "--source", "sales=data/sales.csv", "--port", "3333"], { env, cwd: dir });
+    assert.equal(check.status, 0, check.stderr);
+    assert.equal(run(["healthcheck", "http://127.0.0.1:1/healthz"], { env }).status, 1);
+});
