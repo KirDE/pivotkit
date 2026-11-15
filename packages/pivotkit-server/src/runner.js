@@ -13,7 +13,8 @@
 
 import { ConfigError, loadConfig } from "./config.js";
 import { VERSION } from "./context.js";
-import { SERVER_FLAGS, flagLines, helpPointer, optionsFrom } from "./flags.js";
+import { SERVER_FLAGS, flagLines, helpPointer, optionsFrom, startFormatOf } from "./flags.js";
+import { flushed, startErrorLine } from "./log.js";
 import { DEFAULT_PORT, TOKEN_ENV, loadMcp } from "./serve.js";
 
 /** The variable that names the configuration file. */
@@ -117,7 +118,7 @@ async function checkSourceCommand(argv, io) {
 /**
  * Runs a subcommand; resolves when it has started (serve, mcp) or with the exit code.
  * @param {string[]} argv
- * @param {{ env: Record<string, string | undefined>, stdout: { write(t: string): unknown }, stderr: { write(t: string): unknown }, stdin?: any, cwd?: string }} io
+ * @param {{ env: Record<string, string | undefined>, stdout: { write(t: string): unknown }, stderr: { write(t: string): unknown, isTTY?: boolean }, stdin?: any, cwd?: string }} io
  * @returns {Promise<number | null>}  an exit code, or null while it serves
  */
 export async function run(argv, io) {
@@ -192,6 +193,8 @@ export async function run(argv, io) {
             try {
                 await server.close();
             } finally {
+                // the stopped line out before the process ends (a pipe's writes are asynchronous on some systems)
+                await flushed(io.stderr);
                 process.exit(0);
             }
         };
@@ -199,7 +202,10 @@ export async function run(argv, io) {
         process.once("SIGTERM", stop);
         return null;
     } catch (e) {
-        io.stderr.write(`pivotkit-server: ${e instanceof ConfigError ? e.message : `could not start: ${String(e?.message ?? e).slice(0, 300)}`}\n`);
+        const text = e instanceof ConfigError ? e.message : `could not start: ${String(e?.message ?? e).slice(0, 300)}`;
+        // serve's error before its log exists: a JSON line where the log is asked to be JSON
+        const line = command === "serve" ? startErrorLine(startFormatOf(rest, io.env, io.stderr), text, { service: "pivotkit-server", version: VERSION, code: e instanceof ConfigError ? "CONFIG" : "START" }) : null;
+        io.stderr.write(line ?? `pivotkit-server: ${text}\n`);
         return 2;
     }
 }

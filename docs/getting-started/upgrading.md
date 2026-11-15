@@ -177,6 +177,7 @@ callers notice:
 | [`output.baseUrl` and closed sources](#base-url-closed) | you set `output.baseUrl` | reports over sources with a field that is not `show` carry no `url` any more |
 | [Requests to the issuer](#issuer-requests) | `auth.mode` is `oauth` and the issuer resolves to a loopback or private address, is reached through a proxy, redirects, or serves a key set over 256 KiB | set `auth.intranet: true` for an issuer in your LAN or cluster; run `check-config` |
 | [Reports deleted after 30 days](#max-age-default) | the server has `output.dir` in a directory of its own and no `output.maxAgeDays` | nothing, or `output.maxAgeDays: 0` to keep reports with no age limit |
+| [The log](#log) | you read the log on a terminal, parse it, alert on it, or ship it to a log server | JSON lines gain fields and the client's address is logged by default (`log.address: "off"` keeps it out); levels and `msg` are new, and more refusals get a line; on a terminal the log is text unless `log.format` is `json`; a start error is a JSON line where stderr is no terminal |
 | [check-config's layout](#check-config-layout) | you read `check-config`'s output in a script | use its exit code, or its first line, which says whether the server starts |
 | [Print templates checked at start](#template-at-start) | a source has `sources.<id>.template` | run `check-config`; fix a template it reports as a PROBLEM |
 
@@ -303,6 +304,39 @@ to the operator. On MCP an `INTERNAL` error says "internal error", as REST does,
 words. A body over the cap gets a `refused` log line. `check-config` warns of a static token's file
 that other users of the machine can read, and closes with "New in this version" where a change
 applies to the configuration.
+
+### The log { #log }
+
+[Operations and logs](../reference/operations.md) describes the log as it is now. What an existing
+installation notices:
+
+- On a terminal the log is text (`key=value` pairs), not JSON: `log.format` is `auto`. Where stderr
+  is no terminal (a container without `-t`, a service manager, a pipe) it stays JSON. The container
+  image sets `PIVOTKIT_LOG_FORMAT=json`, so containers keep JSON also under `docker run -t`. Set
+  `log.format: "json"` (or `--log-format json`) to keep JSON everywhere.
+- JSON lines gain fields; none is renamed or removed. Every line has `level`, `severity`, `msg`,
+  `service` and `version`; a request's lines `traceId`, `upstreamRequestId` (a proxy's
+  `X-Request-Id`) and the client's `address`; `call`, `request`, `download` and `refused` lines
+  `outcome` and `status`; `refused` lines `reason`; backend warnings `cause`, `backend`,
+  `upstreamStatus` and `upstreamMs`. `started` adds `sourceIds`, the log's settings and the static
+  tokens' names; an HTTP server ends with a `stopped` line.
+- The client's address is logged by default as `address`: with `http.trustProxy` the forwarded
+  client, as before, or `invalid` for a forwarded value that is no IP address; without it the
+  connection's own address, which was not logged before. `peerAddress` is the connection's own
+  address where it differs (the proxy). `log.address: "off"` keeps both out
+  ([privacy](../privacy.md#logs)).
+- More refusals get a `refused` line: the per-caller 429s, `/openapi.json` with a refused token, an
+  MCP body over the cap, and requests the HTTP parser refuses (`warn`); a GET of the MCP endpoint and
+  a path nobody serves at `debug` only. An alert on refused lines counts them too.
+- `--log` takes `warn` and `error` too; `log` in the file may be an object of `level`, `format`
+  and `address`, and `"log": "debug"` keeps working.
+- Every answer carries an `X-Request-Id` header (exposed to browsers by CORS).
+- An error at the start of `serve` or `pivotkit-mcp` (a configuration it cannot read, an unknown
+  flag) follows the log's format: a JSON line where stderr is no terminal (a container, a service
+  manager, a pipe) or JSON is asked for, the plain `pivotkit-server: ...` line on a terminal or with
+  `--log-format text`. A script that reads that line from a pipe reads JSON now. Only `serve` (and
+  `pivotkit-mcp`) write start errors as JSON; check-config and the other commands of
+  `pivotkit-server` stay plain text.
 
 ### Code sources { #code-sources }
 

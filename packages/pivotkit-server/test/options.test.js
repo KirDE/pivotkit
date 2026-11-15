@@ -53,6 +53,11 @@ test("options: the composed table is today's, in today's order, plus the shared 
     expected.output.object.upload = { object: { url: "string", headers, link: "string", expiresAt: "string", presign: { object: { url: "string", headers, uploadUrl: "string", uploadHeaders: "string", link: "string", expiresAt: "string", allowOrigins: "strings" } }, linkOrigins: "strings", method: { enum: ["PUT", "POST"] }, timeMs: "integer", maxBytes: "integer", keepLocal: "boolean", bind: { enum: ["none", "once", "signIn"] }, intranet: "boolean" } };
     // the issuer's requests (options/issuer.js): an issuer on a loopback or private address
     expected.auth.object.intranet = "boolean";
+    // the log (options/log.js): a level alone, as before, or its level, format and addresses; the
+    // key moves from config.js to its fragment, so it comes last
+    delete expected.log;
+    const levels = { enum: ["debug", "info", "warn", "error", "off"] };
+    expected.log = { or: [levels, { object: { level: levels, format: { enum: ["auto", "text", "json"] }, address: { enum: ["on", "off"] } } }] };
     // JSON.stringify compares the order too: the "known: ..." list of an unknown key prints it
     assert.equal(JSON.stringify(treeOf(OPTION_KEYS)), JSON.stringify(expected));
 });
@@ -89,7 +94,7 @@ test("options: every fragment has frozen keys in known slots and a validate; eac
     for (const f of FRAGMENTS.slice(1)) {
         assert.ok(names.includes(f.name), f.name);
     }
-    assert.deepEqual(names, ["sources", "http", "code", "inline", "output", "downloads", "upload", "access", "issuer", "operator", "profiles", "rest"]);
+    assert.deepEqual(names, ["sources", "http", "code", "inline", "output", "downloads", "upload", "access", "issuer", "operator", "profiles", "rest", "log"]);
 });
 
 test("options: an unknown key is still refused with the name meant, also for keys no fragment declares yet", () => {

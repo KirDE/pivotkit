@@ -27,6 +27,7 @@ import * as issuer from "./issuer.js";
 import * as operator from "./operator.js";
 import * as profiles from "./profiles.js";
 import * as rest from "./rest.js";
+import * as log from "./log.js";
 
 /**
  * @typedef {object} SectionRuntime
@@ -55,7 +56,7 @@ export const UPGRADING_URL = "https://pivotkit.eize.dev/getting-started/upgradin
  * @type {ReadonlyArray<{ name: string, section: Section }>}
  */
 export const SECTIONS = Object.freeze(
-    Object.entries({ sources, http, code, inline, output, downloads, upload, access, issuer, operator, profiles, rest }).map(([name, module]) => Object.freeze({ name, section: module.section }))
+    Object.entries({ sources, http, code, inline, output, downloads, upload, access, issuer, operator, profiles, rest, log }).map(([name, module]) => Object.freeze({ name, section: module.section }))
 );
 
 /**

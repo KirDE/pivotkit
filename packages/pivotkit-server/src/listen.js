@@ -9,6 +9,7 @@
 import { createServer } from "node:http";
 import { isLoopback } from "pivotkit-cli/rest";
 import { HOST_SYNTAX } from "./checks.js";
+import { newRequestId, requestScopeFor, withRequestIdHeader, withRequestScope } from "./request-id.js";
 
 /** Whether an address is loopback (pivotkit-cli/rest's: the CLI decides with it where http is allowed). */
 export { isLoopback } from "pivotkit-cli/rest";
@@ -161,6 +162,12 @@ export function pathOfTarget(target) {
 }
 
 /**
+ * What serveFetch's onClientError is told of a request the HTTP parser refused: the status it was
+ * answered with, its id (X-Request-Id of that answer), the socket's address and the parser's code.
+ * @typedef {{ status: number, requestId: string, address: string, parserError: string }} ClientErrorEntry
+ */
+
+/**
  * @typedef {object} FetchHandler
  * @property {(request: Request, info: { address: string }) => Promise<Response>} fetch
  * @property {(request: Request, info: { address: string }) => Promise<Response | null>} [precheck]  checks before the body is read: a Response to send, or null to go on
@@ -239,12 +246,13 @@ export function bodyCapOf(bodyBytes, request, info) {
 const defaultProblem = (status) => Response.json({ error: status === 413 ? "request body too large" : "bad request" }, { status, headers: { connection: "close" } });
 
 /**
- * Serves a fetch handler on node:http.
+ * Serves a fetch handler on node:http. Every request runs in its scope (request-id.js requestScopeFor: its id, trace id and addresses, on
+ * every log line written for it), and every answer names its id in X-Request-Id.
  * @param {FetchHandler} handler
- * @param {{ host: string, port: number, bodyBytes: number | BodyBytes, graceMs?: number, limits?: Partial<ConnectionLimits>, onRefused?: (entry: RefusedConnections) => void }} options  limits: over CONNECTION_LIMITS; onRefused: told of refused connections at most once a minute: the first at once, the rest of the minute when it ends (or at close)
+ * @param {{ host: string, port: number, bodyBytes: number | BodyBytes, graceMs?: number, limits?: Partial<ConnectionLimits>, onRefused?: (entry: RefusedConnections) => void, trustProxy?: boolean, onClientError?: (entry: ClientErrorEntry) => void }} options  limits: over CONNECTION_LIMITS; onRefused: told of refused connections at most once a minute: the first at once, the rest of the minute when it ends (or at close); trustProxy: the scope names the forwarded client (http.trustProxy); onClientError: told of a request the HTTP parser refused
  * @returns {Promise<{ port: number, server: import("node:http").Server, close(): Promise<void> }>}
  */
-export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRACE_MS, limits: given = {}, onRefused }) {
+export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRACE_MS, limits: given = {}, onRefused, trustProxy = false, onClientError }) {
     const problem = handler.problem ?? defaultProblem;
     const limits = { ...CONNECTION_LIMITS, ...given };
     const gate = connectionGate(limits);
@@ -253,9 +261,11 @@ export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRA
     let idle = [];
     const server = createServer({ maxHeaderSize: 16_384, requestTimeout: limits.requestMs, headersTimeout: limits.headersMs, connectionsCheckingInterval: limits.checkMs }, async (req, res) => {
         const path = pathOfTarget(req.url);
+        const info = { address: String(req.socket.remoteAddress ?? "") };
         if (path === null) {
             // "OPTIONS *", "CONNECT host:443": no resource of this server
-            const answer = problem(400, "/");
+            const scope = requestScopeFor(null, info, { trustProxy });
+            const answer = withRequestIdHeader(withRequestScope(scope, () => problem(400, "/", info)), scope.id);
             res.writeHead(answer.status, { ...Object.fromEntries(answer.headers), connection: "close" });
             res.end(Buffer.from(await answer.arrayBuffer()));
             return;
@@ -263,7 +273,8 @@ export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRA
         running++;
         const abort = new AbortController();
         res.on("close", () => abort.abort());
-        const info = { address: String(req.socket.remoteAddress ?? "") };
+        /** @type {import("./request-id.js").RequestScope | null} the request's, once its headers are read */
+        let scope = null;
         try {
             // every value of a repeated header: node:http keeps only the first Authorization (and drops
             // the others) in req.headers, so two tokens would pass as one; joined, the auth check sees both
@@ -280,7 +291,9 @@ export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRA
             const url = `http://${HOST_SYNTAX.test(host) ? host : "invalid.invalid"}${path}`;
             // what the headers tell is checked before a byte of the body is read
             const head = new Request(url, { method: req.method, headers });
-            const early = handler.precheck ? await handler.precheck(head, info) : null;
+            const inScope = requestScopeFor(head, info, { trustProxy });
+            scope = inScope;
+            const early = handler.precheck ? await withRequestScope(inScope, () => /** @type {any} */ (handler.precheck)(head, info)) : null;
             // the body's cap, decided once the precheck has signed the caller in (it is in info)
             const cap = bodyCapOf(bodyBytes, head, info);
             if (early) {
@@ -293,14 +306,14 @@ export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRA
                         req.destroy();
                     }
                 });
-                res.writeHead(early.status, Object.fromEntries(early.headers));
+                res.writeHead(early.status, { ...Object.fromEntries(early.headers), "x-request-id": inScope.id });
                 res.end(Buffer.from(await early.arrayBuffer()));
                 return;
             }
             const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readBody(req, cap);
             const request = new Request(url, { method: req.method, headers, body, signal: abort.signal });
-            const response = await handler.fetch(request, info);
-            res.writeHead(response.status, Object.fromEntries(response.headers));
+            const response = await withRequestScope(inScope, () => handler.fetch(request, info));
+            res.writeHead(response.status, { ...Object.fromEntries(response.headers), "x-request-id": inScope.id });
             if (response.body && req.method === "HEAD") {
                 // the body is not sent: given up, so whatever waits for its end (a caller's slot) is freed
                 await response.body.cancel().catch(() => undefined);
@@ -352,8 +365,9 @@ export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRA
                     setTimeout(resolve, 5000).unref();
                 });
             }
-            const answer = problem(e?.status === 413 ? 413 : 400, req.url ?? "/", info);
-            res.writeHead(answer.status, { ...Object.fromEntries(answer.headers), connection: "close" });
+            const failed = scope ?? requestScopeFor(null, info, { trustProxy });
+            const answer = withRequestScope(failed, () => problem(e?.status === 413 ? 413 : 400, req.url ?? "/", info));
+            res.writeHead(answer.status, { ...Object.fromEntries(answer.headers), connection: "close", "x-request-id": failed.id });
             res.end(Buffer.from(await answer.arrayBuffer()));
         } finally {
             running--;
@@ -365,6 +379,22 @@ export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRA
         }
     });
     server.keepAliveTimeout = 5_000;
+    // a request the HTTP parser refuses (a broken request line, headers too large, too slow) never
+    // reaches the handler: it is answered as node:http would, with an id, and told to onClientError
+    server.on("clientError", (error, socket) => {
+        const code = String(/** @type {any} */ (error)?.code ?? "");
+        // as node:http's own handler: an answer only on a socket that can take one and is not in the
+        // middle of another answer, then the socket destroyed at once (never left half-closed), so its
+        // connection slot is free by the time the client sees it close
+        const busy = /** @type {any} */ (socket)._httpMessage?.headersSent === true;
+        if (code !== "ECONNRESET" && socket.writable && !busy) {
+            const status = code === "HPE_HEADER_OVERFLOW" ? 431 : code === "ERR_HTTP_REQUEST_TIMEOUT" ? 408 : 400;
+            const id = newRequestId();
+            onClientError?.({ status, requestId: id, address: plainAddress(/** @type {import("node:net").Socket} */ (socket).remoteAddress), parserError: code.replace(/[^A-Z0-9_]/g, "").slice(0, 40) || "unknown" });
+            socket.write(`HTTP/1.1 ${status} ${status === 431 ? "Request Header Fields Too Large" : status === 408 ? "Request Timeout" : "Bad Request"}\r\nConnection: close\r\nContent-Length: 0\r\nX-Request-Id: ${id}\r\n\r\n`);
+        }
+        socket.destroy();
+    });
     // a bound on open connections, in all and per address, with slots kept for loopback
     // refused connections are told at most once a minute, so a flood does not flood the log too: the
     // first at once, those of the rest of the minute when it ends (or at close)

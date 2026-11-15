@@ -74,6 +74,10 @@ REST: /api/v1
   CORS: https://app.example.com
   /openapi.json: needs auth
 
+Log:
+  level info, format auto (text on a terminal, JSON otherwise)
+  addresses on: the socket's peer
+
 New in this version: code sources with a time limit and data per caller, data
     in the request (inline:; mcp.data: false switches it off), reports deleted
     after 30 days (output.maxAgeDays: 0 keeps them)
