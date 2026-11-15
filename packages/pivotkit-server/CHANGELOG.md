@@ -25,7 +25,9 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
   complete; `itemCase` comes for a `show` field also in a view that uses other fields.
 - A withheld render's `message` reads "results over fields that are not fully shown (...) stay in
   the file".
-- `check-config` prints more lines: each field's level and why, and each profile's levels.
+- `check-config` prints more lines (each field's level and why, each profile's levels) in a new
+  layout: a script that reads its text uses the exit code or the first line instead
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#check-config-layout)).
 - Behaviour change: a source's print template (`sources.<id>.template`) is read and checked at
   start; one the parser refuses (an unknown placeholder), over 1 MiB or not a regular file keeps
   the server from starting, where before every html report of that source failed with
@@ -246,6 +248,19 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
 
 ### Changed
 
+- `check-config` says first whether the server starts and how many problems and warnings it found,
+  then every `PROBLEM` with what it does (`-> the server does not start`, or what fails while the
+  server runs), then every `WARNING` named by its section, then the sections: one fact per line
+  wrapped at 78 columns (a path alone on its line), three markers (PROBLEM, WARNING, plain), the
+  limits that matter with their values, ASCII `->`. The Auth section names the MCP and the REST
+  audience where they differ. "Would not start" is said only for what `serve` refuses: a missing source file,
+  backend secret, download key or upload secret starts the server and is a PROBLEM it starts with.
+  How a person gets a profile stands under `Auth:`; over stdio a `Transport:` section says there are
+  no links and no signed-in person. It checks the download links' client secret, warns of an issuer
+  whose metadata cannot be loaded (3 s, from the commands only, under the issuer's request rules) and of a backend's `auth` no source
+  uses, says when there are no sources, names a secret file with its full path, and closes with "New
+  in this version" in one line and the upgrading link. `checkConfig()` returns `warnings` and
+  `stops` too ([#424](https://github.com/eizedev/pivotkit/issues/424)).
 - `output.downloads.signIn.issuer` other than `auth.issuer` is compared after normalising (trailing
   slash, case of the scheme and host, a default port): a spelling difference says to leave the key
   out, another issuer points to the planned sign-in with an issuer of its own
