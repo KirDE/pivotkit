@@ -14,7 +14,7 @@ is one of these kinds:
 | --- | --- | --- |
 | File | `file`: a CSV, TSV, TXT, JSON or XLSX file | In a worker thread, with the file limits ([options](mcp.md#configuration)) |
 | HTTP | `http`: an operator's backend, its address with typed parameters | Requested and parsed in the server's thread, computed in a worker; see [HTTP sources](#http) |
-| Code | `load`: a function of a library host | In the host's thread; see [Code sources](#code) |
+| Code | `load`: a function of a library host | Loaded in the host's thread, computed in a worker; see [Code sources](#code) |
 
 Every kind has the same exposure policy, scopes, field descriptions and `dataAsOf` in its results
 ([pivotkit-mcp](mcp.md), [REST](rest.md)).
@@ -631,17 +631,34 @@ cells are written as JSON text, and every text is cut at `limits.textLength`.
   source could not be refreshed.", and the log has a warning with the source's id. Any other failure
   answers at once and drops what was kept for that caller and values, so a withdrawn access is never
   covered by the cache.
-- **Bounds.** The process keeps at most 64 loads and 256 MiB of encoded data; one person (a shared
-  source counts as one) at most 8 loads and a quarter of the bytes, and a person's new load pushes
-  out that person's oldest first, so one caller cannot push out everyone else's data. Otherwise the
-  least recently used go first. Kept data stays in the process's memory until it is pushed out,
-  also after `maxStale` has passed.
+- **Bounds.** The process keeps at most 64 loads and `sourceCache.maxMb` of loaded tables (256 MiB
+  by default), each counted as pivotkit holds it (each distinct text of a column once, numbers,
+  dates and true/false values as typed arrays); one person (a shared source counts as one) at most
+  8 loads and a quarter of the bytes, and a person's new load pushes out that person's oldest
+  first, so one caller cannot push out everyone else's data. Otherwise the least recently used go
+  first. Kept data stays in the process's memory until it is pushed out, also after `maxStale` has
+  passed. `check-config` prints both limits.
+- **Tables up to a quarter of `sourceCache.maxMb`** (64 MiB by default) are kept. A larger table is
+  never kept: every call loads it again, reads it and sends it to a worker, as without `ttl`. A
+  million rows with a distinct text of 30 characters in each row take about 84 MiB, over the
+  default share: every call then takes about 0.6 to 1 s, 0.2 to 0.5 s of it in the host's thread
+  (measured on a laptop). With `"sourceCache": { "maxMb": 512 }` (tables up to 128 MiB) it is kept,
+  and a later call takes a few milliseconds; give the process the memory for it. The process
+  keeps one load cache: with several contexts in one process, the largest `sourceCache.maxMb` of
+  those open applies, and when a context closes the cache shrinks to the largest left.
 
 ### Where it runs { #code-thread }
 
-`load` and the operation over its data run in the host's thread, not in a worker. `timeMs` bounds
-`load`; the computation after it is not bounded by `compute.timeMs`, so keep the data a code source
-returns to what a report needs.
+`load` runs in the host's thread, and pivotkit reads its rows there once into a compact table (the
+run limits above, hidden fields left out; each distinct text of a column once, numbers, dates and
+true/false values in shared memory). The operation over that table runs in a worker, as for a file
+or an HTTP source: `timeMs` bounds `load`, `compute.timeMs` the computation (`TIMEOUT`),
+`compute.memoryMb` its memory (`LIMIT_EXCEEDED`), and it waits up to `compute.queueMs` for a free
+worker (`BUSY`). A load that is kept (`ttl` or `version`) goes to a worker once; later calls go to
+that worker without the table while it keeps it (each worker keeps the data of its last four runs,
+at most a quarter of `compute.memoryMb`). Reading a million rows of eight columns takes about 0.5 s
+of the host's thread on a laptop, a call over kept data a few milliseconds, so keep the data a code
+source returns to what a report needs.
 
 A code source is your code: pivotkit hands it a frozen copy of the caller and never a token, which
 guards against mistakes, not against code that means harm.

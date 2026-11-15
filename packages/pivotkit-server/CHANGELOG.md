@@ -33,7 +33,8 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
   params (`{}`), aborted after 30 s (`timeMs`); data kept per caller unless `cacheShared: true`; last
   good data up to an hour old after a transient failure, with `stale` (`maxStale: 0` turns it off);
   an error thrown by `load` answers `SOURCE_UNAVAILABLE` (502) instead of `INTERNAL` (500); the data
-  has a file's limits ([code sources](https://pivotkit.eize.dev/getting-started/upgrading/#code-sources)).
+  has a file's limits; the report over it is computed in a worker under `compute.timeMs`,
+  `compute.memoryMb` and `compute.queueMs` ([code sources](https://pivotkit.eize.dev/getting-started/upgrading/#code-sources)).
 - `checkConfig(options)` checks the options as `createContext` does first and throws the same
   `ConfigError`; its second argument is optional.
 - MCP clients may send a small table of their own (`inline:`, below); `"mcp": { "data": false }`
@@ -50,6 +51,11 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
 
 ### Added
 
+- `sourceCache.maxMb` (default 256): the loaded data of code and HTTP sources the process keeps.
+  The largest table that can be kept is a quarter of it (64 MiB by default); a larger table loads
+  on every call. With several contexts in one process the largest setting applies. `check-config`
+  prints both limits
+  ([#414](https://github.com/eizedev/pivotkit/issues/414)).
 - Backend sign-in for HTTP sources ([#329](https://github.com/eizedev/pivotkit/issues/329)):
   `sources.<id>.http.auth` or `httpSources.backends.<name>.auth` is a header from a secret reference,
   OAuth client credentials (a client secret, or a JWT client assertion such as a Kubernetes service
@@ -220,6 +226,13 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
 
 ### Changed
 
+- A code source's operation is computed in a worker as a table job, as an HTTP source's: `load` and
+  the reading of its rows stay in the host's thread, the encoding and the report are bounded by
+  `compute.timeMs` and `compute.memoryMb` ([#414](https://github.com/eizedev/pivotkit/issues/414)).
+  Its rows are kept packed (texts dictionary-coded, numbers, dates and true/false values in shared
+  typed arrays) and measured exactly; a kept load (tables up to 64 MiB per person by default) goes to a
+  worker once, later calls send its key only. Each worker keeps at most a quarter of `compute.memoryMb` of data sets. A source whose
+  every field is hidden keeps its row count.
 - Privacy ([#422](https://github.com/eizedev/pivotkit/issues/422)):
   - Data that belongs to one person counts as closed for download links and `output.baseUrl`: data
     sent in the request (`inline:`), a source with a parameter bound to a claim or a token exchange,

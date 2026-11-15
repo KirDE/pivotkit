@@ -234,6 +234,7 @@ error that names the key and the one probably meant.
 | `sources.<id>.params` | - | none | An HTTP or code source's parameters: values a caller passes with the source (see below) |
 | `sources.<id>.timeMs`, `.ttl`, `.maxStale` | - | code: 30000 ms, none, 3600 s; HTTP: 15000 ms, 60 s, 3600 s | An HTTP or code source's time limit, reuse and last good data ([HTTP](sources.md#http-options), [code](sources.md#code-options)) |
 | `sources.<id>.cacheShared` | - | false | A code source's one copy for all callers ([code sources](sources.md#code-options)) |
+| `sourceCache.maxMb` | - | 256 | The loaded data of code and HTTP sources the process keeps, in MiB (1 to 65536); the largest table that can be kept is a quarter of it (64 MiB by default), a larger one loads on every call; with several contexts in one process the largest setting applies ([bounds](sources.md#code-cache)) |
 | `sources.<id>.perPerson` | - | false | A code source whose data differs per caller: its reports get only links the person who asked can open ([code sources](sources.md#code-options)) |
 | `httpSources.enabled`, `.allowIpLiterals`, `.backends` | - | true, false, none | HTTP sources on or off, an IP address as a host, backends many sources share (with `intranet` for loopback and private addresses) ([HTTP sources](sources.md#http-options)) |
 | `files.allowDirs` | `--allow-dir dir` | none | Directories the model may name files in (`file:`) |
@@ -318,8 +319,9 @@ give a source a function instead of a file, a [code source](sources.md#code):
 `load(params, { caller, signal })` returns rows, `{ rows, asOf }` or columnar data, and
 `version(params, { caller })` says when the data changed. `caller` is a frozen copy of who calls
 (`client`, `profile`, `scopes`, `groups`, and with OAuth `subject` and `issuer`, else null; never a
-token); `signal` is aborted after the source's `timeMs` (30 s by default). Such sources run in the
-host's thread, not in a worker. pivotkit keeps their data per caller (with its client, scopes, groups
+token); `signal` is aborted after the source's `timeMs` (30 s by default). `load` runs in the host's
+thread; the report over its data is computed in a worker under `compute.timeMs` and
+`compute.memoryMb`, as for a file ([where it runs](sources.md#code-thread)). pivotkit keeps their data per caller (with its client, scopes, groups
 and claims), values and policy levels, unless `cacheShared: true` makes one copy for all callers
 (`caller` is then null); a caller without an identity (an OAuth token without a usable subject) gets
 no kept data. Calls that need the same data while it loads share one load; after a transient failure

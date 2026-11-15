@@ -1,12 +1,13 @@
 /*
  * check-config's section for code sources (a library host's load; only when check-config is given
  * options, a configuration file cannot hold a function): per source how long a load may take, how its
- * data is kept and whether last good data may stand in, and the upgrade notes that apply.
+ * data is kept and whether last good data may stand in, the size of the load cache (also for HTTP
+ * sources) and the upgrade notes that apply.
  *
  * check/index.js says what a section returns.
  */
 
-import { CODE_DEFAULTS } from "../options/code.js";
+import { CODE_DEFAULTS, sourceCacheOf } from "../options/code.js";
 import { isClosedForDelivery } from "../registry.js";
 
 /**
@@ -23,8 +24,12 @@ function keptOf(source) {
 /** @type {import("./index.js").Section} */
 export async function section(options, _registry, _runtime) {
     const code = Object.entries(options.sources ?? {}).filter(([, s]) => typeof s.load === "function");
+    const loaded = code.length > 0 || Object.values(options.sources ?? {}).some((s) => s.http);
+    const { bytes, share } = sourceCacheOf(options);
+    const mb = (n) => `${Math.round((n / 1_048_576) * 10) / 10} MiB`;
+    const cacheLine = `Kept loads of code and HTTP sources: at most ${mb(bytes)} in all; the largest table that can be kept is a quarter of it, ${mb(share)} per person or shared source (sourceCache.maxMb; with several contexts in one process the largest setting applies); a larger table loads on every call`;
     if (!code.length) {
-        return { lines: [], problems: 0, upgrade: [] };
+        return { lines: loaded ? [cacheLine] : [], problems: 0, upgrade: [] };
     }
     const lines = [`Code sources (${code.length}):`];
     for (const [id, source] of code) {
@@ -36,6 +41,7 @@ export async function section(options, _registry, _runtime) {
             lines.push(`    reports over it get plain links (every field is shown); if load answers each caller differently, set perPerson: true, so only the person who asked can open them (pivotkit cannot tell)`);
         }
     }
+    lines.push(`  ${cacheLine}`);
     const upgrade = [
         `Code sources: load gets (params, { caller, signal }) and is aborted after timeMs (default ${CODE_DEFAULTS.timeMs} ms); a failing load answers SOURCE_UNAVAILABLE (502), not INTERNAL; data is kept per caller unless cacheShared; after a transient failure last good data up to maxStale (default ${CODE_DEFAULTS.maxStale} s) stands in`
     ];

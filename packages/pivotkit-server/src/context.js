@@ -19,6 +19,8 @@ import { createRegistry } from "./registry.js";
 import { callerOf, createAuthCore, identityKey } from "./auth.js";
 import { offersOf } from "./sources/input.js";
 import { httpSettingsOf } from "./options/http.js";
+import { sourceCacheOf } from "./options/code.js";
+import { loadRunner } from "./sources/run.js";
 import { warnUnreadableSecrets } from "./sources/auth.js";
 import { prune } from "./output.js";
 import { autoValuesFields, noteAutoValues } from "./present.js";
@@ -143,6 +145,8 @@ export async function createContext(options, runtime = {}) {
         output = { dir, baseUrl: options.output.baseUrl ?? null, maxFiles: options.output.maxFiles ?? OUTPUT_DEFAULTS.maxFiles, maxMb: options.output.maxMb ?? OUTPUT_DEFAULTS.maxMb, maxAgeDays: maxAgeDaysOf(options, shared), cleanUp: !shared, showPath: runtime.showPaths ?? false };
     }
     const computer = createComputer(options.compute);
+    /** Gives back this context's sourceCache.maxMb (set once the context is made, below). */
+    let releaseCache = () => undefined;
     /** @type {Promise<any> | null} */
     let auth = null;
     /** @type {any} */
@@ -231,6 +235,8 @@ export async function createContext(options, runtime = {}) {
                 (await auth.catch(() => null))?.close();
             }
             await computer.close();
+            releaseCache();
+            releaseCache = () => undefined;
         }
     };
     if (output?.maxAgeDays) {
@@ -239,6 +245,8 @@ export async function createContext(options, runtime = {}) {
         pruning = setInterval(() => prune(context).catch(() => undefined), 3_600_000);
         pruning.unref();
     }
+    // one load cache per process: the largest sourceCache.maxMb of the open contexts sizes it
+    releaseCache = loadRunner.claimCacheBytes(sourceCacheOf(options).bytes);
     return context;
 }
 
