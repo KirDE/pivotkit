@@ -11,6 +11,7 @@ import { TOKEN_ENV, VERSION, createContext } from "./context.js";
 export { TOKEN_ENV };
 import { allowedHosts, hostRefusal } from "./checks.js";
 import { connectionLimitsOf, isLoopback, refusedText, serveFetch } from "./listen.js";
+import { bodyBytesOf } from "./limits.js";
 import { createRestHandler, REST_BODY_BYTES } from "./rest/handler.js";
 import { problem } from "./rest/problem.js";
 
@@ -108,7 +109,7 @@ export async function createServerHandler(options, runtime) {
                 const refused = hostRefusal(request, hosts);
                 return refused ? problem("FORBIDDEN_HOST", refused) : problem("NOT_FOUND", "no such route; the REST service is at /api/v1 (GET /openapi.json)");
             },
-            problem: (status, path) => (mcp && !rest?.handles(path.split("?")[0]) && mcp.problem ? mcp.problem(status) : problem(status === 413 ? "BODY_TOO_LARGE" : "INVALID_INPUT", status === 413 ? "the body is larger than the service takes" : "the request cannot be read")),
+            problem: (status, path, info) => (mcp && !rest?.handles(path.split("?")[0]) && mcp.problem ? mcp.problem(status) : rest ? rest.problem(status, path, info) : problem(status === 413 ? "BODY_TOO_LARGE" : "INVALID_INPUT", status === 413 ? "the body is larger than the service takes" : "the request cannot be read")),
             async close() {
                 await rest?.close();
                 await mcp?.close();
@@ -136,7 +137,7 @@ export async function serve(options, runtime) {
     const handler = await createServerHandler(options, { ...runtime, loopback: isLoopback(host) });
     let listening;
     try {
-        listening = await serveFetch(handler, { host, port, bodyBytes: REST_BODY_BYTES, graceMs: options.http?.graceMs, limits: connectionLimitsOf(options), onRefused: (entry) => handler.context.log.warn(refusedText(entry), entry) });
+        listening = await serveFetch(handler, { host, port, bodyBytes: bodyBytesOf(options), graceMs: options.http?.graceMs, limits: connectionLimitsOf(options), onRefused: (entry) => handler.context.log.warn(refusedText(entry), entry) });
     } catch (e) {
         await handler.close();
         throw e;

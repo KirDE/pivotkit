@@ -16,8 +16,14 @@ export { ConfigError, loadConfig, validateOptions, pathOf, restResourceOf, OPTIO
 export { POLICY_LEVELS, POLICY_DEFAULTS } from "./policy.js";
 export { createAuthCore, AuthRefusal, bearerOf, discover, scopesOf, profileOf, resourceMetadataUrlOf, TOKEN_MIN } from "./auth.js";
 export { allowedHosts, hostRefusal, clientAddress, LOCAL_HOSTS } from "./checks.js";
-export { createLimits, REQUEST_LIMITS } from "./limits.js";
-export { serveFetch, isLoopback, connectionLimitsOf, refusedText, GRACE_MS, CONNECTION_LIMITS, BODY_BYTES, SIGNED_IN, takeSignIn } from "./listen.js";
+export { createLimits, REQUEST_LIMITS, bodyBytesOf } from "./limits.js";
+export { serveFetch, isLoopback, connectionLimitsOf, refusedText, GRACE_MS, CONNECTION_LIMITS, BODY_BYTES, MAX_BODY_BYTES, SIGNED_IN, takeSignIn, peekSignIn, bodyCapOf } from "./listen.js";
+export { callerFields, CALLER_LOG_FIELDS } from "./log.js";
+export { newRequestId, withRequestId, requestId, errorDetails, isRequestId, REQUEST_ID } from "./request-id.js";
+export { serverTextOf } from "./rest/problem.js";
+export { offeredScopes } from "./scopes.js";
+export { readSecret, secretFileWarning, SecretError } from "./secrets.js";
+export { SECRET_REF } from "./options/shared.js";
 export { checkConfig } from "./check.js";
 export { OperationError } from "pivotkit-report/operations";
 export { optionsFrom, flagLines, httpFlags, SERVER_FLAGS, SHARED_FLAGS } from "./flags.js";

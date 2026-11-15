@@ -164,7 +164,7 @@ export function pathOfTarget(target) {
  * @typedef {object} FetchHandler
  * @property {(request: Request, info: { address: string }) => Promise<Response>} fetch
  * @property {(request: Request, info: { address: string }) => Promise<Response | null>} [precheck]  checks before the body is read: a Response to send, or null to go on
- * @property {(status: 400 | 413, path: string) => Response} [problem]  the answer for a body that cannot be read (path: the request's)
+ * @property {(status: 400 | 413, path: string, info?: Record<string | symbol, any>) => Response} [problem]  the answer for a body that cannot be read (path: the request's; info: the one the precheck had)
  */
 
 /**
@@ -198,13 +198,50 @@ function readBody(req, max) {
     });
 }
 
+/**
+ * The cap of a request's body, decided after the precheck: it may look at the sign-in the precheck
+ * kept in `info` (peekSignIn), so a larger cap can depend on who calls, never on what a stranger's
+ * headers claim.
+ * @typedef {(request: Request, info: Record<string | symbol, any>) => number} BodyBytes
+ */
+
+/**
+ * The sign-in a precheck kept for this request, left in `info` for the route (takeSignIn takes it).
+ * @param {Record<string | symbol, any>} info
+ * @returns {{ caller: import("./registry.js").Caller } | undefined}
+ */
+export const peekSignIn = (info) => (Object.hasOwn(info, SIGNED_IN) ? info[SIGNED_IN] : undefined);
+
+/** The most a cap function may give a signed-in caller: a larger cap is cut to it. */
+export const MAX_BODY_BYTES = 67_108_864;
+
+/**
+ * A request's body cap: the number (the host's own), or what the function says, at most BODY_BYTES
+ * for a caller the precheck did not sign in and at most MAX_BODY_BYTES for one it did; BODY_BYTES
+ * for anything but a whole number of 1 or more.
+ * @param {number | BodyBytes} bodyBytes
+ * @param {Request} request  without its body
+ * @param {Record<string | symbol, any>} info
+ * @returns {number}
+ */
+export function bodyCapOf(bodyBytes, request, info) {
+    if (typeof bodyBytes !== "function") {
+        return Number.isSafeInteger(bodyBytes) && bodyBytes >= 1 ? bodyBytes : BODY_BYTES;
+    }
+    const cap = bodyBytes(request, info);
+    if (!Number.isSafeInteger(cap) || cap < 1) {
+        return BODY_BYTES;
+    }
+    return Math.min(cap, peekSignIn(info) === undefined ? BODY_BYTES : MAX_BODY_BYTES);
+}
+
 /** The default answer for a body that cannot be read. */
 const defaultProblem = (status) => Response.json({ error: status === 413 ? "request body too large" : "bad request" }, { status, headers: { connection: "close" } });
 
 /**
  * Serves a fetch handler on node:http.
  * @param {FetchHandler} handler
- * @param {{ host: string, port: number, bodyBytes: number, graceMs?: number, limits?: Partial<ConnectionLimits>, onRefused?: (entry: RefusedConnections) => void }} options  limits: over CONNECTION_LIMITS; onRefused: told of refused connections at most once a minute: the first at once, the rest of the minute when it ends (or at close)
+ * @param {{ host: string, port: number, bodyBytes: number | BodyBytes, graceMs?: number, limits?: Partial<ConnectionLimits>, onRefused?: (entry: RefusedConnections) => void }} options  limits: over CONNECTION_LIMITS; onRefused: told of refused connections at most once a minute: the first at once, the rest of the minute when it ends (or at close)
  * @returns {Promise<{ port: number, server: import("node:http").Server, close(): Promise<void> }>}
  */
 export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRACE_MS, limits: given = {}, onRefused }) {
@@ -242,14 +279,17 @@ export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRA
             const host = req.headers.host ?? "localhost";
             const url = `http://${HOST_SYNTAX.test(host) ? host : "invalid.invalid"}${path}`;
             // what the headers tell is checked before a byte of the body is read
-            const early = handler.precheck ? await handler.precheck(new Request(url, { method: req.method, headers }), info) : null;
+            const head = new Request(url, { method: req.method, headers });
+            const early = handler.precheck ? await handler.precheck(head, info) : null;
+            // the body's cap, decided once the precheck has signed the caller in (it is in info)
+            const cap = bodyCapOf(bodyBytes, head, info);
             if (early) {
                 // the body that follows is drained, not read, so the client gets the answer rather than a
                 // reset connection; one that keeps sending past 4 x the cap is cut off
                 let drained = 0;
                 req.on("data", (chunk) => {
                     drained += chunk.length;
-                    if (drained > bodyBytes * 4) {
+                    if (drained > cap * 4) {
                         req.destroy();
                     }
                 });
@@ -257,7 +297,7 @@ export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRA
                 res.end(Buffer.from(await early.arrayBuffer()));
                 return;
             }
-            const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readBody(req, bodyBytes);
+            const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readBody(req, cap);
             const request = new Request(url, { method: req.method, headers, body, signal: abort.signal });
             const response = await handler.fetch(request, info);
             res.writeHead(response.status, Object.fromEntries(response.headers));
@@ -312,7 +352,7 @@ export async function serveFetch(handler, { host, port, bodyBytes, graceMs = GRA
                     setTimeout(resolve, 5000).unref();
                 });
             }
-            const answer = problem(e?.status === 413 ? 413 : 400, req.url ?? "/");
+            const answer = problem(e?.status === 413 ? 413 : 400, req.url ?? "/", info);
             res.writeHead(answer.status, { ...Object.fromEntries(answer.headers), connection: "close" });
             res.end(Buffer.from(await answer.arrayBuffer()));
         } finally {
