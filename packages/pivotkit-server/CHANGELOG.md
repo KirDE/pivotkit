@@ -6,8 +6,40 @@ All notable changes to `pivotkit-server` are documented in this file. The format
 
 ## [Unreleased]
 
+### Upgrading from 0.1.1
+
+Every field keeps its level and the automatic rule is off; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-6-1) has the details.
+
+- A client reads the optional `field` of a finding, the code `itemUnknown`, `withheld`, `hint`,
+  `complete` and `auto` in `describe_source`, and treats a `level` it does not know as `summary`.
+- A filter item that is none of a `show` field's values gets `itemUnknown` where its list is
+  complete; `itemCase` comes for a `show` field also in a view that uses other fields.
+- A withheld render's `message` reads "results over fields that are not fully shown (...) stay in
+  the file".
+- `check-config` prints more lines: each field's level and why, and each profile's levels.
+
+### Added
+
+- The level `values` between `show` and `summary`: a field's distinct values as a complete, sorted
+  list (`items`, `complete: true`), never a result over them. A number or date field, more values
+  than `policy.valuesMax` (default 50), a value over 80 characters, `counts: false` or `rows: false`
+  make it `summary` ([#362](https://github.com/eizedev/pivotkit/issues/362)).
+- `policy.autoValues` (default `false`, server and source): text fields that look like categories
+  get `values` where no `default` is written, never for a caller bound to a profile or a `file:`
+  path; thresholds and an English and German deny list, extended by the operator. The data's
+  statistics (counts, never values) are counted when the data is read and kept with it; without
+  them a field is `summary`. A change after a reload is logged, the start log counts the fields.
+- `check-config` prints each field's level and why, and the fields the automatic rule would list.
+- `describe_source`: `withheld` and `hint` say what is kept back; a `show` field has `complete`.
+- Findings are decided per field: `itemCase` for `show` and `values` fields, `itemUnknown` (the
+  closest listed value) where a field's list is complete; `noRowsKept`, `filterEmpty`, `tableCut`
+  and `chartCut` only for views whose fields are all `show`.
+- `pivotkit-server/policy`: `withStats`, `levelInfo`, `autoLevel`, `AUTO_VALUES`,
+  `AUTO_VALUES_DEFAULT`.
+
 ### Changed
 
+- The message of a withheld render names the fields that are not fully shown.
 - `REST_BASE`, `SOURCE_ID`, `TOKEN_SYNTAX`, `TOKEN_SYNTAX_TEXT`, `REST_ERRORS`, `PROBLEM_CODES` and
   `isLoopback` come from `pivotkit-cli/rest`, which the command line's remote mode checks against
   ([#306](https://github.com/eizedev/pivotkit/issues/306)); the exports keep their names.

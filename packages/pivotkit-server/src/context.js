@@ -17,7 +17,8 @@ import { createComputer } from "./compute.js";
 import { createLog } from "./log.js";
 import { createRegistry } from "./registry.js";
 import { createAuthCore, profileOf } from "./auth.js";
-import { prune } from "./present.js";
+import { autoValuesFields, noteAutoValues, prune } from "./present.js";
+import { resolvePolicy, withStats } from "./policy.js";
 
 /**
  * Why an output directory inside (or holding) an allowed directory is refused: the reason alone,
@@ -49,6 +50,7 @@ export const VERSION = createRequire(import.meta.url)("../package.json").version
  * @property {string} version
  * @property {(how: { env?: Record<string, string | undefined>, loopback: boolean }) => Promise<any>} auth
  * @property {() => Promise<{ ok: boolean, checks: Record<string, boolean> }>} ready
+ * @property {() => Promise<void>} countAutoValues  after start: read each file source the automatic rule applies to and log its "values" fields
  * @property {() => Promise<void>} close
  */
 
@@ -134,6 +136,8 @@ export async function createContext(options, runtime = {}) {
     let auth = null;
     /** @type {any} */
     let pruning = null;
+    /** @type {any} the one-worker pool of countAutoValues while it runs */
+    let counting = null;
     const context = {
         options,
         registry,
@@ -166,7 +170,48 @@ export async function createContext(options, runtime = {}) {
             return { ok: Object.values(checks).every(Boolean), checks };
         },
 
+        /**
+         * Reads each file source the automatic "values" rule applies to (no default written,
+         * policy.autoValues on) in a worker pool of its own, so the requests' workers and their time
+         * limits are not touched, and logs how many fields it puts at "values" and how to turn it off.
+         * A source that cannot be read is skipped: its calls say why. Never rejects.
+         */
+        async countAutoValues() {
+            // file sources the rule applies to, decided from the options before anything is resolved
+            const wanted = Object.entries(options.sources ?? {}).filter(([, s]) => s.file && resolvePolicy(options.policy, s.policy).auto);
+            const ids = [];
+            for (const [id] of wanted) {
+                const resolved = await registry.resolve(id, { scopes: null, client: "start", profile: null }).catch(() => null);
+                if (resolved) {
+                    ids.push(resolved);
+                }
+            }
+            if (!ids.length) {
+                return;
+            }
+            let fields = 0;
+            try {
+                counting = createComputer({ ...options.compute, workers: 1 });
+                for (const resolved of ids) {
+                    const ran = await counting.run("describe_source", { source: resolved.spec.id, items: 0 }, { spec: resolved.spec }).catch(() => null);
+                    if (ran?.stats) {
+                        const policy = withStats(resolved.policy, ran.stats);
+                        // kept, so a later change of the data is logged
+                        noteAutoValues(context, resolved.spec, policy);
+                        fields += autoValuesFields(policy).length;
+                    }
+                }
+                log.info(`the automatic rule puts ${fields} field${fields === 1 ? "" : "s"} of ${ids.length} source${ids.length === 1 ? "" : "s"} at values (their distinct values are listed); policy.autoValues false turns it off, check-config lists the fields`, { fields, sources: ids.length });
+            } catch {
+                // the count is a note for the operator, never a reason to stop
+            } finally {
+                await counting?.close();
+                counting = null;
+            }
+        },
+
         async close() {
+            await counting?.close();
             if (pruning) {
                 clearInterval(pruning);
             }
