@@ -116,7 +116,7 @@ The exposure policy is the [MCP server's](mcp.md#policy): per field `show`, `val
 (default) or `hide`, per source over the server's, with the opt-in [automatic values
 rule](mcp.md#auto-values). A REST caller is a program, not a model, but the same rules hold: a field
 at `summary` keeps its values out of every answer, and one at `values` lists its values but no result
-over them.
+over them ([what reaches an AI model](../model-data.md#rest) shows the answers per token).
 
 | Level | `GET /sources/{id}` | Findings | Results |
 | --- | --- | --- | --- |
@@ -500,6 +500,7 @@ pivotkit-server's.
 | `pivotkit-server mcp [flags]` | [pivotkit-mcp](mcp.md)'s runner (stdio by default) |
 | `pivotkit-server cli <command> ...` | The [command line](cli.md) `pivotkit` |
 | `pivotkit-server healthcheck [url]` | Exit 0 when `GET /healthz` answers (default `http://127.0.0.1:$PIVOTKIT_PORT/healthz`) |
+| `pivotkit-server --version` | The version |
 
 ### Reading check-config { #check-config }
 
@@ -554,7 +555,6 @@ there are no download links and no signed-in person, and the `Transport:` sectio
 sources therefore cannot be used. "New in this version" names the changes of this release that
 apply to the configuration, with the setting that switches each off, and links to the
 [upgrading page](../getting-started/upgrading.md).
-| `pivotkit-server --version` | The version |
 
 The flags of `serve` are the [MCP runner's](mcp.md#configuration) without `--http`, `--allow-dir`
 and `--list-files`, plus `--enable rest,mcp` (`http.enable`: what to serve; default REST, and MCP
@@ -580,7 +580,7 @@ new connection and lets running requests finish for up to `http.graceMs` (25 sec
 | `log.level`, `log.format`, `log.address` | info, auto, on | The log's level, its format (text on a terminal, JSON otherwise) and whether lines name the client's address; flags `--log`, `--log-format`, `--log-address`, variables `PIVOTKIT_LOG_LEVEL`, `PIVOTKIT_LOG_FORMAT`, `PIVOTKIT_LOG_ADDRESS` ([operations](operations.md#settings)) |
 | `http.maxConnectionsPerAddress` | 0 (no bound) | Connections one address may hold (loopback excepted); set it (e.g. 32) when clients reach the port directly with addresses of their own, not behind NAT, a published port or a proxy, where every client has one address |
 | `http.graceMs` | 25000 | How long a stop waits for running requests |
-| `output.create` | true | Make a missing `output.dir` at start (with its parents, mode 0700, or 0755 narrowed by the umask when `output.baseUrl` is set; a warning in the log); `false` makes it an error, as a missing directory was before. A relative `output.dir` without a configuration file is relative to the working directory. `check-config` says whether the directory exists, will be made, or cannot be, and why (a parent the server's user may not write, a name too long, a symbolic link loop) |
+| `output.create` | true | Make a missing `output.dir` at start (with its parents, mode 0700, or 0755 narrowed by the umask when `output.baseUrl` is set; a warning in the log); `false` makes a missing directory an error. A relative `output.dir` without a configuration file is relative to the working directory. `check-config` says whether the directory exists, will be made, or cannot be, and why (a parent the server's user may not write, a name too long, a symbolic link loop) |
 | `output.maxFiles`, `output.maxMb` | 1000, 1024 | Files pivotkit wrote and their megabytes the directory may hold: reports (`<name>.pivotkit-out.<format>`) and schedule drafts (`<name>.pivotkit-out.report.json`), at its top level. A new report deletes the oldest reports until it fits, one write at a time; drafts are counted but never deleted, and may take at most half of `output.maxFiles` (a draft over that answers 409 `NO_OUTPUT`). Files without that mark (the operator's, reports of older versions) are neither counted nor deleted, nor are subdirectories; a file named with the mark by hand counts as pivotkit's. Where the output directory is the configuration file's directory or holds a source, print template or token file, nothing is deleted: a full directory answers 409 `NO_OUTPUT`, and the start warns (with `output.maxAgeDays` it does not start) |
 | `output.maxAgeDays` | 30 | `0`: no age limit. Delete reports and drafts (the files marked `.pivotkit-out.`) older than this many days from the top level of the output directory, at start and every hour, and the temporary files of writes the server was killed in (`.<name>.pivotkit-out.<format>.<pid>-<random>.tmp`, older than an hour); other files and subdirectories stay. Use a directory of its own: the server refuses to start with a limit you write when the output directory is the configuration file's directory or holds a source, print template or token file; there the default does not apply (no age limit) |
 | `output.downloads` | on (plain links for open sources) | The server's own [download links](delivery.md): `enabled`, `expiresMinutes` (60), `bind` (`signIn`, `once`, `none`), `key`, `signIn` |
@@ -717,7 +717,8 @@ instead of running Node on the PSU server: keep the token in a PSU secret, call
 the user, or `POST /api/v1/views/render` to save it in the service's output directory. See
 [Getting started: REST service](../getting-started/rest.md#powershell) for the calls in PowerShell,
 and [Getting started: MCP server](../getting-started/mcp.md#psu) for running the service next to PSU.
-The links of the PSU module's reports open as before.
+The PSU module's report pages load their data from the PSU app, with the person's own rights; the
+REST service's policy does not apply to them.
 
 ## Security { #security }
 
