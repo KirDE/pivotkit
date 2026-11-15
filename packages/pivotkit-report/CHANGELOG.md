@@ -27,6 +27,11 @@ All notable changes to `pivotkit-report` are documented in this file. The format
   the option `dataAsOf`, which `render` checks (UTC to the second) and does not print yet.
 - list_sources' output schema has `params` per source; describe_source's a field's `description`.
 
+- `darkTokens`: a host's `--pk-*` colours for an HTML report on a dark screen, over the dark theme's,
+  as `tokens` are over the light ones (cleaned the same way); paper, a root that pins light and the
+  chart keep the light ones, and a template's own dark rules win over them. A host's brand colours
+  were lost on a dark screen ([#385](https://github.com/eizedev/pivotkit/issues/385)).
+
 ### Changed
 
 - A token's value with a quoted string is left out (the default stands in), except in
@@ -35,6 +40,11 @@ All notable changes to `pivotkit-report` are documented in this file. The format
 
 ### Fixed
 
+- HTML report on a dark screen: `--pk-scale-mid` is `initial` unless `darkTokens` sets it, so a
+  host's light middle colour (of `tokens` or of a template's light rule) no longer shows in dark
+  mode; the cells run halfway between the dark low and high colours. This changes how an existing
+  report with a middle colour looks on a dark screen: pass the middle colour in `darkTokens` to keep
+  one there ([#385](https://github.com/eizedev/pivotkit/issues/385)).
 - HTML report on a dark screen: a colour scale whose view names no colours runs through the dark
   theme's heat colours, as the report on a page does; the light ones made its low end a bright grey
   under light text (3.3:1). A view's own colours are mixed fainter there (30 %, as on the page).
