@@ -169,6 +169,7 @@ configuration, under "New in this version", with a link to each section below.
 | [Sources hidden by default can be open](#hidden-open) | a source is hidden by default (`"default": "hide"`) and names only fields at `show` or `hide` | nothing; for plain links over a "show everything except" source, set its default to `hide` and list the fields to show |
 | [A byte quota and an age limit for drafts](#draft-quota) | callers make schedule drafts (`draft_schedule`, `POST /schedules/draft`) | nothing; run `check-config`; set `output.draftMaxAgeDays` if waiting drafts should expire |
 | [32 connections per address](#per-address) | the server serves HTTP without `http.trustProxy` and without `http.maxConnectionsPerAddress` | nothing, or raise `http.maxConnectionsPerAddress` where many clients share one address |
+| [Chart layout functions measure differently](#chart-layout-0-8) | your code calls `rowLabelInterval`, `heatmapCellLabels`, `columnLabelLayout` or `categoryLabelLayout` of `pivotkit-core/chart` | check the results you rely on. Pass `frame` to keep the old heatmap frame |
 
 ### Sources hidden by default can be open { #hidden-open }
 
@@ -224,6 +225,21 @@ Many clients can share one address without a proxy, for example an office behind
 published container port can also hand every connection over from Docker's gateway
 ([container](../reference/container.md#per-address)). Raise the bound there. `check-config` prints
 it under `HTTP:`, and refused connections get a log line with `perAddress`.
+
+### Chart layout functions measure differently { #chart-layout-0-8 }
+
+The same arguments can give other results than in 0.7:
+
+- `rowLabelInterval` and `heatmapCellLabels` measure the heatmap's frame from its grid and column
+  names: 102 px for straight names at 14 px, where 0.7 took 120 px. So more row names and cell
+  numbers fit.
+- `rowLabelInterval` writes a row name where the row is a px higher than the text. 0.7 asked for
+  4/3 of the text's height.
+- Every function that measures text weighs a Chinese, Japanese or Korean (CJK) or fullwidth
+  character a whole em and a capital 0.7 em. The layout slants or cuts such names sooner.
+- `categoryLabelLayout` cuts slanted names shorter in a low chart.
+
+To keep 0.7's heatmap frame, pass `{ x: 80, y: 120 }` as the last argument `frame`.
 
 ## From 0.6 to 0.7 { #from-0-6-1 }
 
