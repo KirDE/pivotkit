@@ -8,6 +8,25 @@ All notable changes to `pivotkit-server` are documented in this file. The format
 
 ### Upgrading from 0.1.1
 
+- Copy the schedule drafts you want to keep out of `output.dir` before you update: drafts still
+  waiting for approval (`*.pivotkit-out.report.json`) are deleted with reports older than
+  `output.maxAgeDays` (30 by default) at the first start; this release's `check-config` counts them
+  ([upgrading, from 0.6.1 / 0.1.1](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-6-1)).
+- Breaking: with download links on, an `http://` `http.publicUrl` on a host other than loopback
+  keeps the server from starting; use `https://`, or set `output.downloads.allowInsecureUrl: true`
+  for a network you trust ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#download-links-http)).
+- Behaviour change: a column a file gives no header (a blank header cell, a row longer than the
+  header) is `hide` whatever the policy's default; a rule that names it still holds
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#columns-without-header)).
+- Behaviour change: where a caller sees a field below `show`, a row wider than the named header (a
+  uniform file that ends every line with a separator aside) is left out whole, with a `ROWS_DROPPED` note that counts such rows;
+  `check-config` counts them ([#479](https://github.com/eizedev/pivotkit/issues/479),
+  [upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#long-rows)).
+- Behaviour change: the request limits (`rest.*`, `mcp.*` `rateLimit` and `concurrency`) count per
+  person, no longer per OAuth client; one client's people together get eight times the rate and run
+  at most eight times `concurrency` at once; `auth.subjectClaim` must name a claim users cannot change
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#limits-per-person)).
+
 - The log ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#log)): on a terminal it
   is text unless `log.format` is `json` (stderr that is no terminal, and the container image, stay
   JSON). JSON lines gain fields. The client's address is logged by default as `address` (with
@@ -71,6 +90,23 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
 
 ### Added
 
+- `output.downloads.allowInsecureUrl`: download links under an `http://` `http.publicUrl` off
+  loopback, refused without it; with it the start and `check-config` warn.
+- `check-config` warns of `"default": "show"` with hidden fields (a deny list), of
+  `output.downloads.expiresMinutes` under 5 ([#468](https://github.com/eizedev/pivotkit/issues/468)),
+  of an `output.dir` that holds the configuration or a source, template or token file (as the start
+  does), and counts the schedule drafts and reports the next start's age sweep deletes; one line under
+  `Sources` names the sources without a `description`, which a model chooses sources by
+  ([#471](https://github.com/eizedev/pivotkit/issues/471)).
+- A refusal by the client's share of the request limits logs `limit: clientRate` or `limit: clientShare`.
+- Download sign-in callbacks are limited to 20 a minute per address (each writes a marker); over that
+  the page asks to wait (429 `RATE_LIMITED`). Behind a proxy, set `http.trustProxy`, or all people
+  share the proxy's address.
+- An `info` line for each `output.maxAgeDays` sweep that deleted something, with the counts of
+  `reports` and `drafts`.
+- A `warning` when a static token's file is missing, empty or shorter than 32 characters while the
+  server runs, naming the token and the cause (never its value or path), at most once a minute.
+- `limitKeyOf(caller)`: whom a caller's request limits count for (pivotkit-mcp uses it).
 - `render_view` (MCP and `POST /views/render`) takes `save: false`: the csv or json result comes back
   inline only, with no file in `output.dir`, no upload and no link; csv when no format is given.
   Where it cannot come back inline (xlsx, html or svg, inline results off, a field that is not `show`, a result over the `inline`
@@ -387,6 +423,20 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
   output directory's code moved to `src/output.js`.
 
 ### Fixed
+
+- A row with more cells than the header put a hidden column's value into a shown `Column N` under
+  `"default": "show"`; such columns are now hidden. The cells after the stray separator also moved a
+  hidden value into the next named column; such rows are now left out where a field is below `show`
+  ([#479](https://github.com/eizedev/pivotkit/issues/479)).
+- The download key (`output.downloads.key`) was read on every request to `/downloads/`, forged links
+  included; a read is now shared for a second.
+- A download sign-in's `state` was used once only because the browser drops its cookie; a callback
+  replayed with the cookie from before it is now refused (a marker in `.pivotkit-downloads/`).
+- A body over `rest.data.maxBytes` from a caller that may send data reset the connection after about
+  8 MB instead of answering 413 to clients that read only after sending (.NET, PowerShell)
+  ([#473](https://github.com/eizedev/pivotkit/issues/473)).
+- REST logs a token in the address (`?access_token=`) as `token_in_address`, as MCP does, not as
+  `no_token`.
 
 - Every error answer (4xx and 5xx) has one log line under its `X-Request-Id`, a 404 or 405 only at
   `log.level` `debug`: its own line, or a `refused` line whose reason is the answer's problem code or

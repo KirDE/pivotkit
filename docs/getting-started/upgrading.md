@@ -147,6 +147,14 @@ Then restart Claude Code.
 
 ## From 0.6.1 to the next release { #from-0-6-1 }
 
+!!! warning "Copy schedule drafts out of `output.dir` first"
+    This applies to pivotkit-server and pivotkit-mcp from 0.1.1 too, which come with this release.
+    The new release deletes reports **and schedule drafts still waiting for approval** older than 30
+    days from `output.dir` at its first start ([why](#max-age-default)): drafts are the files
+    `*.pivotkit-out.report.json`, reports the other `*.pivotkit-out.*` files. Copy those you want to
+    keep elsewhere before you update, or set `output.maxAgeDays: 0`. Run the new release's
+    `check-config` first: it counts the drafts and reports the first start would delete.
+
 Operators of pivotkit-server and pivotkit-mcp need not act for the exposure policy: every field
 keeps its level, and the automatic values rule and the new operator controls are off. Library hosts
 with code sources check [Code sources](#code-sources). Over HTTP with an output directory, check the
@@ -176,7 +184,11 @@ callers notice:
 | [Download links](#download-links) | the server serves HTTP and has `output.dir` | route `/downloads/` to it, set `output.downloads.key`, and for closed sources a sign-in client; or set `output.downloads.enabled: false` |
 | [`output.baseUrl` and closed sources](#base-url-closed) | you set `output.baseUrl` | reports over sources with a field that is not `show` carry no `url` any more |
 | [Requests to the issuer](#issuer-requests) | `auth.mode` is `oauth` and the issuer resolves to a loopback or private address, is reached through a proxy, redirects, or serves a key set over 256 KiB | set `auth.intranet: true` for an issuer in your LAN or cluster; run `check-config` |
-| [Reports deleted after 30 days](#max-age-default) | the server has `output.dir` in a directory of its own and no `output.maxAgeDays` | nothing, or `output.maxAgeDays: 0` to keep reports with no age limit |
+| [Reports and drafts deleted after 30 days](#max-age-default) | the server has `output.dir` in a directory of its own and no `output.maxAgeDays` | copy the schedule drafts and reports you want to keep out of `output.dir` before you update, or set `output.maxAgeDays: 0` |
+| **Breaking:** [download links over plain http](#download-links-http) | `http.publicUrl` is `http://` on a host other than loopback, with `output.dir` | use `https://`, or set `output.downloads.allowInsecureUrl: true` for a network you trust, or `output.downloads.enabled: false` |
+| [Columns without a header](#columns-without-header) | a file source has rows longer than its header, or a blank header cell, under `"default": "show"` | name such a column in `fields` if it should be shown; run `check-config` |
+| [Rows longer than the header](#long-rows) | a file or CSV answer has rows wider than its named header (other than a separator that ends every line), and a caller sees a field below `show` | fix those rows (quote values with the separator in them); until then they are left out, with a `ROWS_DROPPED` note; `check-config` counts them |
+| [Request limits per person](#limits-per-person) | people sign in through one OAuth client | nothing; each person gets `rateLimit` and `concurrency` of their own |
 | [The log](#log) | you read the log on a terminal, parse it, alert on it, or ship it to a log server | JSON lines gain fields and the client's address is logged by default (`log.address: "off"` keeps it out); levels and `msg` are new, and more refusals get a line; on a terminal the log is text unless `log.format` is `json`; a start error is a JSON line where stderr is no terminal |
 | [check-config's layout](#check-config-layout) | you read `check-config`'s output in a script | use its exit code, or its first line, which says whether the server starts |
 | [Print templates checked at start](#template-at-start) | a source has `sources.<id>.template` | run `check-config`; fix a template it reports as a PROBLEM |
@@ -211,7 +223,9 @@ at 78 columns. What was `NOT FOUND` or `NOT WRITABLE` is a `PROBLEM` line, and "
 is said only for what `serve` refuses: a missing source file, backend secret, download key or
 upload secret starts the server. With OAuth it asks the issuer for its public metadata once (3 s at
 most) and warns when it cannot be loaded. The exit code is as before: 1 for any problem
-([reading check-config](../reference/rest.md#check-config)).
+([reading check-config](../reference/rest.md#check-config)). A configuration the start refuses
+outright (an unknown key, a value out of range, a rule between keys) ends `check-config` at that
+message: the warnings of the later checks show once it is fixed.
 
 ### Print templates checked at start { #template-at-start }
 
@@ -300,15 +314,63 @@ a report whose fields were withheld from the model. The file is still written. R
 whose fields are all `show` keep their address. For the others, leave out `output.baseUrl` and use
 sign-in links, or give REST programs `results: true` and the [file route](../reference/rest.md#downloads).
 
-### Reports deleted after 30 days { #max-age-default }
+### Reports and drafts deleted after 30 days { #max-age-default }
 
-`output.maxAgeDays` is 30 by default: reports and schedule drafts (drafts waiting for approval too)
+Copy the schedule drafts you want to keep out of `output.dir` before you update: drafts still waiting
+for approval are deleted with the old reports. `output.maxAgeDays` is 30 by default: reports and schedule drafts (drafts waiting for approval too)
 older than 30 days are deleted from the output directory at start and every hour. Before, they stayed
 until `output.maxFiles` or `output.maxMb` pushed them out. Set `output.maxAgeDays` to another number
 of days, or to `0` for no age limit, the old behaviour. The default applies only to a directory of the
 reports' own: where `output.dir` holds the configuration or a source, template or token file, nothing
 is deleted by age and the server starts as before (`check-config` says "no age limit: the directory
-holds other files" under `Output:`). Copy the reports you want to keep elsewhere before you upgrade.
+holds other files" under `Output:`, and warns that a full directory there refuses new reports).
+Each sweep that deletes something writes an `info` line with the counts of `reports` and `drafts`.
+
+### Download links over plain http { #download-links-http }
+
+With download links on (HTTP and `output.dir`, without `output.baseUrl`), the server no longer starts
+with an `http://` `http.publicUrl` on a host other than loopback: a link is the credential, and it and
+its cookie would cross the network in clear text. Put the server behind TLS and write `https://`; or
+set `output.downloads.allowInsecureUrl: true` for a network you trust (the start and `check-config`
+then warn); or switch the links off with `output.downloads.enabled: false`, which turns off every
+download link, the https ones too. `http://localhost` and `http://127.0.0.1` work as before.
+
+```json
+{ "http": { "publicUrl": "http://reports.lan:3333" },
+  "output": { "dir": "reports", "downloads": { "allowInsecureUrl": true } } }
+```
+
+### Columns without a header { #columns-without-header }
+
+A column the file gives no name (a blank header cell, or a row with more values than the header,
+which an unquoted separator inside a value causes) is `hide` whatever the policy's default, since its
+values may be another column's, shifted. Before, it took the default, so under `"default": "show"` a
+hidden column's value could be shown there. A rule that names it (`"Column 7": "show"`) still holds.
+`check-config` prints such a column as `hide` and warns of `"default": "show"` with hidden fields.
+
+### Rows longer than the header { #long-rows }
+
+Where a caller sees any field below `show` (the default or a rule is `values`, `summary` or `hide`,
+the shipped default `summary` included), a row whose cells may be shifted by an unquoted separator
+inside a value is left out whole, and the answer's notes say how many with `ROWS_DROPPED`: the values
+after the stray separator shift one column to the right, so a value kept back would land in a shown
+column. Such a row has more cells than the named header (its empty cells at the end left out). A file
+whose every row is as wide and ends with a separator (with or without one in the header) is no shift
+and keeps its rows. In a file with mixed row widths every row wider than the named header is left
+out: a file where only some rows end with a separator loses those rows, or all of them if every row is
+wider; `ROWS_DROPPED` gives the count. A source whose fields are all `show` keeps every row, extra
+values in a hidden `Column N`. `check-config` counts such rows per source by the source's own policy,
+so a caller whose profile sees fewer fields can lose rows `check-config` does not warn about. Quote values that hold the separator to keep the rows; a shifted row as wide as the
+header cannot be caught, so use quoted CSV, xlsx or JSON for sources with fields kept back.
+
+### Request limits per person { #limits-per-person }
+
+`rest.rateLimit`, `rest.concurrency`, `mcp.rateLimit` and `mcp.concurrency` count per person (the
+issuer and subject of an OAuth token, a static token's name), no longer per OAuth client: people who
+sign in through one client no longer share 120 requests a minute and 4 at once. An OAuth token
+without a subject counts for its client. The people of one client together get eight times the rate
+and run at most eight times `concurrency` requests at once. Make sure `auth.subjectClaim` names a claim
+your provider does not let users change.
 
 ### Request ids { #request-ids }
 

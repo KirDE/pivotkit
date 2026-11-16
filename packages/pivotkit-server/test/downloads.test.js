@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync, readdirSync, unlinkSync, utimesSync, writeFile
 import { join } from "node:path";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { checkConfig, validateOptions } from "pivotkit-server";
-import { dispositionOf, filenameOf, placeMarker, readToken, signToken, sizeText, subjectDigest, subkeysOf, sweepMarkers } from "../src/downloads.js";
+import { KEY_READ_MS, SIGN_IN_CALLBACKS, dispositionOf, filenameOf, placeMarker, readToken, signToken, sizeText, subjectDigest, subkeysOf, sweepMarkers } from "../src/downloads.js";
 import { NO_LINK_NOTE, linkFor, resourceLinkOf } from "../src/delivery.js";
 import { BY_REGION, SALES_CSV, TOKEN, call, factsOf, raw, restServer, tempDir, workspace } from "./helpers.js";
 import { createContext } from "../src/context.js";
@@ -1018,7 +1018,7 @@ test("markers: written whole and exclusive; the sweep deletes an expired one, ke
     assert.deepEqual(readdirSync(dir).filter((n) => n.endsWith(".tmp")).length, 1);
 });
 
-test("a rotated key takes effect without a restart: links of the old key answer 404, new links work", async () => {
+test("a rotated key takes effect without a restart, within KEY_READ_MS: links of the old key answer 404, new links work", async () => {
     const dir = workspace();
     const env = { DL_KEY };
     const server = await restServer({ sources: SOURCES, output: { dir: "out", downloads: { key: { env: "DL_KEY" } } }, baseDir: dir }, { env });
@@ -1027,6 +1027,8 @@ test("a rotated key takes effect without a restart: links of the old key answer 
         const before = await render("Before");
         assert.equal((await fetch(before.url)).status, 200);
         env.DL_KEY = "another-download-key-for-tests-that-is-long-enough-9876543210";
+        // the key is read again at most every KEY_READ_MS
+        await new Promise((resolve) => setTimeout(resolve, KEY_READ_MS + 50));
         assert.equal((await fetch(before.url)).status, 404);
         const after = await render("After");
         assert.equal((await fetch(after.url)).status, 200);
@@ -1238,6 +1240,44 @@ test("the log: a refused download has exactly one line under its X-Request-Id; a
                 assert.deepEqual([mine[0].level, mine[0].reason ?? mine[0].code], ["info", mine[0].event === "refused" ? "not_found" : "NOT_FOUND"], JSON.stringify(mine[0]));
             }
         }
+    } finally {
+        await server.close();
+    }
+});
+
+test("signIn: a callback replayed with the cookie from before it (and a provider that takes a code twice) is refused: the state is marked used on the server", async () => {
+    const { server, render, open, callback } = await signInServer();
+    try {
+        const output = await render("alice");
+        const redirect = await open(output.url);
+        const cookie = cookieOf(redirect);
+        const { code, state } = signInAt(/** @type {string} */ (redirect.headers.get("location")), "alice");
+        const grant = { ...codes.get(code) };
+        assert.equal((await callback(code, state, cookie)).status, 200);
+        // someone who copied the callback's address and the cookie sent before it, at a provider
+        // that does not hold codes to one use
+        codes.set(code, grant);
+        const replay = await callback(code, state, cookie);
+        assert.equal(replay.status, 400);
+        assert.match(await replay.text(), /This sign-in was already used/);
+    } finally {
+        await server.close();
+    }
+});
+
+test("signIn: sign-in callbacks from one address are rate limited (each writes a marker): over the limit 429, and the page says to wait", async () => {
+    const { server, render, open, callback } = await signInServer();
+    try {
+        const output = await render("alice");
+        const statuses = [];
+        for (let i = 0; i < SIGN_IN_CALLBACKS.burst + 5; i++) {
+            const redirect = await open(output.url);
+            const { code, state } = signInAt(/** @type {string} */ (redirect.headers.get("location")), "alice");
+            statuses.push((await callback(code, state, cookieOf(redirect))).status);
+        }
+        assert.ok(statuses.includes(429), String(statuses));
+        assert.equal(statuses[0], 200);
+        assert.ok(server.log.some((l) => l.event === "download" && l.code === "RATE_LIMITED") || server.log.some((l) => l.status === 429), "the refusal has a line");
     } finally {
         await server.close();
     }

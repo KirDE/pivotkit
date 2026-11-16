@@ -1,19 +1,27 @@
 pivotkit-server: the server starts, but not everything will work.
-1 problem, 1 warning.
+1 problem, 2 warnings.
 
 PROBLEM: sources.gone.file: data/missing.csv is not there -> the server
     starts; gone answers FILE_NOT_AVAILABLE
 
+WARNING (Sources): sources.sales.policy: "show" by default with hidden fields
+    is a deny list: a column the data gains later is shown unless someone
+    hides it; prefer "summary" by default and give the fields to show the
+    level show
 WARNING (Auth): the token bot's scope "typo:scope" is named by no source, tool
     or required scope
 
 Sources (3):
+  no description: sales, gone, code (a model chooses sources by it:
+      sources.<id>.description)
   values listed per shown field: 20 (policy.items)
   results inline in the tool answer: up to 500 cells (policy.inline)
   sales: a file
     <dir>/data/sales.csv
     policy: show by default; Customer hide
     scopes: sales:read
+    a value kept back is safe in CSV only when values that hold the separator
+        are quoted; xlsx or JSON is safer
     field levels (automatic values: not applied, a default is written):
       Region: show (the default)
       Product: show (the default)
@@ -22,6 +30,8 @@ Sources (3):
   gone: a file
     <dir>/data/missing.csv
     policy: summary by default
+    a value kept back is safe in CSV only when values that hold the separator
+        are quoted; xlsx or JSON is safer
   code: a code source, described under Code sources
     policy: summary by default
     fields: known only after a load

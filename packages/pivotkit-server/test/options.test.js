@@ -44,7 +44,7 @@ test("options: the composed table is today's, in today's order, plus the shared 
     expected.sourceCache = { object: { maxMb: "integer" } };
     // download links (options/downloads.js)
     const secretRef = { custom: "fn" };
-    expected.output.object.downloads = { object: { enabled: "boolean", expiresMinutes: "integer", bind: { enum: ["signIn", "once", "none"] }, key: secretRef, signIn: { object: { clientId: "string", clientSecret: secretRef, issuer: "string", scopes: "strings", tokenUrl: "string" } } } };
+    expected.output.object.downloads = { object: { enabled: "boolean", expiresMinutes: "integer", bind: { enum: ["signIn", "once", "none"] }, key: secretRef, allowInsecureUrl: "boolean", signIn: { object: { clientId: "string", clientSecret: secretRef, issuer: "string", scopes: "strings", tokenUrl: "string" } } } };
     // the operator's controls (options/operator.js): after the base's keys, in the fragment's order
     Object.assign(expected.auth.object, { groupsClaim: "string", groupsSeparator: "string", groupProfiles: { list: { object: { group: "string", profile: "string" } } }, defaultProfile: "string", offerSourceScopes: "boolean" });
     expected.audit = { object: { subject: { enum: ["off", "hash", "plain"] }, key: { custom: "fn" } } };
@@ -189,7 +189,7 @@ test("check-config: the whole text of a configuration of every kind of source, w
     const result = await checkConfig({ ...options, baseDir: dir }, { http: true, env: { BOT_TOKEN: "x".repeat(40) }, name: "pivotkit-server", rest: true });
     const golden = readFileSync(new URL("./fixtures/check-config.txt", import.meta.url), "utf8");
     assert.equal(result.text.split(dir).join("<dir>"), golden);
-    assert.deepEqual([result.problems, result.warnings, result.stops], [1, 1, 0]);
+    assert.deepEqual([result.problems, result.warnings, result.stops], [1, 2, 0]);
     // every line fits, but for a full path (one word, never cut)
     for (const line of result.text.split("\n").filter((l) => !l.includes(dir))) {
         assert.ok(line.length <= 78, line);

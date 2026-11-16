@@ -1,10 +1,11 @@
 /*
  * The request limits of the REST service (rest.rateLimit, rest.concurrency) and of the MCP endpoint
  * (mcp.rateLimit, mcp.concurrency), each its own, in the memory of one process (a second instance behind a load
- * balancer counts on its own): a token bucket per caller (rest.rateLimit.perMinute, .burst), a count
+ * balancer counts on its own): a token bucket per person, or per client for a token without a
+ * person (limitKeyOf; rest.rateLimit.perMinute, .burst), a count
  * of refused tokens per address over the last minute (.failedAuthPerMinute: someone trying tokens is
  * stopped before the next one is checked), and the requests of one caller at once
- * (rest.concurrency). Every map is bounded: the oldest key goes first; and every minute (an unref'd
+ * (rest.concurrency; a client's people together at most REQUEST_LIMITS.clientShare times that). Every map is bounded: the oldest key goes first; and every minute (an unref'd
  * timer, cleared by close()) the entries that no longer count are dropped: an address whose refused
  * tokens are all older than a minute, a caller whose bucket has filled up again (a full bucket is the
  * same as none). So an address is kept at most two minutes after its last refused token, a caller's
@@ -12,6 +13,7 @@
  * body (bodyBytesOf): larger only for a REST caller, signed in, that may send data.
  */
 
+import { identityKey } from "./auth.js";
 import { REST_BASE } from "./config.js";
 import { BODY_BYTES, peekSignIn } from "./listen.js";
 import { REST_ROUTES } from "./rest/routes.js";
@@ -124,8 +126,23 @@ export function bodyBytesOf(options) {
     };
 }
 
-/** The defaults, the same for both front ends. */
-export const REQUEST_LIMITS = Object.freeze({ perMinute: 120, burst: 30, failedAuthPerMinute: 30, concurrency: 4 });
+/**
+ * The defaults, the same for both front ends. clientShare: the requests of all the people of one
+ * client (an OAuth client id, a static token) at once, as a multiple of concurrency, so a client
+ * cannot run unlimited requests through many people.
+ */
+export const REQUEST_LIMITS = Object.freeze({ perMinute: 120, burst: 30, failedAuthPerMinute: 30, concurrency: 4, clientShare: 8 });
+
+/**
+ * Who a caller's rate and concurrency limits count for: the person (identityKey: an OAuth token's
+ * issuer and subject, a static token's name, "local"), else the client (an OAuth token without a
+ * usable subject). Prefixed, so a client's name never meets a person's key.
+ * @param {import("./registry.js").Caller} caller
+ */
+export function limitKeyOf(caller) {
+    const person = identityKey(caller);
+    return person ? `person:${person}` : `client:${caller.client}`;
+}
 
 /** The most keys a limiter keeps. */
 const KEYS = 10_000;
@@ -150,12 +167,39 @@ export function createLimits(rest = {}, now = Date.now, how = {}) {
     const burst = rest.rateLimit?.burst ?? REQUEST_LIMITS.burst;
     const failedPerMinute = rest.rateLimit?.failedAuthPerMinute ?? REQUEST_LIMITS.failedAuthPerMinute;
     const concurrency = rest.concurrency ?? REQUEST_LIMITS.concurrency;
+    const clientConcurrency = concurrency * REQUEST_LIMITS.clientShare;
     /** @type {Map<string, { tokens: number, at: number }>} */
     const buckets = new Map();
+    /** @type {Map<string, { tokens: number, at: number }>} each client's bucket, over all its people (clientShare times a person's) */
+    const clientBuckets = new Map();
+    const share = REQUEST_LIMITS.clientShare;
+    /**
+     * Takes one from a bucket of `map` (rate per minute, at most `size`); the seconds to wait, else 0.
+     * @param {Map<string, { tokens: number, at: number }>} map
+     */
+    const takeFrom = (map, key, rate, size, t) => {
+        const bucket = map.get(key) ?? { tokens: size, at: t };
+        bucket.tokens = Math.min(size, bucket.tokens + ((t - bucket.at) / 60_000) * rate);
+        bucket.at = t;
+        map.delete(key);
+        map.set(key, bucket);
+        bound(map);
+        return bucket.tokens < 1 ? Math.max(1, Math.ceil(((1 - bucket.tokens) / rate) * 60)) : 0;
+    };
     /** @type {Map<string, number[]>} */
     const failures = new Map();
     /** @type {Map<string, number>} */
     const running = new Map();
+    /** @type {Map<string, number>} the requests running per client, over all its people */
+    const runningOfClient = new Map();
+    const add = (map, key, n) => {
+        const left = (map.get(key) ?? 0) + n;
+        if (left > 0) {
+            map.set(key, left);
+        } else {
+            map.delete(key);
+        }
+    };
 
     /** Drops the addresses without a refused token in the last minute and the buckets that are full again. */
     function prune() {
@@ -170,27 +214,32 @@ export function createLimits(rest = {}, now = Date.now, how = {}) {
                 buckets.delete(key);
             }
         }
+        for (const [key, bucket] of clientBuckets) {
+            if (bucket.tokens + ((t - bucket.at) / 60_000) * perMinute * share >= burst * share) {
+                clientBuckets.delete(key);
+            }
+        }
     }
     const pruning = setInterval(prune, how.pruneEveryMs ?? PRUNE_MS);
     pruning.unref?.();
 
     return {
         /**
-         * Takes one request from a caller's bucket; the seconds to wait when it is empty, else 0.
-         * @param {string} key
+         * Takes one request from a caller's bucket and from its client's (clientShare times as large,
+         * so people of one client, a subject claim a user could change included, cannot take without
+         * end); the seconds to wait when either is empty, else 0. A refused request takes from neither.
+         * @param {string} key  limitKeyOf's
+         * @param {string} [client]  the caller's client (default: the key)
          */
-        take(key) {
+        take(key, client = key) {
             const t = now();
-            const bucket = buckets.get(key) ?? { tokens: burst, at: t };
-            bucket.tokens = Math.min(burst, bucket.tokens + ((t - bucket.at) / 60_000) * perMinute);
-            bucket.at = t;
-            buckets.delete(key);
-            buckets.set(key, bucket);
-            bound(buckets);
-            if (bucket.tokens < 1) {
-                return Math.max(1, Math.ceil(((1 - bucket.tokens) / perMinute) * 60));
+            const own = takeFrom(buckets, key, perMinute, burst, t);
+            const all = takeFrom(clientBuckets, client, perMinute * share, burst * share, t);
+            if (own || all) {
+                return Math.max(own, all);
             }
-            bucket.tokens -= 1;
+            /** @type {{ tokens: number }} */ (buckets.get(key)).tokens -= 1;
+            /** @type {{ tokens: number }} */ (clientBuckets.get(client)).tokens -= 1;
             return 0;
         },
         /**
@@ -216,25 +265,43 @@ export function createLimits(rest = {}, now = Date.now, how = {}) {
             bound(failures);
         },
         /**
-         * Starts a request of a caller, or false when it has `concurrency` running.
-         * @param {string} key
+         * Starts a request of a caller, or false when it has `concurrency` running or its client has
+         * `concurrency` times REQUEST_LIMITS.clientShare running over all its people.
+         * @param {string} key  limitKeyOf's
+         * @param {string} [client]  the caller's client (default: the key)
          */
-        enter(key) {
-            const n = running.get(key) ?? 0;
-            if (n >= concurrency) {
+        enter(key, client = key) {
+            if ((running.get(key) ?? 0) >= concurrency || (runningOfClient.get(client) ?? 0) >= clientConcurrency) {
                 return false;
             }
-            running.set(key, n + 1);
+            add(running, key, 1);
+            add(runningOfClient, client, 1);
             return true;
         },
-        /** Ends a request of a caller. */
-        leave(key) {
-            const n = (running.get(key) ?? 1) - 1;
-            if (n > 0) {
-                running.set(key, n);
-            } else {
-                running.delete(key);
-            }
+        /**
+         * Which bucket a refused take met: "rate" (the caller's own) or "clientRate" (its client's
+         * people together), for the refusal's log line.
+         * @param {string} key
+         * @param {string} [client]
+         * @returns {"rate" | "clientRate"}
+         */
+        rateBy(key, client = key) {
+            return (buckets.get(key)?.tokens ?? burst) < 1 ? "rate" : (clientBuckets.get(client)?.tokens ?? burst * share) < 1 ? "clientRate" : "rate";
+        },
+        /**
+         * Which limit a refused enter met: "concurrency" (the caller's own) or "clientShare" (its
+         * client's people together), for the refusal's log line.
+         * @param {string} key
+         * @param {string} [client]
+         * @returns {"concurrency" | "clientShare"}
+         */
+        fullBy(key, client = key) {
+            return (running.get(key) ?? 0) >= concurrency ? "concurrency" : (runningOfClient.get(client) ?? 0) >= clientConcurrency ? "clientShare" : "concurrency";
+        },
+        /** Ends a request of a caller (enter's key and client). */
+        leave(key, client = key) {
+            add(running, key, -1);
+            add(runningOfClient, client, -1);
         },
         /** How many addresses and callers are kept (tests). */
         size: () => ({ addresses: failures.size, callers: buckets.size }),

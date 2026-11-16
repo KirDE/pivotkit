@@ -106,11 +106,63 @@ export const holds = (key) => key !== null && cache.has(key);
 /** The data formats read, by extension. */
 const FORMATS = new Set(["csv", "tsv", "txt", "json", "xlsx"]);
 
-/** The names of the columns the levels hide, in lower case. */
-const hiddenOf = (levels, columns) => {
-    const policy = { default: levels.default, fields: new Map(Object.entries(levels.fields)) };
+/**
+ * The names of the columns the levels hide, in lower case.
+ * @param {{ default: string, fields: Record<string, string> }} levels
+ * @param {string[]} columns
+ * @param {unknown} [unnamed]  a read table's `unnamed`: the columns the file gives no header
+ */
+const hiddenOf = (levels, columns, unnamed = undefined) => {
+    const policy = { default: levels.default, fields: new Map(Object.entries(levels.fields)), unnamed: new Set(Array.isArray(unnamed) ? unnamed.map(fieldKey) : []) };
     return columns.filter((c) => levelOf(policy, c) === "hide").map(fieldKey);
 };
+
+/**
+ * A read table without its rows longer than the header, where the levels hold a field below "show"
+ * (the default or a rule): a separator inside a value shifts every cell after it one column to the
+ * right, so a hidden, summary or values field's value lands in the next column, which may be shown.
+ * Which cell moved cannot be told, and the row's other values are misplaced too, so the whole row
+ * goes, with a read note that counts them. A row is longer than its header by the cells the reader
+ * read, an empty one at the end too (pivotkit-core's `longRows`). Where every field is "show" the
+ * table stays as it was read.
+ * @param {{ default: string, fields: Record<string, string> }} levels
+ * @param {{ table: any, notes: import("pivotkit-report/operations").Finding[] }} read  readTable's
+ * @param {string} label  the source's name for the note
+ * @returns {{ table: any, notes: import("pivotkit-report/operations").Finding[] }}
+ */
+export function withoutLongRows(levels, read, label) {
+    const { table } = read;
+    const long = new Set(Array.isArray(table?.longRows) ? table.longRows : []);
+    if (!long.size || allShown(levels)) {
+        return read;
+    }
+    const rows = table.data[0]?.length ?? 0;
+    const keep = [];
+    for (let r = 0; r < rows; r++) {
+        if (!long.has(r)) {
+            keep.push(r);
+        }
+    }
+    const dropped = rows - keep.length;
+    if (!dropped) {
+        return read;
+    }
+    const pick = (column) => keep.map((r) => column[r]);
+    const note = { severity: /** @type {const} */ ("warning"), code: "ROWS_DROPPED", path: "", message: `${label}: ${dropped} row${dropped === 1 ? "" : "s"} with more values than there are column names left out: a separator inside a value shifts the values after it into other columns, and this source hides a field` };
+    return {
+        table: { ...table, data: table.data.map(pick), ...(Array.isArray(table.raw) ? { raw: table.raw.map(pick) } : {}), rowCount: keep.length },
+        notes: [...read.notes, note]
+    };
+}
+
+/**
+ * Whether levels show every field: "show" by default and no rule below it.
+ * @param {{ default: string, fields: Record<string, string> }} levels
+ */
+export const allShown = (levels) => levels.default === "show" && Object.values(levels.fields ?? {}).every((l) => l === "show");
+
+/** Notes whose text is fixed and names no column (pivotkit-core's, and ROWS_DROPPED): never cleaned, whatever a hidden column is called. */
+const FIXED_NOTES = new Set(["ENCODING", "SEPARATOR", "LINES_SKIPPED", "COLUMNS_RENAMED_MORE", "COLUMN_DROPPED", "COLUMNS_ADDED", "ROWS_EMPTY", "TEXT_CUT", "CHARACTERS_REMOVED", "ROWS_DROPPED"]);
 
 /** Columnar data without the hidden columns. */
 function withoutHidden(table, hide) {
@@ -130,7 +182,7 @@ function withoutHidden(table, hide) {
  * @returns {{ columns: string[], rows: unknown[][], dropped: number }}
  */
 export function withoutHiddenRows(levels, table) {
-    const hide = hiddenOf(levels, table.columns);
+    const hide = hiddenOf(levels, table.columns, /** @type {any} */ (table).unnamed);
     if (!hide.length) {
         return { columns: table.columns, rows: table.rows, dropped: 0 };
     }
@@ -139,7 +191,9 @@ export function withoutHiddenRows(levels, table) {
 }
 
 /** Reader notes without those about a hidden column: nothing about it reaches the model. */
-const cleanNotes = (notes, hide) => notes.filter((n) => !hide.some((h) => fieldKey(n.message).includes(h)));
+// a note of fixed text stays: its words could hold a hidden column's name ("column names") and
+// dropping it would hide that rows went missing
+const cleanNotes = (notes, hide) => notes.filter((n) => FIXED_NOTES.has(n.code) || !hide.some((h) => fieldKey(n.message).includes(h)));
 
 /** Drops a kept data set. */
 function forget(key) {
@@ -261,8 +315,8 @@ export async function fileData(spec) {
             return of(remember(key, cache.get(key)));
         }
         const bytes = await readSafe(/** @type {string} */ (spec.path), { cwd: "/", allow: spec.allow ?? [], maxBytes: spec.limits.fileBytes ?? 52_428_800, hardLinks: spec.hardLinks ?? true });
-        const { table, notes } = await readTable(bytes, label, { format, ...(spec.sheet ? { sheet: spec.sheet } : {}), ...(spec.timeZone ? { timeZone: spec.timeZone } : {}), limits: spec.limits });
-        const hide = hiddenOf(spec.levels, table.columns);
+        const { table, notes } = withoutLongRows(spec.levels, await readTable(bytes, label, { format, ...(spec.sheet ? { sheet: spec.sheet } : {}), ...(spec.timeZone ? { timeZone: spec.timeZone } : {}), limits: spec.limits }), label);
+        const hide = hiddenOf(spec.levels, table.columns, table.unnamed);
         const data = encode(withoutHidden(table, hide), { timeZone: spec.timeZone ?? "UTC", limits: spec.limits });
         return of(remember(key, { data, notes: cleanNotes(notes, hide), hidden: hide.length, stats: sourceStats(data), asOf: asOfText(info.mtime) }));
     } catch (e) {
@@ -464,7 +518,7 @@ function columnarOf(spec, table) {
         throw new OperationError("INTERNAL", "a table has columns and rows (or columnar data)");
     }
     const columns = plain.columns.map(String);
-    const hide = hiddenOf(spec.levels, columns);
+    const hide = hiddenOf(spec.levels, columns, plain.unnamed);
     const columnar = Array.isArray(plain.data) ? { columns, types: plain.types, data: plain.data } : { columns, data: columns.map((_, i) => /** @type {unknown[][]} */ (plain.rows ?? []).map((row) => (Array.isArray(row) ? row[i] : undefined))) };
     return { input: withoutHidden(columnar, hide), hide, dropped };
 }
@@ -511,7 +565,7 @@ async function readUpload(spec, upload) {
         throw new OperationError("LIMIT_EXCEEDED", `${spec.name}: the file is larger than the server reads (limits.fileBytes)`);
     }
     try {
-        return await readTable(upload.bytes, `${spec.name}.${format}`, { format, ...(upload.sheet ? { sheet: upload.sheet } : {}), ...(spec.timeZone ? { timeZone: spec.timeZone } : {}), limits: spec.limits });
+        return withoutLongRows(spec.levels, await readTable(upload.bytes, `${spec.name}.${format}`, { format, ...(upload.sheet ? { sheet: upload.sheet } : {}), ...(spec.timeZone ? { timeZone: spec.timeZone } : {}), limits: spec.limits }), spec.name);
     } catch (e) {
         // the caller's own file (inline:): its reader's sentence, not only a code (sources/inline.js)
         throw spec.kind === "inline" ? await uploadError(e, upload, spec.limits) : asOperationError(e, spec.name);
@@ -562,7 +616,7 @@ export async function packedUpload(spec, upload, key, asOf) {
 async function packedRead(spec, upload, key, asOf) {
     const read = await readUpload(spec, upload);
     const { table } = read;
-    const hide = hiddenOf(spec.levels, table.columns);
+    const hide = hiddenOf(spec.levels, table.columns, table.unnamed);
     const notes = cleanNotes(read.notes, hide);
     const columnar = withoutHidden(table, hide);
     const packed = packTable(columnar, table.data[0]?.length ?? 0, hide.length);

@@ -25,13 +25,14 @@ import { access, link as hardLink, mkdir, open, readFile, readdir, stat, unlink,
 import { join } from "node:path";
 import { ConfigError } from "./options/shared.js";
 import { DEFAULT_ALGORITHMS } from "./config.js";
-import { settingsOf } from "./options/downloads.js";
+import { insecurePublicHost, insecureUrlText, settingsOf } from "./options/downloads.js";
 import { subjectOf } from "./auth.js";
 import { discover, ISSUER_LIMITS, issuerFetch, issuerHint, issuerRulesOf, jwksUriOf, remoteKeySet } from "./issuer.js";
 import { allowedHosts, hostRefusal } from "./checks.js";
 import { isLoopback } from "./listen.js";
 import { OUTPUT_MARK, outputDir } from "./output.js";
-import { newRequestId, requestId, withRequestId } from "./request-id.js";
+import { newRequestId, requestId, requestScope, withRequestId } from "./request-id.js";
+import { createLimits } from "./limits.js";
 import { readSecret } from "./secrets.js";
 import { typeOf } from "./rest/problem.js";
 
@@ -106,6 +107,7 @@ const ANSWERS = Object.freeze({
     SIGN_IN_FAILED: { status: 400, heading: "Sign-in failed", text: "The sign-in did not complete. Open the download link you were sent once more (not this page) to try again." },
     SIGN_IN_DENIED: { status: 400, code: "SIGN_IN_FAILED", heading: "Not signed in", text: "You were not signed in. The sign-in was cancelled or the sign-in service refused it. To get the report, open the download link you were sent once more and sign in." },
     SIGN_IN_STALE: { status: 400, code: "SIGN_IN_FAILED", heading: "Sign-in page out of date", text: `This sign-in was already used, is older than ${minutesText(SIGN_IN_SECONDS)}, or was started in another browser. Open the download link you were sent once more, in this browser.` },
+    SIGN_IN_TOO_MANY: { status: 429, code: "RATE_LIMITED", heading: "Too many sign-ins", text: "Too many sign-ins came from your network in a short time. Wait a minute, then open the download link you were sent once more." },
     SIGN_IN_NOT_READY: { status: 503, heading: "Sign-in not ready", text: "The server is waiting for its sign-in service. Try again in a moment." },
     FORBIDDEN_ORIGIN: { status: 403, heading: "Download not started from its page", text: "This download must be started from its own page. Open the download link once more and press Download there." },
     FORBIDDEN_HOST: { status: 403, heading: "Address not served", text: "This address is not served here." },
@@ -226,11 +228,17 @@ export function dispositionOf(name) {
     return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
+/**
+ * Sign-in callbacks per client address: a person signs in a few times a minute at most, and each
+ * callback writes a marker of its state; over this an address waits (429), the others go on.
+ */
+export const SIGN_IN_CALLBACKS = Object.freeze({ perMinute: 20, burst: 20 });
+
 /** How often the markers of expired one-time links are swept: ten minutes. */
 const MARKER_SWEEP_MS = 600_000;
 
-/** A marker of a used one-time link: its nonce. */
-const MARKER_NAME = /^[A-Za-z0-9_-]{22}\.used$/;
+/** A marker of a used one-time link (its nonce) or of a used sign-in state (the state). */
+const MARKER_NAME = /^[A-Za-z0-9_-]{22}\.(?:used|state)$/;
 
 /** A marker being written: its name before it is linked into place. */
 const MARKER_TEMP = /^\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]+\.tmp$/;
@@ -244,7 +252,7 @@ const MARKER_TEMP = /^\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]+\.tmp$/;
  */
 export async function placeMarker(marker, expiry) {
     const name = marker.split(/[\\/]/).pop() ?? "";
-    const temp = join(marker, "..", `.${name.replace(/\.used$/, "")}.${randomBytes(6).toString("base64url")}.tmp`);
+    const temp = join(marker, "..", `.${name.replace(/\.(?:used|state)$/, "")}.${randomBytes(6).toString("base64url")}.tmp`);
     await writeFile(temp, `${expiry}\n`, { flag: "wx", mode: 0o600 });
     try {
         await hardLink(temp, marker);
@@ -339,9 +347,14 @@ export async function subjectBindingOf(context, issuer, subject) {
     return keys ? mac(keys.upload, JSON.stringify([issuer, subject])) : null;
 }
 
+/** How long a read of output.downloads.key is used before it is read again, in milliseconds. */
+export const KEY_READ_MS = 1000;
+
 /**
- * The keys of output.downloads.key, read on every use (a rotated secret works without a restart;
- * links of the old key stop working) and derived once per value; a random key without one.
+ * The keys of output.downloads.key, read again at most every KEY_READ_MS (a rotated secret works
+ * without a restart, within a second; links of the old key stop working) and derived once per value;
+ * a random key without one. A read, and a failed one, is shared by the requests in that time, so a
+ * flood of links (forged ones too) does not read the file for each.
  * @param {import("./options/downloads.js").DownloadSettings} settings
  * @param {{ baseDir?: string }} options
  * @param {Record<string, string | undefined>} env
@@ -353,7 +366,7 @@ function keySource(settings, options, env) {
     }
     let last = { value: "", keys: /** @type {any} */ (null) };
     const ref = settings.key;
-    return async () => {
+    const read = async () => {
         const value = await readSecret(ref, options, env);
         if (Buffer.byteLength(value) < KEY_MIN_BYTES) {
             throw new ConfigError(`output.downloads.key (${ref.env ? `$${ref.env}` : `the file ${ref.file}`}) is shorter than ${KEY_MIN_BYTES} bytes; make one with: openssl rand -base64 48`);
@@ -362,6 +375,15 @@ function keySource(settings, options, env) {
             last = { value, keys: subkeysOf(Buffer.from(value, "utf8")) };
         }
         return last.keys;
+    };
+    /** @type {{ at: number, keys: Promise<any> } | null} */
+    let held = null;
+    return () => {
+        const now = Date.now();
+        if (!held || now - held.at >= KEY_READ_MS) {
+            held = { at: now, keys: read() };
+        }
+        return held.keys;
     };
 }
 
@@ -562,12 +584,18 @@ export function createDownloadHandler(context, runtime = {}) {
                 await keys().catch((e) => context.log.warn(`download links: the key cannot be read, so reports get no links until it can: ${String(e?.message ?? e).slice(0, 200)}`));
             })
             .catch(() => undefined);
+        const insecure = insecurePublicHost(options);
+        if (insecure) {
+            context.log.warn(insecureUrlText(insecure));
+        }
         if (!publicUrl && !loopback) {
             context.log.warn("download links: http.publicUrl is not set and the server listens on an address other than loopback, so reports get no links (they would show an internal address); set http.publicUrl");
         }
     }
 
     const markersDir = () => join(/** @type {string} */ (outputDir(context)), ".pivotkit-downloads");
+    // the sign-in callbacks per address (SIGN_IN_CALLBACKS)
+    const callbacks = createLimits({ rateLimit: SIGN_IN_CALLBACKS });
 
     /** Deletes the markers of expired one-time links (sweepMarkers), at most every MARKER_SWEEP_MS. */
     async function sweep() {
@@ -774,6 +802,25 @@ export function createDownloadHandler(context, runtime = {}) {
         return startSignIn(request, token);
     }
 
+    /**
+     * Marks a sign-in's state used (placeMarker, as a one-time link): false when it was used already.
+     * @param {string} stateValue  NONCE_SYNTAX
+     * @param {unknown} expiry  the cookie entry's `x` (seconds), when the state stops working anyway
+     */
+    async function markStateUsed(stateValue, expiry) {
+        const until = Number.isSafeInteger(expiry) ? /** @type {number} */ (expiry) : Math.floor(Date.now() / 1000) + SIGN_IN_SECONDS;
+        try {
+            await mkdir(markersDir(), { recursive: true, mode: 0o700 });
+            await placeMarker(join(markersDir(), `${stateValue}.state`), until);
+            return true;
+        } catch (e) {
+            if (/** @type {any} */ (e)?.code === "EEXIST") {
+                return false;
+            }
+            throw e;
+        }
+    }
+
     /** The POST of a one-time link: the file once, or again to the browser that took it within REPEAT_SECONDS. */
     async function once(request, payload) {
         void sweep().catch(() => undefined);
@@ -878,6 +925,20 @@ export function createDownloadHandler(context, runtime = {}) {
             // no sign-in of this browser under way (a missing or foreign cookie, a used state): anyone can send that, so the debug log only
             // (a tab left open, a reload, another browser): the page says to open the link again, here
             context.log.debug("download links: a sign-in callback without its cookie", { via: "link", bound: "signIn", code: "SIGN_IN_FAILED", requestId: requestId() });
+            return answer(request, "SIGN_IN_STALE", { "set-cookie": cookie });
+        }
+        // the state is used once on the server too, not only because the browser drops it from its
+        // cookie: a callback replayed with the cookie from before it is refused (a marker beside the
+        // one-time links', written only for a state of this server's signed cookie, swept at its expiry)
+        // each such callback writes a marker: bounded per address (SIGN_IN_CALLBACKS), so one address
+        // cannot fill the output directory with them; a callback without its cookie writes none
+        const wait = callbacks.take(`address:${requestScope()?.address ?? ""}`);
+        if (wait) {
+            log({ bound: "signIn", ok: false, code: "RATE_LIMITED" });
+            return answer(request, "SIGN_IN_TOO_MANY", { "set-cookie": cookie, "retry-after": String(wait) });
+        }
+        if (!(await markStateUsed(stateValue, entry.x))) {
+            context.log.debug("download links: a sign-in callback with a used state", { via: "link", bound: "signIn", code: "SIGN_IN_FAILED", requestId: requestId() });
             return answer(request, "SIGN_IN_STALE", { "set-cookie": cookie });
         }
         if (url.searchParams.has("error")) {
@@ -1003,6 +1064,7 @@ export function createDownloadHandler(context, runtime = {}) {
 
         close() {
             issuer?.close();
+            callbacks.close();
             if (sweeping) {
                 clearInterval(sweeping);
             }

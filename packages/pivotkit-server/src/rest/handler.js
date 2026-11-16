@@ -24,7 +24,7 @@ import { allowedHosts, clientAddress, hostRefusal } from "../checks.js";
 import { callerOf } from "../context.js";
 import { BODY_BYTES, SIGNED_IN, isLoopback, peekSignIn, takeSignIn } from "../listen.js";
 import { INPUT_DEPTH, jsonDepth, present, presentedInput, renderFile, saveLogFields } from "../present.js";
-import { LARGE_BODIES, bodyTooLargeText, createLargeBodies, createLimits, isRestPost, restBodyBytesAt, restBodyBytesFor, restBodyCeilingOf } from "../limits.js";
+import { LARGE_BODIES, bodyTooLargeText, createLargeBodies, createLimits, isRestPost, limitKeyOf, restBodyBytesAt, restBodyBytesFor, restBodyCeilingOf } from "../limits.js";
 import { INLINE_ID, checkTableSize, dataRefusal, inlineLogFields, maySendData, restDataOffered } from "../sources/inline.js";
 import { readMultipart } from "./multipart.js";
 import { openApiDocument } from "./openapi.js";
@@ -386,13 +386,15 @@ export async function createRestHandler(context, runtime = {}) {
             return who.refused;
         }
         const { caller } = who;
-        const wait = limits.take(caller.client);
+        // counted per person (a client's people do not share one bucket), the client's own cap beside it
+        const limitKey = limitKeyOf(caller);
+        const wait = limits.take(limitKey, caller.client);
         if (wait) {
-            context.log.refused({ status: 429, path: REST_BASE, reason: refusalReason("RATE_LIMITED"), limit: "rate", ...callerFields(caller) });
+            context.log.refused({ status: 429, path: REST_BASE, reason: refusalReason("RATE_LIMITED"), limit: limits.rateBy(limitKey, caller.client), ...callerFields(caller) });
             return problem("RATE_LIMITED", "too many requests; wait before the next", { headers: { "retry-after": String(wait) } });
         }
-        if (!limits.enter(caller.client)) {
-            context.log.refused({ status: 429, path: REST_BASE, reason: refusalReason("RATE_LIMITED"), limit: "concurrency", ...callerFields(caller) });
+        if (!limits.enter(limitKey, caller.client)) {
+            context.log.refused({ status: 429, path: REST_BASE, reason: refusalReason("RATE_LIMITED"), limit: limits.fullBy(limitKey, caller.client), ...callerFields(caller) });
             return problem("RATE_LIMITED", "too many requests at once; wait for one to finish", { headers: { "retry-after": "1" } });
         }
         const started = Date.now();
@@ -413,7 +415,7 @@ export async function createRestHandler(context, runtime = {}) {
                 response = problemOf(error ?? e);
             }
         } finally {
-            limits.leave(caller.client);
+            limits.leave(limitKey, caller.client);
         }
         const body = response.headers.get("content-type")?.includes("problem") ? await response.clone().json().catch(() => null) : null;
         context.log.request({ ...entry, status: response.status, ...(body?.code ? { code: body.code } : {}), ms: Date.now() - started });
@@ -518,6 +520,17 @@ export async function createRestHandler(context, runtime = {}) {
             return withCors(problem("BODY_TOO_LARGE", bodyTooLargeText(options, cap)), origin);
         };
         if (declared > ceiling) {
+            if (isRestPost(request)) {
+                // refused whoever calls; a caller whose token holds is kept as signed in all the same,
+                // since listen.js drains a refused body against the cap of the caller the precheck
+                // signed in (four times it): a client that reads only after sending its whole body
+                // gets this 413 rather than a reset, and a caller without a valid token keeps the
+                // small bound
+                const who = await authenticate(request, clientAddress(request, info.address ?? "", trustProxy));
+                if (!("refused" in who)) {
+                    info[SIGNED_IN] = who;
+                }
+            }
             return tooLarge(ceiling);
         }
         if (!isRestPost(request)) {
