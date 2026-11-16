@@ -186,7 +186,8 @@ root `package.json`: `npm run types` and the builds depend on it.
   feature with its `KEYS` and `validate`; `index.js`: `FRAGMENTS` and `composeSlots`, which refuses a
   key declared twice: a new option is a key in its feature's fragment, never in two places),
   `src/secrets.js` (`readSecret`: a `{ env }` or `{ file }` reference read on every use, never
-  logged; `secretFileWarning` for check-config), `src/print-template.js` (a source's print template:
+  logged; `readSecretFile`, the one read of a secret's file, static tokens too: a regular file only,
+  at most `MAX_SECRET_BYTES`, UTF-16 named (`UTF16_TEXT`); `secretFileWarning` for check-config), `src/print-template.js` (a source's print template:
   `readTemplateFile`, the one safe reader for a request, the start and check-config;
   `checkTemplates`, each source's template read and parsed, the start refuses and check-config
   reports what parseTemplate refuses; a missing file is a warning at start and a PROBLEM the server
@@ -309,7 +310,23 @@ root `package.json`: `npm run types` and the builds depend on it.
   auth.js; `options/log.js` and `check/log.js` are its options and check-config section), `src/serve.js` (`serve`, `createServerHandler`: REST and, with
   pivotkit-mcp installed (imported by name, no dependency; one of another release that imports what this pivotkit-server lacks is refused with both versions), MCP on one port, `/downloads/`, `/healthz`, `/readyz`),
   `src/runner.js` (the command `pivotkit-server`: serve, check-config, check-source,
-  source-from-openapi, mcp, cli, healthcheck), `src/check-source.js` (`check-source`: one load of an
+  source-from-openapi, mcp, cli, healthcheck, token, key), `src/credentials.js` (`token new`, `token show`,
+  `key new`, loaded by the runner only for them: a value on stdout or into a file, `--add` into
+  `auth.tokens` checked by `validateOptions` with a backup, `--json` as pivotkit-cli's;
+  `configuredToken`, the one lookup of `token show`; `--add` with `--if-missing` done when the same
+  entry is there, the configuration's content read again right before it is replaced (a best effort, no lock); `MAKE_TOKEN` and `makeKey` in auth.js are the
+  commands the messages name), `src/secret-rules.js` (`tokenProblem`, `keyProblem`: whether a value
+  is one the server can use, by auth.js's, downloads.js's and log.js's rules), `src/secret-file.js`
+  (`placeSecret`: a secret into a file with mode 0600 through a temporary file and link(), never
+  replacing one without `replace`, `keep` reading the one there (an empty one read again for about a
+  second, for a file system without hard links, where the file is created in place;
+  `secretFileMeans` lets tests replace link(), rename() and the user), a kept file losing only its
+  world bits, a link only read through, a replaced file keeping its owner, group and group read bit where
+  it may (else a warning), EBUSY of a mounted file `MOUNTED`, the
+  temporary file removed on SIGINT and SIGTERM, a symbolic link, directory or missing directory
+  refused; `replaceFile` and `writeBackup` for a configuration file; for any code that
+  creates a missing secret),
+  `src/check-source.js` (`check-source`: one load of an
   HTTP source, never a value printed), `src/openapi-source.js` (`source-from-openapi`: an HTTP source
   block from one GET operation of an operator's OpenAPI document, read as hostile input; imported by
   the runner's command only, never by the server; its `TODO` values are refused by
