@@ -15,7 +15,7 @@ import { isClosedForDelivery } from "../src/registry.js";
 import { createDownloadHandler } from "../src/downloads.js";
 import { createLimits } from "../src/limits.js";
 import { NO_LINK_NOTE } from "../src/delivery.js";
-import { BY_REGION, call, factsOf, restServer, workspace } from "./helpers.js";
+import { BY_REGION, TOKEN, call, factsOf, restServer, workspace } from "./helpers.js";
 
 const OAUTH = Object.freeze({ mode: "oauth", issuer: "https://auth.example.test/", resource: "https://pivotkit.example.test/mcp" });
 const ROWS = [
@@ -137,7 +137,7 @@ test("check-config: warns only when output.maxAgeDays is 0 while closed sources 
     // the default (30 days), a written limit, no output.dir, or nothing closed and no data in requests: no warning
     const byDefault = factsOf((await checkConfig({ sources: { sales: { file: "data/sales.csv" } }, output: { dir: "out" }, baseDir: dir }, { http: false, env: {} })).text);
     assert.doesNotMatch(byDefault, /Retention:/);
-    assert.match(byDefault, /^ {2}reports and drafts older than 30 days are deleted$/m);
+    assert.match(byDefault, /^ {2}reports older than 30 days are deleted; schedule drafts stay until a person approves or removes them$/m);
     assert.match(byDefault, /\nNew in this version: [^\n]*reports deleted after 30 days/);
     assert.doesNotMatch(factsOf((await checkConfig({ sources: { sales: { file: "data/sales.csv" } }, output: { dir: "out", maxAgeDays: 7 }, baseDir: dir }, { http: false, env: {} })).text), /Retention:|deleted after 30 days/);
     assert.doesNotMatch((await checkConfig({ sources: { sales: { file: "data/sales.csv" } }, baseDir: dir }, { http: false, env: {} })).text, /Retention:/);
@@ -358,6 +358,6 @@ test("serve: a start that fails after the download links (or REST) were made sto
     assert.ok(made.size > 0, "the start made a timer");
     assert.deepEqual([...made].filter((h) => !cleared.has(h)).length, 0, "no timer of the failed start runs on");
     // the host retries with the variable set
-    const handler = await createServerHandler(/** @type {any} */ (options), { ...runtime, env: { BOT_TOKEN: "t".repeat(40) } });
+    const handler = await createServerHandler(/** @type {any} */ (options), { ...runtime, env: { BOT_TOKEN: TOKEN } });
     await handler.close();
 });

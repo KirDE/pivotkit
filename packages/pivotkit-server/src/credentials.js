@@ -26,7 +26,7 @@ import { isInside } from "pivotkit-cli/files";
 import { ConfigError, REST_BASE, loadConfig, pathOf, validateOptions } from "./config.js";
 import { STATE_ENV, configFrom, planState, stateDirOf } from "./state.js";
 import { KEY_USES, keyProblem, tokenProblem } from "./secret-rules.js";
-import { UTF16_TEXT, madeAtStart, readSecretFile, unreadable } from "./secrets.js";
+import { UTF16_TEXT, madeAtStart, readSecretFile, secretValue, unreadable } from "./secrets.js";
 import { CONFIG_ENV } from "./flags.js";
 import { DEFAULT_PORT, TOKEN_ENV } from "./serve.js";
 import { MCP_TOKEN_ENV } from "./context.js";
@@ -143,11 +143,11 @@ async function configOf(file) {
 /** The secret written (or kept) or made: the value now in place, what happened to the file, and its warnings. */
 async function secretOf(values, bytes, kind, usable, cwd) {
     if (!values.file) {
-        return { value: newSecret(bytes), file: null, created: false, replaced: false, warnings: [] };
+        return { value: newSecret(bytes, usable), file: null, created: false, replaced: false, warnings: [] };
     }
     const path = resolve(cwd, values.file);
     try {
-        const placed = await placeSecret(path, newSecret(bytes), { replace: values.force, keep: values["if-missing"], usable, kind, label: values.file });
+        const placed = await placeSecret(path, newSecret(bytes, usable), { replace: values.force, keep: values["if-missing"], usable, kind, label: values.file });
         if (placed.throughLink && values.print) {
             // a mounted Secret's value is the cluster's to hand out; token show prints a configured token by name
             throw usage("LINK_PRINT", `${values.file}: is checked behind a symbolic link (a mounted Secret), and a value behind a link is not printed; pivotkit-server token show <name> prints a configured token`);
@@ -505,7 +505,7 @@ async function configuredToken(options, name, env, config, tokenEnv = TOKEN_ENV)
     let value;
     if (token.file) {
         value = await readSecretFile(pathOf(options, token.file)).then(
-            (text) => text.trim(),
+            (text) => secretValue(text, "token"),
             (e) => {
                 throw new CommandError(1, e?.code === "UTF16" ? "UTF16" : "UNREADABLE", e?.code === "UTF16" ? `the token "${name}" (${token.file}) ${UTF16_TEXT}` : `the token "${name}" (${token.file}) cannot be read (${unreadable(e?.code)})`);
             }

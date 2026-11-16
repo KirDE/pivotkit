@@ -26,9 +26,9 @@ All notable changes to `pivotkit-server` are documented in this file. The format
   write reports to `/out`: the start warns of the read-only file system, and reports fail with
   `NO_OUTPUT`. Mount a named volume there.
 - Reports of earlier runs stay in the old anonymous volume of `/out` (`docker volume ls`).
-- Copy the schedule drafts you want to keep out of `output.dir` before you update: drafts still
-  waiting for approval (`*.pivotkit-out.report.json`) are deleted with reports older than
-  `output.maxAgeDays` (30 by default) at the first start; this release's `check-config` counts them
+- Copy the reports you want to keep out of `output.dir` before you update: reports older than
+  `output.maxAgeDays` (30 by default) are deleted at the first start; this release's `check-config`
+  counts them. Schedule drafts (`*.pivotkit-out.report.json`) that still wait for approval stay
   ([upgrading, from 0.6.1 / 0.1.1](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-6-1)).
 - Breaking: with download links on, an `http://` `http.publicUrl` on a host other than loopback
   keeps the server from starting; use `https://`, or set `output.downloads.allowInsecureUrl: true`
@@ -40,6 +40,16 @@ All notable changes to `pivotkit-server` are documented in this file. The format
   uniform file that ends every line with a separator aside) is left out whole, with a `ROWS_DROPPED` note that counts such rows;
   `check-config` counts them ([#479](https://github.com/eizedev/pivotkit/issues/479),
   [upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#long-rows)).
+- Behaviour change: where a caller sees a field below `show`, a CSV, TSV or TXT file with a quoted
+  value that spans lines is refused with `INVALID_FILE`. An unclosed quote pulled the rows after it,
+  hidden values too, into one shown cell. A line break inside a quoted value is refused too, since
+  it cannot be told from an unclosed quote. `check-config` warns of such a file.
+- Breaking: a trivial static token (`auth.tokens`, `$PIVOTKIT_TOKEN`) keeps the server from
+  starting: one with fewer than 8 different characters, or one that repeats one piece
+  (`abcabc...`), "is too easy to guess". The rule stops trivial tokens; it does not measure
+  strength. `check-config` names it, `token new --if-missing` does not keep such a file, and a token
+  file rotated to one after the start is refused like a short one. Make a new token with
+  `pivotkit-server token new`. Random tokens pass, hex tokens of 32 characters too.
 - Behaviour change: the request limits (`rest.*`, `mcp.*` `rateLimit` and `concurrency`) count per
   person, no longer per OAuth client; one client's people together get eight times the rate and run
   at most eight times `concurrency` at once; `auth.subjectClaim` must name a claim users cannot change
@@ -53,10 +63,10 @@ All notable changes to `pivotkit-server` are documented in this file. The format
   keeps both out. More refusals get a line, and an error at the start of `serve` is a JSON line
   where stderr is no terminal.
 
-- Behaviour change: `output.maxAgeDays` is 30 by default, so reports and schedule drafts older than
-  30 days are deleted from `output.dir` at start and every hour, including drafts still waiting for
-  approval. `output.maxAgeDays: 0` keeps them
-  with no age limit, as before. The default does not apply where `output.dir` holds the
+- Behaviour change: `output.maxAgeDays` is 30 by default, so reports older than 30 days are deleted
+  from `output.dir` at start and every hour. A schedule draft waits for approval while its `status`
+  is `"draft"` and is never deleted by age. A draft the host gave another status (approved,
+  rejected) goes by age like a report. `output.maxAgeDays: 0` keeps them with no age limit, as before. The default does not apply where `output.dir` holds the
   configuration or a source, template or token file ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#max-age-default)).
 
 Every field keeps its level and the automatic rule is off; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-6-1) has the details.
@@ -108,6 +118,9 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
 
 ### Added
 
+- New exports: `stopOnSignals` (one stop on SIGINT and SIGTERM for a server: exit 0, or 1 when
+  closing fails), `hostProblem` (a refused Host as problem+json with its `refused` line),
+  `hostRefusedLine` (that line) and `HOST_HINT` (the words that say how to allow a Host).
 - A state directory (`--state-dir`, `$PIVOTKIT_STATE_DIR`; the image: `/var/lib/pivotkit`): over
   HTTP the server makes there what is missing, the token `admin` when auth needs a token off loopback
   and none is given, the download links' key, and the audit key for `audit.subject` `"hash"`, so
@@ -137,7 +150,7 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
 - `check-config` warns of `"default": "show"` with hidden fields (a deny list), of
   `output.downloads.expiresMinutes` under 5 ([#468](https://github.com/eizedev/pivotkit/issues/468)),
   of an `output.dir` that holds the configuration or a source, template or token file (as the start
-  does), and counts the schedule drafts and reports the next start's age sweep deletes; one line under
+  does), and counts the reports and drafts no longer waiting that the next start's age sweep deletes; one line under
   `Sources` names the sources without a `description`, which a model chooses sources by
   ([#471](https://github.com/eizedev/pivotkit/issues/471)).
 - A refusal by the client's share of the request limits logs `limit: clientRate` or `limit: clientShare`.
@@ -145,7 +158,7 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
   the page asks to wait (429 `RATE_LIMITED`). Behind a proxy, set `http.trustProxy`, or all people
   share the proxy's address.
 - An `info` line for each `output.maxAgeDays` sweep that deleted something, with the counts of
-  `reports` and `drafts`.
+  `reports` and `drafts` (drafts no longer waiting).
 - A `warning` when a static token's file is missing, empty or shorter than 32 characters while the
   server runs, naming the token and the cause (never its value or path), at most once a minute.
 - `limitKeyOf(caller)`: whom a caller's request limits count for (pivotkit-mcp uses it).
@@ -470,6 +483,32 @@ Every field keeps its level and the automatic rule is off; the [upgrade page](ht
 
 ### Fixed
 
+- `token new --if-missing` refused a token file with spaces around the token, which the server
+  takes. A kept file is now read as the server reads it: a token without the whitespace around it, a
+  key without one line ending.
+- `serve` exited 0 on SIGTERM or SIGINT even when closing the server failed. It now logs the error
+  and exits 1.
+- A request with a Host the server does not answer to got 403 "Invalid Host: <name>" without a way
+  out. The answer and its `refused` line now add "add the name with http.allowHosts or --allow-host,
+  or set http.publicUrl"; the line carries it as `hint`. On a server with MCP, the routes other than
+  `/mcp` answer this with problem+json instead of JSON-RPC.
+- `serve` (and pivotkit-mcp over HTTP) on loopback with `$PIVOTKIT_TOKEN` (`$PIVOTKIT_MCP_TOKEN`) set
+  and no `auth.mode` started with auth none and said nothing. The start and `check-config` now warn:
+  "PIVOTKIT_TOKEN is set but auth is none; use --auth token (or auth.mode token)". The mode is not
+  switched.
+- `healthcheck` asked `$PIVOTKIT_PORT` before the configuration's `http.port`. The image sets the
+  variable, so it probed 3333 while the server listened on the configured port. It now takes the
+  port in the order `serve` does: `--port`, `http.port`, `$PIVOTKIT_PORT`, 3333
+  ([#439](https://github.com/eizedev/pivotkit/issues/439)). It also takes `--port` and `--help`;
+  an unknown option, or a url together with `--port`, is a usage error (exit 1).
+- `serve` and `mcp` started with a pivotkit-mcp of another release whose imports all resolved, and
+  served MCP with its old code. A pivotkit-mcp whose declared `pivotkit-server` range does not hold
+  this version is now refused with both versions and the update guide
+  ([#382](https://github.com/eizedev/pivotkit/issues/382)). A range in a form the check cannot read
+  (a path, a tag, a URL) is not refused.
+- An unclosed quote in a shown cell of a CSV file pulled the rows after it, values of hidden columns
+  too, into that cell, so `describe_source` and reports showed them. Such a file is now refused
+  where a field is below `show`.
 - A row with more cells than the header put a hidden column's value into a shown `Column N` under
   `"default": "show"`; such columns are now hidden. The cells after the stray separator also moved a
   hidden value into the next named column; such rows are now left out where a field is below `show`

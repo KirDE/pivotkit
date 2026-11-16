@@ -10,9 +10,10 @@ All notable changes to `pivotkit-mcp` are documented in this file. The format is
 
 ### Upgrading from 0.1.1
 
-- Copy the schedule drafts you want to keep out of `output.dir` before you update: drafts still
-  waiting for approval (`*.pivotkit-out.report.json`) are deleted with reports older than
-  `output.maxAgeDays` (30 by default) at the first start; this release's `--check-config` counts them
+- Copy the reports you want to keep out of `output.dir` before you update: reports older than
+  `output.maxAgeDays` (30 by default) are deleted at the first start; this release's
+  `--check-config` counts them. Schedule drafts (`*.pivotkit-out.report.json`) that still wait for
+  approval stay
   ([upgrading, from 0.6.1 / 0.1.1](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-6-1)).
 - Behaviour change: `mcp.rateLimit` and `mcp.concurrency` count per person, no longer per OAuth
   client; one client's people together get eight times both ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#limits-per-person)).
@@ -20,10 +21,16 @@ All notable changes to `pivotkit-mcp` are documented in this file. The format is
 - The log ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#log)): on a terminal it
   is text unless `log.format` is `json`; JSON lines only gain fields; over HTTP the client's address
   is logged by default (`log.address: "off"` keeps it out).
-- Behaviour change: pivotkit-server's `output.maxAgeDays` is 30 by default, so reports and schedule
-  drafts older than 30 days are deleted from `output.dir` at start and every hour, including drafts
-  still waiting for approval; set
+- Behaviour change: pivotkit-server's `output.maxAgeDays` is 30 by default, so reports older than 30
+  days are deleted from `output.dir` at start and every hour. A schedule draft whose `status` is
+  still `"draft"` waits for approval and stays; one the host gave another status goes by age. Set
   `output.maxAgeDays: 0` for no age limit ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#max-age-default)).
+- Breaking: a trivial static token keeps the server from starting: one with fewer than 8 different
+  characters, or one that repeats one piece, "is too easy to guess". The rule stops trivial tokens;
+  it does not measure strength. Make one with `npx -y pivotkit-server token new`.
+- Behaviour change: where a caller sees a field below `show`, a CSV, TSV or TXT file with a quoted
+  value that spans lines is refused with `INVALID_FILE`: an unclosed quote pulled the rows after
+  it, hidden values too, into one shown cell.
 - Over HTTP with `output.dir` and without `output.baseUrl`, reports come with pivotkit-server's
   [download links](https://pivotkit.eize.dev/reference/delivery/) under `/downloads/`: route that path
   to the server, or set `output.downloads.enabled: false`. With `output.baseUrl`, reports over a
@@ -128,6 +135,17 @@ All notable changes to `pivotkit-mcp` are documented in this file. The format is
 
 ### Fixed
 
+- The npm description, the quick-start page, the skill, the plugin and the instructions sent to the
+  model said the model never reads the data. Through pivotkit it reads only what the operator's
+  policy shows; they now say so. A client gets the new instructions when it reconnects.
+- `--http` exited 0 on SIGTERM or SIGINT even when closing the server failed. It now logs the error
+  and exits 1.
+- A request with a Host the server does not answer to got the SDK's JSON-RPC "Invalid Host: <name>"
+  on every route. `/mcp` still answers JSON-RPC, the other routes (`/`, `/healthz`,
+  `/.well-known/...`) answer problem+json, and both add "add the name with http.allowHosts or
+  --allow-host, or set http.publicUrl". The `refused` line carries it as `hint`.
+- Over HTTP on loopback with `$PIVOTKIT_MCP_TOKEN` set and no `auth.mode`, the start warns:
+  "PIVOTKIT_MCP_TOKEN is set but auth is none; use --auth token (or auth.mode token)".
 - Every refusal of the protocol layer is one `refused` line with its status, a reason, the path
   `/mcp`, the error's class and the SDK's name for it (its message only at debug, on the same line):
   a body that is not JSON, an unsupported `mcp-protocol-version`, a wrong `Content-Type` (415) or

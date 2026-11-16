@@ -18,9 +18,9 @@
  */
 
 import { pathOf, restResourceOf } from "../config.js";
-import { TOKEN_MIN, TOKEN_SYNTAX, TOKEN_SYNTAX_TEXT } from "../auth.js";
+import { TOKEN_MIN, TOKEN_SYNTAX, TOKEN_SYNTAX_TEXT, tokenGuessable } from "../auth.js";
 import { isLoopback } from "../listen.js";
-import { UTF16_TEXT, madeAtStart, readSecretFile, secretFileWarning, unreadable } from "../secrets.js";
+import { UTF16_TEXT, madeAtStart, readSecretFile, secretFileWarning, secretValue, unreadable } from "../secrets.js";
 import { personBound } from "../sources/auth.js";
 import { noTokenText } from "../state.js";
 import { signInItems } from "./operator.js";
@@ -33,6 +33,10 @@ export async function section(options, _registry, runtime) {
     const mode = auth.mode ?? "none";
     const stop = { stops: /** @type {const} */ (true) };
     items.push(heading(`Auth: ${mode}${mode === "none" && auth.allowUnauthenticated ? " (also off loopback)" : ""}`));
+    if (runtime.unusedToken) {
+        // the start's own words (state.js unusedTokenText)
+        items.push(warning(runtime.unusedToken));
+    }
     if (runtime.http && mode === "none" && !auth.allowUnauthenticated && !isLoopback(options.http?.host ?? "127.0.0.1")) {
         items.push(problem(`${options.http?.host} is not loopback: it needs auth token or oauth (or auth.allowUnauthenticated)`, stop));
     }
@@ -106,15 +110,21 @@ function transport(options, runtime) {
     ];
 }
 
+/** Why a token is too easy to guess, named by where it comes from, or null (auth.js tokenGuessable). */
+const guessableText = (where, value) => {
+    const why = tokenGuessable(value);
+    return why ? `(${where}) is ${why}` : null;
+};
+
 /** Why a static token would keep the server from starting, or null. */
 async function tokenProblem(token, env, options) {
     if (token.env) {
         const value = env[token.env] ?? "";
-        return value.length < TOKEN_MIN ? `($${token.env}) is not set or shorter than ${TOKEN_MIN} characters` : TOKEN_SYNTAX.test(value) ? null : `($${token.env}) ${TOKEN_SYNTAX_TEXT}`;
+        return value.length < TOKEN_MIN ? `($${token.env}) is not set or shorter than ${TOKEN_MIN} characters` : !TOKEN_SYNTAX.test(value) ? `($${token.env}) ${TOKEN_SYNTAX_TEXT}` : guessableText(`$${token.env}`, value);
     }
     try {
-        const value = (await readSecretFile(pathOf(options, token.file))).trim();
-        return value.length < TOKEN_MIN ? `(${token.file}) is shorter than ${TOKEN_MIN} characters` : TOKEN_SYNTAX.test(value) ? null : `(${token.file}) ${TOKEN_SYNTAX_TEXT}`;
+        const value = secretValue(await readSecretFile(pathOf(options, token.file)), "token");
+        return value.length < TOKEN_MIN ? `(${token.file}) is shorter than ${TOKEN_MIN} characters` : !TOKEN_SYNTAX.test(value) ? `(${token.file}) ${TOKEN_SYNTAX_TEXT}` : guessableText(token.file, value);
     } catch (e) {
         return e?.code === "UTF16" ? `(${token.file}) ${UTF16_TEXT}` : `(${token.file}) cannot be read: ${unreadable(e?.code)}`;
     }

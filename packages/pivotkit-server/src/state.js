@@ -34,7 +34,7 @@ import { ConfigError, loadConfig, pathOf } from "./config.js";
 import { isLoopback } from "./listen.js";
 import { settingsOf } from "./options/downloads.js";
 import { keyProblem, tokenProblem } from "./secret-rules.js";
-import { EMPTY_RETRY, SECRET_BYTES, SecretFileError, newSecret, placeSecret } from "./secret-file.js";
+import { SECRET_BYTES, STILL_EMPTY, SecretFileError, newSecret, placeSecret, untilFilled } from "./secret-file.js";
 
 /** The variable that names the state directory (the flag is --state-dir). */
 export const STATE_ENV = "PIVOTKIT_STATE_DIR";
@@ -316,14 +316,10 @@ function whyNot(e) {
  * @param {string} path
  */
 async function settled(path) {
-    for (let attempt = 1; attempt < EMPTY_RETRY.tries; attempt++) {
+    await untilFilled(async () => {
         const info = await stat(path).catch(() => null);
-        if (!info?.isFile() || info.size > 0) {
-            return;
-        }
-        // a ref'd timer: the start waits for it
-        await new Promise((done) => setTimeout(done, EMPTY_RETRY.waitMs));
-    }
+        return info?.isFile() && info.size === 0 ? STILL_EMPTY : null;
+    });
 }
 
 /**
@@ -342,7 +338,7 @@ async function ensure(secret) {
         throw new SecretFileError("NOT_REGULAR_FILE", `${secret.path} is a symbolic link to nothing; not written`);
     }
     const { kind, bytes, usable } = KINDS[secret.use];
-    const placed = await placeSecret(secret.path, newSecret(bytes), { keep: true, usable, kind, label: secret.path });
+    const placed = await placeSecret(secret.path, newSecret(bytes, usable), { keep: true, usable, kind, label: secret.path });
     return placed.created;
 }
 
@@ -394,6 +390,10 @@ export async function prepareHttpServe(options, { env, host, tokenEnv, stateDir 
     /** @type {StateNote[]} */
     const notes = [];
     const next = plan.options;
+    const unused = unusedTokenText(options, next, env, tokenEnv);
+    if (unused) {
+        notes.push({ level: "warn", text: unused });
+    }
     /** Why secrets/ cannot be made, or null once it is there. */
     let secretsProblem = null;
     if (plan.secretsDir && plan.secrets.some((s) => s.fromState)) {
@@ -445,6 +445,19 @@ export async function prepareHttpServe(options, { env, host, tokenEnv, stateDir 
     }
     return { options: next, notes };
 }
+
+/**
+ * The warning for a token's variable that is set while auth stays none: the configuration and the
+ * flags name no auth.mode, and the address is loopback. The mode is never switched for it. Null
+ * otherwise.
+ * @param {import("./config.js").ServerOptions} given  as written, with the flags
+ * @param {import("./config.js").ServerOptions} planned  planState's
+ * @param {Record<string, string | undefined>} env
+ * @param {string} tokenEnv
+ * @returns {string | null}
+ */
+export const unusedTokenText = (given, planned, env, tokenEnv) =>
+    given.auth?.mode === undefined && (planned.auth?.mode ?? "none") === "none" && env[tokenEnv] ? `${tokenEnv} is set but auth is none; use --auth token (or auth.mode token)` : null;
 
 /**
  * Writes the notes of prepareHttpServe on a log.
