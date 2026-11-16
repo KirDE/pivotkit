@@ -233,12 +233,15 @@ root `package.json`: `npm run types` and the builds depend on it.
   connection's own lookup, bodies counted after decompression, one time limit), `src/data.js`
   (`fileData`, `codeTable` (a code source's rows read once into a packed table with a file's run limits, hidden fields left out; encoded in the worker), and `tableData`/`uploadData` for a table job: data loaded in the main
   thread (an HTTP or code source's) or a file handed in, computed in a worker; `packedUpload`, the
-  read job (`READ_JOB`) of an HTTP source's CSV answer: packed without hidden columns, its data set kept by the job's key; the data sets a process keeps, `CACHE_ENTRIES` and a byte bound, `holds`),
+  read job (`READ_JOB`) of an HTTP source's CSV answer: packed without hidden columns, its data set kept by the job's key; the data sets a process keeps, `CACHE_ENTRIES` and a byte bound, `holds`; a kept data set's texts copied first (`ownTexts`), since a reader's slices keep the whole file text alive, and every read ends with `forgetLastSubject`, since V8 keeps the last regular expression's subject; `test/memory/read-probe.mjs` measures it),
   `src/packed.js` (`packTable`, `unpackTable`, `packedBytes`: a code source's table (and an HTTP source's CSV answer) with text columns dictionary-coded (the dictionary one UTF-8 buffer with its ends, a string list only for a lone surrogate or a huge one; codes one, two or four bytes), whole numbers in the narrowest integer array, other numbers, dates and true/false values in typed arrays, all on SharedArrayBuffers, so posting it to a worker copies no value per cell and no text; its exact size),
   `src/compute.js` and `src/worker.js` (worker threads with memory and time limits; an input the
   structured clone cannot copy is `INVALID_INPUT` and frees the worker; a table job with a key goes
   to the worker that kept its data, without the table, and a worker that pushed it out answers
-  `need` and gets the table once; `sent()` counts both), `src/present.js` (`present()`:
+  `need` and gets the table once; `sent()` counts both; `heapSnapshots()` and `keptDataSets()` (data.js
+  `KEPT_JOB`: what a worker's data sets hold) only for a computer made with `internal.hooks`
+  (createContext's runtime key `COMPUTE_HOOKS`, never a setting) for `test/memory.test.js`, which with
+  `test/memory/probe.mjs` proves no kept data holds a hidden column), `src/present.js` (`present()`:
   run an operation for a caller and apply the policy, output files, inline results and the one
   sentence; `presentedInput`/`presentedOutput`, the schemas MCP's tools and the OpenAPI document are
   made from; `renderFile` for the download route), `src/output.js` (the output directory: `writeOutput`,
