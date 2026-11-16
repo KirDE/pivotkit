@@ -26,9 +26,13 @@ pivotkit --version
 ```
 
 Update pivotkit-server and pivotkit-mcp in one command, to the same release. `pivotkit-server serve`
-loads the pivotkit-mcp installed beside it. If you later change pivotkit-server alone, `serve` can
-stop at start with "pivotkit-mcp <x> does not fit pivotkit-server <y>". With pivotkit-server 0.1.1
-and earlier, the message is that a module "does not provide an export named ...". The sure sign is
+loads the pivotkit-mcp installed beside it. pivotkit-server 0.2.0 and later check the pivotkit-server
+range that this pivotkit-mcp declares. When the installed pivotkit-server is outside it, `serve` and
+`mcp` do not start, and say "pivotkit-mcp <x> does not fit pivotkit-server <y> (it needs
+pivotkit-server <range>). Install pivotkit-server and pivotkit-mcp of one release in one command".
+pivotkit-mcp 0.1.1 beside pivotkit-server 0.2.0 is refused this way. `check-config` does not load
+pivotkit-mcp, so it does not show this. pivotkit-server 0.1.1 and earlier stop only where a module
+"does not provide an export named ...". The sure sign is
 that `npm ls -g --all` marks pivotkit-server under pivotkit-mcp as `invalid`. Then install both
 again in one command.
 
@@ -77,8 +81,8 @@ A running process keeps the version it started with. Restart it right after the 
   session.
 - `pivotkit-server serve` and `pivotkit-mcp --http`: restart the process. Restart a Windows service
   by its name, for example `nssm restart pivotkit` for [the service under NSSM](mcp.md#psu-service).
-  If `serve` stops at start with "does not fit" or "does not provide an export named",
-  pivotkit-server and pivotkit-mcp do not fit together. See [above](#update-global).
+  If `serve` does not start and says "does not fit" or "does not provide an export named",
+  pivotkit-server and pivotkit-mcp are of different releases. See [above](#update-global).
 
 ### The container image { #update-image }
 
@@ -105,8 +109,10 @@ before you restart. Pulling a tag does not change a running container, so make t
     # then the same docker run as before, with the new tag
     ```
 
-    The token, the keys and the reports stay in the volume `pivotkit` (`/var/lib/pivotkit`). Reports
-    of a configuration that names `/out` stay in that volume. `docker rm` does not remove a volume.
+    The token, the keys and the reports under `/var/lib/pivotkit/out` stay in the volume `pivotkit`
+    (`/var/lib/pivotkit`). `docker rm` does not remove a volume. A configuration that names `/out`
+    needs a volume of its own there, such as `-v pivotkit-out:/out`. Without it, the reports and the
+    schedule drafts waiting for approval are lost with the container.
 
 === "Docker Compose"
 
@@ -154,14 +160,16 @@ Then restart Claude Code.
 
 ## From 0.6 to 0.7 { #from-0-6-1 }
 
-!!! warning "Copy schedule drafts out of `output.dir` first"
+!!! warning "Copy old reports out of `output.dir` first"
     This applies to pivotkit-server and pivotkit-mcp 0.1.1 too, which move to 0.2.0 with pivotkit
-    0.7. At their first start, pivotkit-server 0.2.0 and pivotkit-mcp 0.2.0 delete reports **and
-    schedule drafts still waiting for approval** older than 30 days from `output.dir`
-    ([why](#max-age-default)). Drafts are the files `*.pivotkit-out.report.json`. Reports are the
-    other `*.pivotkit-out.*` files. Copy those you want to keep elsewhere before you update, or set
-    `output.maxAgeDays: 0`. Run the `check-config` of 0.2.0 first. It counts the drafts and reports
-    the first start would delete.
+    0.7. At their first start, pivotkit-server 0.2.0 and pivotkit-mcp 0.2.0 delete reports older than
+    30 days from `output.dir` ([why](#max-age-default)). Reports are the `*.pivotkit-out.*` files.
+    Schedule drafts (`*.pivotkit-out.report.json`) stay while they wait for approval. Copy the
+    reports you want to keep elsewhere before you update, or set `output.maxAgeDays: 0`. Run the
+    `check-config` of 0.2.0 first. It counts the reports and the drafts no longer waiting that the
+    next start would delete.
+
+pivotkit-mcp's instructions for the model changed. MCP clients must reconnect to get them.
 
 Operators of pivotkit-server and pivotkit-mcp need not act for the exposure policy. Every field
 keeps its level, and the automatic values rule and the new operator controls are off. Check these:
@@ -198,9 +206,12 @@ What callers notice:
 | [Download links](#download-links) | the server serves HTTP and has `output.dir` | route `/downloads/` to it, set `output.downloads.key`, and for closed sources a sign-in client; or set `output.downloads.enabled: false` |
 | [`output.baseUrl` and closed sources](#base-url-closed) | you set `output.baseUrl` | reports over sources with a field that is not `show` carry no `url` any more |
 | [Requests to the issuer](#issuer-requests) | `auth.mode` is `oauth` and the issuer resolves to a loopback or private address, is reached through a proxy, redirects, or serves a key set over 256 KiB | set `auth.intranet: true` for an issuer in your LAN or cluster; run `check-config` |
-| [Reports and drafts deleted after 30 days](#max-age-default) | the server has `output.dir` in a directory of its own and no `output.maxAgeDays` | copy the schedule drafts and reports you want to keep out of `output.dir` before you update, or set `output.maxAgeDays: 0` |
+| [Reports deleted after 30 days](#max-age-default) | the server has `output.dir` in a directory of its own and no `output.maxAgeDays` | copy the reports you want to keep out of `output.dir` before you update, or set `output.maxAgeDays: 0`; drafts waiting for approval stay |
 | **Breaking:** [download links over plain http](#download-links-http) | `http.publicUrl` is `http://` on a host other than loopback, with `output.dir` | use `https://`, or set `output.downloads.allowInsecureUrl: true` for a network you trust, or `output.downloads.enabled: false` |
 | [Columns without a header](#columns-without-header) | a file source has rows longer than its header, or a blank header cell, under `"default": "show"` | name such a column in `fields` if it should be shown; run `check-config` |
+| [The health check's port](#healthcheck-port) | you run your own `HEALTHCHECK` or probe with `pivotkit-server healthcheck` and set `http.port` in the file | nothing; it now takes `http.port` before `$PIVOTKIT_PORT` |
+| **Breaking:** [Tokens that are easy to guess](#weak-tokens) | you wrote a static token by hand | make it again with `pivotkit-server token new` |
+| **Breaking:** [CSV with a quote never closed](#unclosed-quote) | a caller sees a field below `show` of a CSV source, upload, data sent in a request or HTTP source's CSV answer | close the quote, or use xlsx or JSON; a correct value over several lines is refused too |
 | [Rows longer than the header](#long-rows) | a file or CSV answer has rows wider than its named header (other than a separator that ends every line), and a caller sees a field below `show` | fix those rows (quote values with the separator in them); until then they are left out, with a `ROWS_DROPPED` note; `check-config` counts them |
 | [Request limits per person](#limits-per-person) | people sign in through one OAuth client | nothing; each person gets `rateLimit` and `concurrency` of their own |
 | [The log](#log) | you read the log on a terminal, parse it, alert on it, or ship it to a log server | JSON lines gain fields and the client's address is logged by default (`log.address: "off"` keeps it out); levels and `msg` are new, and more refusals get a line; on a terminal the log is text unless `log.format` is `json`; a start error is a JSON line where stderr is no terminal |
@@ -408,15 +419,32 @@ file is still written. Reports over sources whose fields are all `show` keep the
 others, leave out `output.baseUrl` and use sign-in links. Or give REST programs `results: true` and
 the [file route](../reference/rest.md#downloads).
 
-### Reports and drafts deleted after 30 days { #max-age-default }
+### Reports deleted after 30 days { #max-age-default }
 
-Copy the schedule drafts you want to keep out of `output.dir` before you update. Drafts still waiting
-for approval are deleted with the old reports.
+Copy the reports you want to keep out of `output.dir` before you update.
 
-`output.maxAgeDays` is 30 by default. At start and every hour, the server deletes reports and
-schedule drafts older than 30 days from the output directory. That includes drafts waiting for
-approval. Before, they stayed until `output.maxFiles` or `output.maxMb` pushed them out. Set
-`output.maxAgeDays` to another number of days, or to `0` for no age limit, the old behaviour.
+`output.maxAgeDays` is 30 by default. At start and every hour, the server deletes reports older than
+30 days from the output directory. Before, they stayed until `output.maxFiles` or `output.maxMb`
+pushed them out. Set `output.maxAgeDays` to another number of days, or to `0` for no age limit, the
+old behaviour.
+
+A schedule draft waits for approval while its file's `status` is `"draft"`, as `draft_schedule`
+writes it. `output.maxAgeDays` never deletes a waiting draft, and neither do `output.maxFiles` and
+`output.maxMb`. A host that approves or rejects a draft should change its `status`. The draft then
+goes by age like a report.
+
+Waiting drafts never expire. They count against the drafts cap (half of `output.maxFiles`, 500 by
+default) and against `output.maxMb`, and the server never deletes them to make room. Once the
+directory is full of them, the server refuses new drafts, and renders too when only drafts are
+left, until a person approves or removes drafts. So approve or reject drafts by changing their
+`status`, or remove them. A host may also delete or move a draft instead of rewriting its `status`.
+
+A draft file that cannot be read or parsed, is over 1 MiB, or has no `status` that is a string
+counts as waiting.
+
+`check-config` warns when the next start would delete reports or drafts no longer waiting: "<n>
+reports and <m> schedule drafts no longer waiting for approval ... are deleted at the next start;
+copy them away or set output.maxAgeDays: 0".
 
 The default applies only to a directory of the reports' own. `output.dir` may hold the configuration
 or a source, template or token file. Then nothing is deleted by age, and the server starts as
@@ -473,7 +501,58 @@ therefore leaves out such a row whole. The answer's notes say how many with `ROW
   sees fewer fields can lose rows `check-config` does not warn about.
 
 To keep the rows, quote values that hold the separator. A shifted row as wide as the header cannot
-be caught, so use quoted CSV, xlsx or JSON for sources with fields kept back.
+be caught, so use quoted CSV, xlsx or JSON for sources with fields kept back. A quote that is never
+closed makes the server refuse the file instead ([below](#unclosed-quote)).
+
+### CSV with a quote never closed { #unclosed-quote }
+
+A value can open a quote and never close it. That quote can pull the rows after it, hidden values
+too, into one cell. So where a caller sees a field below `show`, the server refuses a CSV, TSV or
+text file with any quoted value that spans lines. The answer is `INVALID_FILE` (422):
+
+```text
+sales: a quoted value that starts in line 12 spans several lines; an unclosed quote can pull the rows
+after it, hidden values too, into one cell, so a source that hides a field is not read from this
+file. The file needs every quote closed; the operator can fix the quotes or provide the data as xlsx
+or JSON
+```
+
+- It holds for file sources, uploads, data sent in a request and an HTTP source's CSV answer.
+- A file whose separator or encoding the server cannot tell is refused too.
+- A source whose fields are all `show` reads such a file as before.
+- A correct value over several lines, such as an address, also refuses such a source. Save that
+  file as xlsx or JSON.
+- `check-config` warns: "sources.<id>: a quoted value that starts in line N spans several lines;
+  the source is refused for callers who do not see every field as show".
+
+### Tokens that are easy to guess { #weak-tokens }
+
+A static token must pass three rules:
+
+- It has at least 32 characters.
+- It has at least 8 different characters.
+- It does not repeat one piece, such as `abcabc...`.
+
+The server checks this at start, in `check-config`, for `token new --if-missing` and when it reads
+a token file again. A start with such a token stops with "auth: the token "<name>" (...) is too easy
+to guess (<n> different characters, at least 8); make one with: ...".
+
+Make every token with `pivotkit-server token new`. Its 32 random bytes always pass. A hex token of
+32 characters, such as one from `openssl rand -hex 16`, passes too.
+
+The limit on refused tokens does not slow down guessing. A right token still works beyond it. Only a
+token nobody can guess protects the server.
+
+### The health check's port { #healthcheck-port }
+
+`pivotkit-server healthcheck [url] [--port <port>]` takes a url or `--port`, not both. It takes the
+port from `--port`, then `http.port` of the file `$PIVOTKIT_CONFIG` names, then `$PIVOTKIT_PORT`,
+then 3333. A usage error exits 1. A custom `HEALTHCHECK` that relied on `$PIVOTKIT_PORT` while the
+file sets another `http.port` now asks the file's port.
+
+The warning for a token variable that does nothing covers both servers: `$PIVOTKIT_TOKEN` for
+pivotkit-server and `$PIVOTKIT_MCP_TOKEN` for `pivotkit-mcp --http`. It shows at start and in
+`check-config` when auth is `none` without a written `auth.mode: "none"`.
 
 ### Request limits per person { #limits-per-person }
 
@@ -525,12 +604,15 @@ installation notices:
 
     An HTTP server ends with a `stopped` line.
 
-- The client's address is logged by default as `address`:
+- The log names the client's IP address by default, as `address`. It is personal data:
     - With `http.trustProxy`, it is the forwarded client, as before. A forwarded value that is no IP
       address is logged as `invalid`.
     - Without `http.trustProxy`, it is the connection's own address, which was not logged before.
     - `peerAddress` is the connection's own address where it differs: the proxy.
-    - `log.address: "off"` keeps both out ([privacy](../privacy.md#logs)).
+    - To keep both out, set `"log": { "address": "off" }`, `--log-address off` or
+      `PIVOTKIT_LOG_ADDRESS=off` ([privacy](../privacy.md#logs)).
+- `upstreamRequestId` is the `X-Request-Id` a request came with, up to 128 characters. A proxy may
+  put a user id or a session id there.
 - A log line names a source by its configured id, `inline:` or `file:`. Anything else a caller typed
   is `unknown`, never the caller's text. An alert on a misspelt source id reads `unknown`. No setting
   brings the text back.

@@ -46,12 +46,13 @@ then the file, then the variable.
     - Text is coloured only on a terminal, and only when `NO_COLOR` is not set.
     - The [container image](container.md) sets `PIVOTKIT_LOG_FORMAT=json`, because `docker run -t`
       gives the process a terminal.
-- **`log.address`**: `on` puts the client's address on every line of a request:
+- **`log.address`**: `on`, the default, puts the client's address on every line of a request:
     - `address`, the client as best known: with `http.trustProxy` the last entry of
       `X-Forwarded-For`, else the socket's peer
     - `peerAddress`, the socket's peer, where it differs (behind a proxy, the proxy)
 
-    `off` leaves both out. An address is personal data ([privacy](../privacy.md#logs)).
+    An address is personal data ([privacy](../privacy.md#logs)). `off` leaves both out:
+    `"log": { "address": "off" }`, `--log-address off` or `PIVOTKIT_LOG_ADDRESS=off`.
 
 `started` names the format it chose (`logFormat`), so a log that suddenly reads as text or JSON
 tells you why.
@@ -81,7 +82,7 @@ A line written while a request or tool call runs adds its scope:
 | --- | --- |
 | `requestId` | 11 random characters, the same on every line of the request, in its `X-Request-Id` answer header and in its error ([correlation](#correlation)) |
 | `traceId` | 32 hex characters: the trace id of a valid W3C `traceparent` header, else a new one |
-| `upstreamRequestId` | The `X-Request-Id` the request came with (a proxy's id), 1 to 128 letters, digits and `_ . : + / = -`. Any other value is not logged |
+| `upstreamRequestId` | The `X-Request-Id` the request came with (a proxy's id), 1 to 128 letters, digits and `_ . : + / = -`. Any other value is not logged. The caller or a proxy chooses it, so it can hold a user id or a session id. No setting leaves it out ([privacy](../privacy.md#logs)) |
 | `address` | The client as best known, unless `log.address` is `off`. With `http.trustProxy`, the last entry of `X-Forwarded-For`, or `invalid` when that is no IP address (the request is never put on the proxy's address). Without it, the socket's peer |
 | `peerAddress` | The socket's peer, where it differs from `address` (behind a trusted proxy, the proxy) |
 
@@ -108,6 +109,7 @@ Lines of calls, requests, downloads and refusals add:
 | `path` | `refused` | The route family that refused it (`/api/v1`, `/openapi.json`, `/mcp`, `/downloads`), never the path the request asked for |
 | `error`, `refusal`, `detail` | `refused` | For a request the MCP protocol layer refused: its error's class, the SDK's fixed name for the refusal (such as `name-header-mismatch`) and, only at `debug`, its message, which can quote the request's body |
 | `host`, `origin` | `refused` | For `reason` `host` or `origin`: the Host or Origin the request sent (at most 100 characters) |
+| `hint` | `refused` | For `reason` `host`: how to allow the name (`http.allowHosts`, `--allow-host` or `http.publicUrl`) |
 | `parserError` | `refused` | For a request the HTTP parser refused (answered 400, 408 or 431 with an `X-Request-Id`): the parser's code, such as `HPE_INVALID_HEADER_TOKEN`. A `CONNECT` (a tunnel, which the server never opens) is answered 400 with a `bad_request` line without it |
 
 <a id="reasons"></a>The values of `reason`:
@@ -167,7 +169,8 @@ A warning's text (`msg`) is free text and may change between versions. Query by 
 `template`: the source's configured address template with the backend's host, never a value of a
 parameter.
 
-No line holds a view, a value, a token, a person's groups or other claims, or a full path. Text a
+No line holds a view, a value, a token, or a person's groups or other claims. A request's or a
+call's line holds no file path. Lines at start can name the operator's own file paths. Text a
 caller or a backend controls is cut, and its control characters (C0, C1, the bidi controls, the line
 separators) are removed in both formats, so it cannot start a line of its own, a field in the text
 format, or a terminal escape in a log viewer.
@@ -193,7 +196,7 @@ time=2026-11-15T11:12:45.066Z level=warn event=request msg="describe_source fail
 | `download` | A file handed out: by the REST file route or a [download link](delivery.md) (`via: "link"`) |
 | `refused` | A request refused before it reached an operation, with its `reason` |
 | `warning` | Something the operator should look at: a backend that failed, refused connections, a setting that does not fit, a static token's file that cannot be used, with the cause (at most once a minute per token) |
-| `info` | Something that changed: the issuer's metadata loaded, old reports deleted (to make room, or by `output.maxAgeDays`: one line per sweep with the counts `reports` and `drafts`) |
+| `info` | Something that changed: the issuer's metadata loaded, old reports deleted (to make room, or by `output.maxAgeDays`: one line per sweep, "reports and schedule drafts no longer waiting older than N days deleted", with the counts `reports` and `drafts` and `maxAgeDays`) |
 | `error` | An unexpected error: its class, its message only at `debug`, never its stack |
 | `debug` | Only at `debug`: why a token was refused, what a backend answered |
 

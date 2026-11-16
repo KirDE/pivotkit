@@ -48,6 +48,7 @@ Release packages in this order. It follows their run-time dependencies.
   - the pivotkit-core minor pivotkit-xlsx needs, in `docs/reference/plugins.md`
   - pivotkit-server's full version in `docs/getting-started/server-in-5-minutes.md`:
     every image tag, the release tag `pivotkit-server@<version>` and `PIVOTKIT_VERSION`
+  - the release tag `pivotkit-server@<version>` in `docs/getting-started/kubernetes.md`
   - the example version in `docker/compose*.example.yml` and `docker/kubernetes.example.yaml`
 - Two more files carry a version. Their package's tests check them:
   - `docs/openapi.json`. Run `node scripts/openapi.js`.
@@ -59,6 +60,10 @@ Release packages in this order. It follows their run-time dependencies.
 - Wait for CI on main.
 - Tag the merge commit `<package>@<version>`.
 - Push one tag at a time, in publish order. Push the next only after the previous one is live.
+- Push the pivotkit-server tag right after the release pull request is merged. The docs site deploys
+  on every push to main, and `docs/getting-started/server-in-5-minutes.md` and
+  `docs/getting-started/kubernetes.md` link files at the tag `pivotkit-server@<version>`. Until the
+  tag exists, those links fail.
 - The `build` job runs `scripts/check-release.js --published`. It fails when:
   - a dependency of this repository still has `[Unreleased]` entries, or
   - that dependency is not on npm at this commit's version.
@@ -82,6 +87,8 @@ npm stage approve <stage-id>   # or: npm stage reject <stage-id>
 - You can also approve on npmjs.com, account settings, tab Staged Packages.
 - No workflow token can approve. An unapproved version never goes live.
 - If nobody approves it, the next tag's `check-release.js --published` fails. The GitHub release waits too.
+- Approve pivotkit-server promptly. Then push, and approve, pivotkit-mcp right away. The image is
+  public as soon as you push the pivotkit-server tag ([below](#the-container-image)).
 
 ### 5. GitHub release
 
@@ -95,11 +102,14 @@ npm stage approve <stage-id>   # or: npm stage reject <stage-id>
 
 `.github/workflows/image.yml` builds `ghcr.io/eizedev/pivotkit` on each `pivotkit-server@<version>` tag.
 
+- It pushes the image to ghcr as soon as you push the tag: `<version>`, `<major>.<minor>` and
+  `latest`, for example `0.2.0`, `0.2` and `latest`. It does not wait for the npm approval.
+- Until a maintainer approves pivotkit-server and pivotkit-mcp on npm, the image holds versions
+  npm does not offer yet.
 - It builds for linux/amd64 and linux/arm64.
-- It pushes `<version>`, `<major>.<minor>` and `latest`.
 - It attaches provenance and an SBOM and signs with cosign, keyless.
 - Pull requests build and smoke-test it without pushing.
-- Tag pivotkit-server after its npm release. The docs name the image by that version.
+- The docs name the image by pivotkit-server's version.
 - A new base image: update both digests in `docker/Dockerfile`.
 
 ```bash

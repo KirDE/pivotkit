@@ -475,9 +475,10 @@ token that may render can push other callers' older reports out. A link to such 
 (`output.baseUrl`) then answers 404, and one of the server's own links answers 410 `LINK_EXPIRED`.
 
 Schedule drafts are never deleted this way. They may take at most half of `output.maxFiles` (none at
-1). A draft over that answers 409 `NO_OUTPUT`, while reports keep working. So give `draft_schedule`
-a scope of its own too, and keep `output.maxAgeDays` (30 days by default) on. A file you name with
-`.pivotkit-out.` yourself counts as pivotkit's and may be deleted.
+1). A draft over that answers 409 `NO_OUTPUT`, while reports keep working. `output.maxAgeDays` does
+not delete a draft that waits for approval either. So give `draft_schedule` a scope of its own too,
+and remove the drafts nobody approved. A file you name with `.pivotkit-out.` yourself counts as
+pivotkit's and may be deleted.
 
 A quota per caller was the other choice. It was not taken because a caller is no stable owner: with
 auth `none` every caller is the same, and files written before a restart have none. The directory
@@ -602,34 +603,36 @@ Every other error carries no `retryable`. This includes a limit of a source's se
   "requestId": "Ab3_xY9-k2Q", "retryable": true }
 ```
 
+Rows go by status, then by code. The answers of the download links come last.
+
 | Status | Code | When |
 | --- | --- | --- |
 | 400 | <a id="error-invalid-input"></a>`INVALID_INPUT` | The body is not valid JSON, is no JSON object, or does not fit the route's schema (an unknown key, a wrong type, nested deeper than 64 levels, also inside a view given as JSON text) |
 | 401 | <a id="error-invalid-token"></a>`INVALID_TOKEN` | No token, an unknown or expired one, another scheme, a token in the address |
-| 403 | <a id="error-insufficient-scope"></a>`INSUFFICIENT_SCOPE` | The token lacks a scope the service or the operation needs |
-| 403 | <a id="error-not-allowed"></a>`NOT_ALLOWED` | The file route without `results: true`; `inline:` data from a caller without `data: true`; a code source that refuses the caller (its `SourceError`); `save: false` where the result may not come back inline |
 | 403 | <a id="error-files-not-allowed"></a>`FILES_NOT_ALLOWED` | A `file:` source |
 | 403 | <a id="error-forbidden-host"></a>`FORBIDDEN_HOST` | A `Host` the server does not answer to (DNS rebinding protection; `http.allowHosts`, `http.publicUrl`) |
 | 403 | <a id="error-forbidden-origin"></a>`FORBIDDEN_ORIGIN` | A browser origin not in `rest.cors.origins` |
+| 403 | <a id="error-insufficient-scope"></a>`INSUFFICIENT_SCOPE` | The token lacks a scope the service or the operation needs |
+| 403 | <a id="error-not-allowed"></a>`NOT_ALLOWED` | The file route without `results: true`; `inline:` data from a caller without `data: true`; a code source that refuses the caller (its `SourceError`); `save: false` where the result may not come back inline |
+| 404 | <a id="error-data-not-available"></a>`DATA_NOT_AVAILABLE` | A code source has no data the caller may see for these values (its own `SourceError`, [code sources](sources.md#code-errors)); an HTTP source's backend answered 401, 403 or 404 for the values given ([HTTP sources](sources.md#http-errors)) |
+| 404 | <a id="error-file-not-available"></a>`FILE_NOT_AVAILABLE` | The source's file is missing or changed while read |
 | 404 | <a id="error-not-found"></a>`NOT_FOUND` | No such route |
 | 404 | <a id="error-source-not-found"></a>`SOURCE_NOT_FOUND` | No such source, or one the caller lacks the scopes for |
-| 404 | <a id="error-file-not-available"></a>`FILE_NOT_AVAILABLE` | The source's file is missing or changed while read |
-| 404 | <a id="error-data-not-available"></a>`DATA_NOT_AVAILABLE` | A code source has no data the caller may see for these values (its own `SourceError`, [code sources](sources.md#code-errors)); an HTTP source's backend answered 401, 403 or 404 for the values given ([HTTP sources](sources.md#http-errors)) |
 | 405 | <a id="error-method-not-allowed"></a>`METHOD_NOT_ALLOWED` | GET for a POST route or the other way round (`Allow` names the method) |
-| 409 | <a id="error-no-output"></a>`NO_OUTPUT` | No output directory for a file, the directory not writable by the server's user, or full where the server deletes nothing (it holds the operator's own files) |
 | 409 | <a id="error-no-link"></a>`NO_LINK`, <a id="error-not-schedulable"></a>`NOT_SCHEDULABLE` | A link for a source without a page; a schedule over a source that cannot have one: a `file:` source, data sent in the request, a source with a token exchange or a parameter bound to a claim ([backend sign-in](sources.md#http-claims)) |
+| 409 | <a id="error-no-output"></a>`NO_OUTPUT` | No output directory for a file, the directory not writable by the server's user, or full where the server deletes nothing (it holds the operator's own files) |
 | 413 | <a id="error-body-too-large"></a>`BODY_TOO_LARGE`, <a id="error-limit-exceeded"></a>`LIMIT_EXCEEDED` | The body over 2 MiB (over `rest.data.maxBytes` for a caller that may send data); a file, the data sent, a view or the work over a limit; with `save: false`, a result over the `inline` limits |
 | 415 | <a id="error-unsupported-media-type"></a>`UNSUPPORTED_MEDIA_TYPE`, <a id="error-unsupported-format"></a>`UNSUPPORTED_FORMAT` | A POST whose `Content-Type` is not `application/json` (curl's `-d` alone sends a form) nor, where data may be sent, `multipart/form-data`; a file sent in no data format; a source file in no data format |
+| 422 | <a id="error-data-mismatch"></a>`DATA_MISMATCH` | [Data sent in the request](#data) whose `rowCount` differs from the rows sent, or a file whose SHA-256 differs from `sha256` |
 | 422 | <a id="error-invalid-file"></a>`INVALID_FILE`, <a id="error-not-regular-file"></a>`NOT_REGULAR_FILE`, <a id="error-hard-link"></a>`HARD_LINK`, <a id="error-invalid-template"></a>`INVALID_TEMPLATE` | The source's file or print template (`sources.<id>.template`, a [print template](print-template.md) whose `--pk-*` colours reach the chart, [options](mcp.md)) cannot be used |
 | 422 | <a id="error-view-has-errors"></a>`VIEW_HAS_ERRORS` | The file route for a view with errors (with `findings`) |
-| 502 | <a id="error-upload-failed"></a>`UPLOAD_FAILED` | The report was made but could not be stored in the [operator's store](delivery.md#upload) (`retryable` says whether trying again may help); the report stays in the output directory |
 | 429 | <a id="error-rate-limited"></a>`RATE_LIMITED` | A [limit](#limits) |
 | 500 | <a id="error-internal"></a>`INTERNAL` | Anything else. The details are only in the log, with `--log debug` |
-| 422 | <a id="error-data-mismatch"></a>`DATA_MISMATCH` | [Data sent in the request](#data) whose `rowCount` differs from the rows sent, or a file whose SHA-256 differs from `sha256` |
 | 502 | <a id="error-source-unavailable"></a>`SOURCE_UNAVAILABLE` | A code or HTTP source's load failed, took longer than its `timeMs` or has too many loads running. `detail` is one of pivotkit's fixed texts: not available right now, the source's backend refused pivotkit's access, or the source is not set up correctly. `retryable` says whether trying again may work ([HTTP sources](sources.md#http-errors)) |
+| 502 | <a id="error-upload-failed"></a>`UPLOAD_FAILED` | The report was made but could not be stored in the [operator's store](delivery.md#upload) (`retryable` says whether trying again may help); the report stays in the output directory |
 | 503 | <a id="error-busy"></a>`BUSY`, <a id="error-not-ready"></a>`NOT_READY`, <a id="error-auth-not-ready"></a>`AUTH_NOT_READY` | No worker free, or two [large bodies](#data) read already; starting or stopping; the OAuth issuer not loaded yet |
-| 400, 403, 409, 410, 503 | <a id="error-link-expired"></a>`LINK_EXPIRED`, <a id="error-link-used"></a>`LINK_USED`, <a id="error-link-not-yours"></a>`LINK_NOT_YOURS`, <a id="error-sign-in-failed"></a>`SIGN_IN_FAILED`, <a id="error-sign-in-not-ready"></a>`SIGN_IN_NOT_READY` | Answers of the server's own [download links](delivery.md#answers) (`/downloads/`), not of `/api/v1` |
 | 504 | <a id="error-timeout"></a>`TIMEOUT` | A report over `compute.timeMs` |
+| 400, 403, 409, 410, 503 | <a id="error-link-expired"></a>`LINK_EXPIRED`, <a id="error-link-used"></a>`LINK_USED`, <a id="error-link-not-yours"></a>`LINK_NOT_YOURS`, <a id="error-sign-in-failed"></a>`SIGN_IN_FAILED`, <a id="error-sign-in-not-ready"></a>`SIGN_IN_NOT_READY` | Answers of the server's own [download links](delivery.md#answers) (`/downloads/`), not of `/api/v1` |
 
 ## The OpenAPI document { #openapi }
 
@@ -663,7 +666,7 @@ breaking change of the operations' contracts, which is a breaking change for MCP
 | `pivotkit-server source-from-openapi <file or https URL> --operation <operationId or "GET /path"> [--id <id>] [--backend <name>]` | Propose an [HTTP source](sources.md#openapi) from one GET operation of an OpenAPI document (JSON). The block goes to stdout, what you must check and decide to stderr. The values you must fill in say `TODO`, and the server refuses them until you do. Exit 2 when the operation cannot be a source |
 | `pivotkit-server mcp [flags]` | [pivotkit-mcp](mcp.md)'s runner (stdio by default) |
 | `pivotkit-server cli <command> ...` | The [command line](cli.md) `pivotkit` |
-| `pivotkit-server healthcheck [url]` | Exit 0 when `GET /healthz` answers (default `http://127.0.0.1:$PIVOTKIT_PORT/healthz`) |
+| `pivotkit-server healthcheck [url] [--port <port>]` | Exit 0 when `GET /healthz` answers, else 1, also for a usage error such as a url and `--port` together. Without a url it asks `http://127.0.0.1:<port>/healthz`. The port: `--port`, then `http.port` of `$PIVOTKIT_CONFIG`'s file, then `$PIVOTKIT_PORT`, then 3333 |
 | `pivotkit-server token new [--file <path>] [--config <file> --add]` | Make a static token: on stdout, or into a file with mode 0600, and with `--add` into `auth.tokens` ([tokens and keys](#credentials)) |
 | `pivotkit-server token show <name>` | Print the value of a token of `auth.tokens`, as the server reads it. Exit 1 when it is missing or cannot be used, 2 for a name that is not there |
 | `pivotkit-server key new --for downloads\|audit [--file <path>] [--config <file> --add]` | Make a key for `output.downloads.key` or `audit.key` ([tokens and keys](#credentials)) |
@@ -684,7 +687,7 @@ the sign-in is.
 A `PROBLEM` ends with what it does:
 
 - `-> the server does not start`: what `serve` refuses. That is an output directory it cannot use, a
-  static token that is missing or too short, an address off loopback without auth, an issuer that is
+  static token that is missing or too easy to guess, an address off loopback without auth, an issuer that is
   not https, an `audit.key` that cannot be read or has fewer than 16 characters (OAuth with
   `audit.subject: hash`), or a print template the parser refuses.
 - What does not work while the server runs: a source file that is not there, a backend secret, the
@@ -748,7 +751,9 @@ and `--list-files`, plus `--enable rest,mcp`. `--enable` sets `http.enable`, wha
 default is REST, and MCP when pivotkit-mcp is installed.
 
 - The configuration file is `--config` or `$PIVOTKIT_CONFIG`.
-- The one static token without `auth.tokens` is `$PIVOTKIT_TOKEN`.
+- The one static token without `auth.tokens` is `$PIVOTKIT_TOKEN`. Set while auth is `none`, it gets
+  a warning at start and in `check-config`, over HTTP only: "PIVOTKIT_TOKEN is set but auth is none;
+  use --auth token (or auth.mode token)". A written `auth.mode: "none"` gives no warning.
 - `$PIVOTKIT_PORT` sets the port when neither the flag nor the file does.
 - An unknown flag is a usage error (exit 2) that points to `--help`.
 
@@ -777,7 +782,7 @@ lets running requests finish for up to `http.graceMs` (25 seconds by default).
 | `http.graceMs` | 25000 | How long a stop waits for running requests |
 | `output.create` | true | Make a missing `output.dir` at start, with its parents and mode 0700. When `output.baseUrl` is set, the mode is 0755 narrowed by the umask. The start logs a warning when it makes the directory. `false` makes a missing directory an error. A relative `output.dir` without a configuration file is relative to the working directory. `check-config` says whether the directory exists, will be made, or cannot be made, and why: a parent the server's user may not write, a name too long, a symbolic link loop |
 | `output.maxFiles`, `output.maxMb` | 1000, 1024 | Files pivotkit wrote and their megabytes the directory may hold, at its top level: reports (`<name>.pivotkit-out.<format>`) and schedule drafts (`<name>.pivotkit-out.report.json`). A new report deletes the oldest reports until it fits, one write at a time. Drafts are counted but never deleted. They may take at most half of `output.maxFiles`, and a draft over that answers 409 `NO_OUTPUT`. Files without that mark (the operator's, reports of older versions) are neither counted nor deleted, nor are subdirectories. A file named with the mark by hand counts as pivotkit's. Nothing is deleted where the output directory is the configuration file's directory or holds a source, print template or token file. There a full directory answers 409 `NO_OUTPUT`, and the start warns. With `output.maxAgeDays` written explicitly, the server does not start there |
-| `output.maxAgeDays` | 30 | `0`: no age limit. Otherwise the server deletes reports and drafts (the files marked `.pivotkit-out.`) older than this many days from the top level of the output directory, at start and every hour. It also deletes the temporary files of writes the server was killed in (`.<name>.pivotkit-out.<format>.<pid>-<random>.tmp`, older than an hour). Other files and subdirectories stay. Use a directory of its own. The server refuses to start with a limit you write when the output directory is the configuration file's directory or holds a source, print template or token file. There the default does not apply (no age limit) |
+| `output.maxAgeDays` | 30 | `0`: no age limit. Otherwise the server deletes reports (the files marked `.pivotkit-out.`) and schedule drafts no longer waiting for approval (`.pivotkit-out.report.json` whose `status` is not `"draft"`) older than this many days from the top level of the output directory, at start and every hour. It also deletes the temporary files of writes the server was killed in (`.<name>.pivotkit-out.<format>.<pid>-<random>.tmp`, older than an hour). Other files and subdirectories stay. Use a directory of its own. The server refuses to start with a limit you write when the output directory is the configuration file's directory or holds a source, print template or token file. There the default does not apply (no age limit) |
 | `output.downloads` | on (plain links for open sources) | The server's own [download links](delivery.md): `enabled`, `expiresMinutes` (60), `bind` (`signIn`, `once`, `none`), `key`, `signIn` |
 | `output.upload` | none | [Upload to your store](delivery.md#upload): `url` or `presign`, `headers`, `link`, `linkOrigins`, `method`, `timeMs`, `maxBytes`, `keepLocal`, `bind`, `intranet` |
 | `rest.openapi` | `"auth"` | Who gets `/openapi.json` |
@@ -945,10 +950,12 @@ that survive a restart:
 | The key of the [download links](delivery.md) | `<dir>/secrets/downloads.key` | Links are on and `output.downloads.key` is not set |
 | The [audit](mcp.md#logging) key | `<dir>/secrets/audit.key` | `audit.subject` is `"hash"` and `audit.key` is not set |
 
-- The server never makes the state directory itself. It makes only `secrets/` (mode 0700) in it.
+- The server never makes the state directory itself. It makes only these in it:
+    - `secrets/` (mode 0700), for the files above
+    - `out/` (mode 0700), when `output.dir` is `<dir>/out`, as in the image's built-in example
 - Each file is one line with mode 0600. A file that is there is read and never written.
 - The start logs `created the token "admin" in <path>` once. It never logs a value.
-- Every start logs the command that prints the token. In Docker or Podman that is
+- Every start with the token `admin` logs the command that prints it. In Docker or Podman that is
   `docker exec <container> pivotkit-server token show admin`. In Kubernetes it names the namespace
   and the pod: `kubectl -n <namespace> exec <pod> -- pivotkit-server token show admin` (add
   `-c <container>` in a pod with more than one). Elsewhere it is
@@ -999,8 +1006,9 @@ A request line is `info` when it worked, `warn` for 4xx and `error` for 5xx. `re
 
 The client is the static token's name or the OAuth client id. The person is on `request` and
 `download` lines only with `audit.subject` ([audit](mcp.md#logging)). Their groups and other claims
-never appear. No line holds a view, a value, a token or a path. `log.address: "off"` leaves the client's
-address out.
+never appear. No line holds a view, a value or a token. A request's line holds no file path. Lines at
+start can name the operator's own file paths. The client's address is on a request's lines by
+default. It is personal data. `log.address: "off"` leaves it out.
 
 ## In your own server { #embed }
 
@@ -1074,7 +1082,9 @@ A configured source may be an operator's backend, an [HTTP source](sources.md#ht
 
 More about the handler:
 
-- The one static token without `auth.tokens` is `$PIVOTKIT_TOKEN`.
+- The one static token without `auth.tokens` is `$PIVOTKIT_TOKEN`. Set while auth is `none`, it gets
+  a warning at start and in `check-config`, over HTTP only: "PIVOTKIT_TOKEN is set but auth is none;
+  use --auth token (or auth.mode token)". A written `auth.mode: "none"` gives no warning.
   `createContext(options, { tokenEnv })` names another. Tokens are read from `env` of
   `createRestHandler`.
 - `loopback` says whether the server listens on loopback only. It decides whether `auth: none` is

@@ -1,13 +1,14 @@
 ---
 title: pivotkit-mcp
-description: The pivotkit MCP server - tools for an AI client to describe data sources, write and validate views, render reports into files and make links without reading the data; exposure policy, configuration, limits, errors, logging, HTTP transport and authentication (token, OAuth 2.1).
+description: The pivotkit MCP server - tools for an AI client to describe data sources, write and validate views, render reports into files and make links, reading only what the policy shows; exposure policy, configuration, limits, errors, logging, HTTP transport and authentication (token, OAuth 2.1).
 ---
 
 # pivotkit-mcp
 
 `pivotkit-mcp` is an [MCP](https://modelcontextprotocol.io) server. An AI client (Claude Code,
-Claude Desktop, VS Code and others) uses it to build pivot reports over data the operator names. The
-model never reads the data itself:
+Claude Desktop, VS Code and others) uses it to build pivot reports over data the operator names.
+Through the server, the model sees the fields and, at the levels you set, their values. A client with
+file tools can [reach more](../model-data.md#beyond-policy). The model works like this:
 
 - It sees what the operator allows of each source. By default, that is names, types and counts.
 - It writes a [view](view-file.md) and lets the server check it.
@@ -337,9 +338,9 @@ one probably meant.
 | `output.baseUrl` | - | none | The address the directory is served at. File names start with 22 random characters. Results over sources whose fields are all `show` carry a `url`. Others carry none, since anyone with it could open what the model was not shown |
 | `output.downloads` | - | on over HTTP | The server's own [download links](delivery.md): `enabled`, `expiresMinutes` (60), `bind` (`signIn`, `once`, `none`), `key`, `signIn` (`clientId`, `clientSecret`, `issuer`, `scopes`) |
 | `output.upload` | - | none | [Upload to your store](delivery.md#upload): `url` or `presign`, `headers`, `link`, `linkOrigins`, `method` (PUT), `timeMs` (30000), `maxBytes`, `keepLocal` (true), `bind` (`none`), `intranet` |
-| `output.maxFiles` | - | 1000 | Reports and drafts (named `<name>.pivotkit-out.<format>`) the directory may hold. A new report deletes the oldest reports, whoever made them. Drafts are never deleted this way (see [REST](rest.md#running) for the trade-off) |
+| `output.maxFiles` | - | 1000 | Reports and drafts (named `<name>.pivotkit-out.<format>`) the directory may hold. A new report deletes the oldest reports, whoever made them. Drafts are never deleted this way. A draft that waits for approval is not deleted by age either (see [REST](rest.md#running) for the trade-off) |
 | `output.maxMb` | - | 1024 | Megabytes of reports and drafts the directory may hold. A new report deletes the oldest reports until it fits |
-| `output.maxAgeDays` | - | 30 | Delete reports and drafts older than this many days from the top level of the output directory, at start and every hour. Also delete the temporary files of writes the server was killed in (older than an hour). `0`: no age limit. The default applies only to a directory of the reports' own (see [REST](rest.md#running)) |
+| `output.maxAgeDays` | - | 30 | Delete reports, and schedule drafts no longer waiting for approval, older than this many days from the top level of the output directory, at start and every hour. Also delete the temporary files of writes the server was killed in (older than an hour). `0`: no age limit. The default applies only to a directory of the reports' own (see [REST](rest.md#running)) |
 | `policy` | - | see above | The server's exposure policy, with its `profiles` |
 | `policy.data`, `policy.profiles.<name>.data` | - | MCP: on | `false`: the caller may not send [its own data](#data) (`inline:`). REST needs `true` |
 | `mcp.data` | - | 500 rows, 5000 cells, 262144 bytes | `false` switches [data in the request](#data) off. `{ "rows", "cells", "bytes" }` lowers the cap. A value above the built-in one is an error |
@@ -368,6 +369,14 @@ one probably meant.
 | `audit.key` | - | a random key per start. With a state directory, `<state>/secrets/audit.key` | `hash`: the key (at least 16 characters), `{ "env": "NAME" }` or `{ "file": "path" }` (`"create": true` makes a missing file). Read at start, with OAuth only |
 | - | `--config file` | `$PIVOTKIT_MCP_CONFIG` | The configuration file |
 | - | `--check-config` | - | Print whether the server would start and what it would expose, then exit. It shows the sources, each field's level and why, the fields the automatic values rule gives or would give `values`, files, output and auth. Exit 1 when it finds a problem ([reading it](rest.md#check-config)). A policy rule that names no column of the data is a warning (exit 0) |
+
+Waiting drafts never expire. They count against the drafts cap (half of `output.maxFiles`, 500 by
+default) and against `output.maxMb`, and the server never deletes them to make room. Once the
+directory is full of them, the server refuses new drafts, and renders too when only drafts are
+left, until a person approves or removes drafts. So approve or reject drafts by changing their
+`status`, or remove them. A host may also delete or move a draft instead of rewriting its `status`.
+A draft file that cannot be read or parsed, is over 1 MiB, or has no `status` that is a string
+counts as waiting.
 
 When the server is killed during a write, the write leaves its temporary file
 (`.<name>.pivotkit-out.<format>.<pid>-<random>.tmp`). It is not a report. It is neither counted
@@ -553,7 +562,8 @@ differs, the line names it as `peerAddress`.
 
 The client is the static token's name or the OAuth token's client id. A line holds the person only
 where you ask for it with `audit.subject`, as `subject`, and never their groups or other claims. No
-line holds a view, a value, a token or a full path. The log is the supervisor's to keep and rotate.
+line holds a view, a value or a token. A call's line holds no file path. Lines at start can name the
+operator's own file paths. The log is the supervisor's to keep and rotate.
 
 `audit.subject` names the person of an OAuth token (its `auth.subjectClaim`) on `call`, `request`
 and `download` lines. A refused request never names one. A static token's caller is named by the
@@ -669,7 +679,10 @@ location ~ ^/(mcp|\.well-known/|downloads/|healthz$|$) {
 ### Static tokens { #token }
 
 The token comes from `$PIVOTKIT_MCP_TOKEN`, or several named tokens come from `auth.tokens`, each
-from an environment variable or a file, each with its own `scopes`.
+from an environment variable or a file, each with its own `scopes`. `pivotkit-mcp --http` with
+`$PIVOTKIT_MCP_TOKEN` set but auth `none` warns at start and in `--check-config`: "PIVOTKIT_MCP_TOKEN
+is set but auth is none; use --auth token (or auth.mode token)". A written `auth.mode: "none"` gives
+no warning.
 
 - A token file is read on every request, so a token is rotated without a restart. `"create": true`
   makes a missing file at start.
