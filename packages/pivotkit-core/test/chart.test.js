@@ -61,6 +61,20 @@ test("pie uses the row totals and drops empty slices", () => {
     assert.deepEqual(pie.series[0].data, [{ name: "North", value: 10 }, { name: "South", value: 8 }, { name: "West", value: 4 }, { name: "(blank)", value: 6 }]);
 });
 
+test("a pie, a donut and a heatmap with a field on Columns name their series by the value, not by the first column (#537)", () => {
+    // the slices are the row totals over every column, the cells name their row and column themselves
+    for (const type of ["pie", "donut", "heatmap"]) {
+        assert.equal(toEChartsOption(r, { chart: { type } }).series[0].name, "Sum of Units", type);
+    }
+    // the value's own label, and the caller's words for the aggregator
+    const labelled = computePivot(data, { rows: ["Region"], cols: ["Product"], values: [{ field: "Units", agg: "sum", label: "Units sold" }] });
+    assert.equal(toEChartsOption(labelled, { chart: { type: "pie" } }).series[0].name, "Units sold");
+    assert.equal(toEChartsOption(r, { chart: { type: "heatmap" }, labels: { aggregators: { sum: "Summe" }, valueName: "{agg} von {field}" } }).series[0].name, "Summe von Units");
+    // a second value: the pie and the heatmap draw the first one and name it
+    const two = computePivot(data, { rows: ["Region"], cols: ["Product"], values: [{ agg: "count" }, { field: "Units", agg: "sum" }] });
+    assert.equal(toEChartsOption(two, { chart: { type: "pie" } }).series[0].name, "Count");
+});
+
 test("heatmap: column keys across, row keys down, a visual map over the values", () => {
     const heat = toEChartsOption(r, { chart: { type: "heatmap" }, theme: { heatmapColors: ["#ffffff", "#003366"] } });
     assert.deepEqual(heat.xAxis.data, ["A", "B"]);
@@ -112,6 +126,9 @@ test("maxCategories plots the first categories in the view's order and reports h
 test("display settings: a title, the legend where the view puts it, smooth lines", () => {
     const titled = toEChartsOption(r, { chart: { type: "bar", title: "Units" } });
     assert.equal(titled.title.text, "Units");
+    // the title's weight: the theme's strongWeight, else DEFAULT_THEME's
+    assert.equal(titled.title.textStyle.fontWeight, 600);
+    assert.equal(toEChartsOption(r, { chart: { type: "bar", title: "Units" }, theme: { strongWeight: 500 } }).title.textStyle.fontWeight, 500);
     // the grid makes room for the title and the legend above it
     assert.equal(titled.legend.top, 32);
     assert.ok(titled.grid.top > toEChartsOption(r).grid.top);
@@ -187,6 +204,7 @@ test("two row fields: the inner items name the categories, the outer ones are gr
     assert.deepEqual(named, [...new Set(groups.data)]);
     const starts = groups.data.map((_, i) => groups.axisTick.interval(i));
     assert.deepEqual(starts, groups.data.map((g, i) => i > 0 && g !== groups.data[i - 1]));
+    assert.deepEqual([groups.axisLabel.fontWeight, toEChartsOption(nested, { series: s, theme: { strongWeight: 500 } }).xAxis[1].axisLabel.fontWeight], [600, 500]);
     // horizontal bars: on the y axis, both reversed; lines and areas too
     const horizontal = toEChartsOption(nested, { chart: { horizontal: true } });
     assert.deepEqual([horizontal.yAxis.length, horizontal.yAxis[0].inverse, horizontal.yAxis[1].inverse], [2, true, true]);

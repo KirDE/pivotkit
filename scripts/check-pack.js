@@ -4,22 +4,28 @@
 //   node scripts/check-pack.js pivotkit-core
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { packEntries } from "./npm-pack.js";
 
 const workspace = process.argv[2];
 if (!workspace) {
     console.error("usage: node scripts/check-pack.js <workspace>");
     process.exit(2);
 }
-// prepack runs as part of this (types, LICENSE); its output goes to stderr, the JSON to stdout
+// prepack runs as part of this (types, LICENSE); the JSON goes to stdout after anything prepack logs there
 const out = execFileSync("npm", ["pack", "--dry-run", "--json", "--workspace", workspace], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
-const [{ files, name, version }] = JSON.parse(out.slice(out.indexOf("[")));
+const [{ files, name, version }] = packEntries(out);
 const paths = new Set(files.map((f) => f.path));
 const pkg = JSON.parse(readFileSync(new URL(`../packages/${workspace}/package.json`, import.meta.url), "utf8"));
 
 const exportPaths = Object.values(pkg.exports).flatMap((target) => (typeof target === "string" ? [target] : Object.values(target)));
 // a package that bundles third-party code ships their license texts
 const BUNDLED_LICENSES = { "pivotkit-element": ["dist/THIRD_PARTY_LICENSES.txt"], "pivotkit-xlsx": ["dist/index.js", "dist/THIRD_PARTY_LICENSES.txt"] };
-const required = ["LICENSE", "README.md", "CHANGELOG.md", "package.json", ...exportPaths.map((p) => p.replace(/^\.\//, "")), ...(BUNDLED_LICENSES[workspace] ?? [])];
+// a command-line package ships the files of its commands
+const binPaths = typeof pkg.bin === "string" ? [pkg.bin] : Object.values(pkg.bin ?? {});
+// the CLI ships its examples (pivotkit example): examples.json and every file it lists, a CSV gzipped
+const examples = workspace === "pivotkit-cli" ? JSON.parse(readFileSync(new URL("../packages/pivotkit-cli/examples/examples.json", import.meta.url), "utf8")).examples : [];
+const exampleFiles = examples.length ? ["examples/examples.json", ...examples.flatMap((e) => e.files.map((f) => `examples/${f}${f.endsWith(".csv") ? ".gz" : ""}`))] : [];
+const required = ["LICENSE", "README.md", "CHANGELOG.md", "package.json", ...exportPaths.map((p) => p.replace(/^\.\//, "")), ...binPaths.map((p) => p.replace(/^\.\//, "")), ...(BUNDLED_LICENSES[workspace] ?? []), ...exampleFiles];
 const forbidden = /^(test|bench|scripts)\/|^tsconfig\.json$|^node_modules\//;
 
 // a package marked private cannot be published: npm publish stops with EPRIVATE

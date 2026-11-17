@@ -199,7 +199,7 @@ export function Toolbar(props) {
         // the panels load with the chip menus (menus.js), on demand
         options: (close) => <MenuPanel name="OptionsPanel" loadingText={labels.loadingMenu} props={{ view, labels, onTotal, onExpand, onCollapse, close, tips, mod, folding, help: props.help }} />,
         views: (close) => <MenuPanel name="ViewsPanel" loadingText={labels.loadingMenu} props={{ templates, labels, onLoad: onLoadTemplate, actions: templateActions, close, share }} />,
-        chartType: (close) => <MenuPanel name="ChartTypePanel" loadingText={labels.loadingMenu} props={{ view, plan, labels, onChart, onDisplay: onChartDisplay, close }} />,
+        chartType: (close) => <MenuPanel name="ChartTypePanel" loadingText={labels.loadingMenu} props={{ view, plan, encoded: props.encoded, lineChecks: props.lineChecks, labels, locale: props.locale, onChart, onDisplay: onChartDisplay, close, series: props.chartSeries }} />,
         data: (close) => data?.panel(close)
     };
     // the dot while a file's data is shown (dot() below), with its words for a screen reader
@@ -385,7 +385,7 @@ export function Toolbar(props) {
             {end.slice(at)}
             {/* a dialog, not a menu: Tab reaches the "i" of each format; it loads with the menus */}
             <MenuButton label={labels.exportLabel} icon="download" text={labels.exportLabel} role="dialog" align="end" testId="export">
-                {(close) => <MenuPanel name="ExportPanel" loadingText={labels.loadingMenu} props={{ labels, onExport, chartReady, display: view.display, empty, prepare: props.prepareExport, close }} />}
+                {(close) => <MenuPanel name="ExportPanel" loadingText={labels.loadingMenu} props={{ labels, onExport, chartReady, display: view.display, empty, dataExport: props.dataExport, prepare: props.prepareExport, close }} />}
             </MenuButton>
             {hidden.size > 0 ? (
                 <MenuButton label={labels.more} icon="more" text={labels.more} align="end" testId="more" buttonRef={more} arrowOpens mark={hidden.has("views") && loadedView?.changed ? changedMark("more-changed") : hidden.has("data") ? loadedMark("more-loaded") : null}>

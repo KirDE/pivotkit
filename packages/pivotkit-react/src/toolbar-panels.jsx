@@ -6,10 +6,13 @@
  */
 
 import React, { useEffect, useId, useRef, useState } from "react";
-import { VIEW_FILE_LIMITS } from "pivotkit-core";
+import { VIEW_FILE_LIMITS, referenceLineRules, swapAxes } from "pivotkit-core";
 import { CHART_TYPES, CHART_TYPE_NAMES, SLICE_TYPES, chartTypeOf } from "./chart-types.js";
 import { ClearInput } from "./clear-input.jsx";
 import { useFormName } from "./dom.js";
+import { parseTarget } from "./menu-ops.js";
+import { numberText } from "./numbers.js";
+import { dataExportFor } from "./export-scope.js";
 import { Icon } from "./icons.jsx";
 import { fill, hostFailure } from "./labels.js";
 import { Option } from "./popover.jsx";
@@ -17,7 +20,7 @@ import { Section, SettingInfo } from "./section.jsx";
 import { shareActions } from "./share-actions.js";
 import { SHORTCUTS } from "./tips.js";
 import { LevelMenu } from "./levels.jsx";
-import { afterDelete, entryIds, optionTopics } from "./menu-topics.js";
+import { afterDelete, chartTopics, entryIds, optionTopics } from "./menu-topics.js";
 import { canSaveAs, isLoadedEntry, saveAsTarget, saveTarget } from "./view-save.js";
 import { storeViews } from "./view-store.js";
 
@@ -41,12 +44,18 @@ function ChartTypeOptions({ view, plan, labels, onChart, close }) {
     ));
 }
 
-/** The value labels a chart type offers: a share in percent is a pie's and a donut's. */
-const VALUE_LABELS = { slices: ["auto", "off", "value", "percent", "both"], other: ["auto", "off", "value"] };
-const LABEL_POSITIONS = ["outside", "inside"];
-const LEGENDS = ["auto", "bottom", "right", "off"];
-const AXIS_LABELS = ["auto", "all", "nth"];
-const GROUP_LABELS = ["auto", "on", "off"];
+/**
+ * The legend's entries of the chart drawn: a pie's and a donut's slices, the series of bars, lines
+ * and areas; a heatmap has none.
+ * @param {string} drawn  the picker entry drawn
+ * @param {{ categories: string[], series: Array<{ name: string }> } | null | undefined} series  toSeries'
+ */
+function legendNames(drawn, series) {
+    if (!series || drawn === "heatmap") {
+        return [];
+    }
+    return [...new Set(SLICE_TYPES.includes(drawn) ? series.categories : series.series.map((s) => s.name))];
+}
 
 /** The chart's title: applied with Enter or Apply; the × removes it at once. */
 function ChartTitle({ title, labels, onDisplay }) {
@@ -84,117 +93,115 @@ function ChartTitle({ title, labels, onDisplay }) {
 }
 
 /**
- * One group of the chart's Display (Value labels, Legend, ...): its title, with an "i" where it needs
- * explaining, and its choices; a dashed rule between the groups (styles.css: .pk-subsection).
- * @param {{ title?: string, info?: string, children: React.ReactNode }} props
+ * The target line's value (Display › Reference lines › Target): applied with Enter or Apply; the ×
+ * and "Remove the target" remove it at once. For a value shown in percent, "25%" is a share
+ * (parseTarget), a hint says how to type it, and a bare number above 1 gets a soft warning:
+ * "25 is 2,500 %".
  */
-function Sub({ title, info, children }) {
-    const titleId = useId();
+function TargetField({ target, labels, locale, format, onTarget }) {
+    const [text, setText] = useState(numberText(target, locale));
+    // a target changed elsewhere (Undo, a link) shows here; the field keeps its element and the focus
+    const [last, setLast] = useState(target);
+    if (target !== last) {
+        setLast(target);
+        setText(numberText(target, locale));
+    }
+    const value = parseTarget(text, locale, format);
+    const bad = text.trim() !== "" && value === null;
+    const hintId = useId();
+    const warnId = useId();
+    // percent: a share (0.25 is 25 %); percent100: the percent itself (25 is 25 %)
+    const share = /^percent(?!100)/.test(format ?? "");
+    const hint = share ? labels.targetPercent : /^percent100/.test(format ?? "") ? labels.targetPercent100 : null;
+    const typed = text.trim();
+    const high = share && value !== null && value > 1 && !typed.endsWith("%");
+    const shown = (n) => new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 2 }).format(n);
+    const describedBy = [hint ? hintId : "", high ? warnId : ""].filter(Boolean).join(" ") || undefined;
     return (
-        <div className="pk-subsection" role={title ? "group" : undefined} aria-labelledby={title ? titleId : undefined}>
-            {title ? (
-                <div className={`pk-subtitle${info ? " pk-setting-row" : ""}`}>
-                    <span id={titleId}>{title}</span>
-                    {info ? <SettingInfo id={info} name={title} /> : null}
-                </div>
+        <>
+            <form
+                className="pk-inline-form"
+                onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!bad) {
+                        onTarget(value);
+                    }
+                }}
+            >
+                <ClearInput
+                    type="text"
+                    inputMode="decimal"
+                    value={text}
+                    onChange={setText}
+                    onClear={() => (target !== null ? onTarget(null) : undefined)}
+                    clearLabel={labels.clearText}
+                    placeholder={labels.targetNone}
+                    aria-label={labels.core.referenceLines.target}
+                    aria-invalid={bad || undefined}
+                    aria-describedby={describedBy}
+                    data-testid="chart-target"
+                />
+                <button type="submit" className="pk-btn pk-primary" disabled={bad || value === target}>
+                    {labels.apply}
+                </button>
+            </form>
+            {hint ? (
+                <p id={hintId} className="pk-hint pk-subtitle" data-testid="target-hint">
+                    {hint}
+                </p>
             ) : null}
-            {children}
-        </div>
+            {high ? (
+                <p id={warnId} className="pk-hint pk-subtitle" role="status" data-testid="target-warning">
+                    {fill(labels.targetPercentHigh, { typed, shown: shown(/** @type {number} */ (value)), share: shown(/** @type {number} */ (value) / 100) })}
+                </p>
+            ) : null}
+            {target !== null ? (
+                <button type="button" className="pk-btn" onClick={() => onTarget(null)} data-testid="target-remove">
+                    {labels.targetRemove}
+                </button>
+            ) : null}
+        </>
     );
 }
 
 /**
- * How the chart is drawn: value labels, legend, title, smooth lines (line and area). Each choice
- * applies at once and the panel stays open, so the chart behind it shows the change.
+ * The chart type menu: the types (a pick closes it), then how the chart is drawn, in levels as the
+ * other menus (levels.jsx, menu-topics.js chartTopics): a row per topic with what is set, each
+ * opening its level (Value labels, Legend, Title, Axis, Tooltip, Reference lines with its Target, Series, Layout). Each choice applies at once and the menu stays
+ * open, so the chart behind it shows the change.
  */
-function ChartDisplay({ view, plan, labels, onDisplay }) {
-    const chart = view.chart;
-    // the type drawn: an automatic chart's is the one the data chose
-    const drawn = plan ? plan.name : chartTypeOf(chart);
-    const pie = SLICE_TYPES.includes(drawn);
-    // bars, lines and areas have a category axis
-    const axis = CHART_TYPES[drawn].axis;
-    const choices = pie ? VALUE_LABELS.slices : VALUE_LABELS.other;
-    // a pie's "percent" on another type draws the value: it shows as "Value" there
-    const valueLabels = !pie && (chart.valueLabels === "percent" || chart.valueLabels === "both") ? "value" : chart.valueLabels;
-    return (
-        <Section title={labels.chartDisplay}>
-            <Sub title={labels.valueLabels}>
-                <div className="pk-choice-grid">
-                    {choices.map((v) => (
-                        <Option key={v} checked={valueLabels === v} onSelect={() => onDisplay({ valueLabels: v })} testId={`labels-${v}`}>
-                            {labels.valueLabelNames[v]}
-                        </Option>
-                    ))}
-                </div>
-            </Sub>
-            {pie ? (
-                <Sub title={labels.labelPosition} info="labelPosition">
-                    <div className="pk-choice-grid">
-                        {LABEL_POSITIONS.map((v) => (
-                            <Option key={v} checked={(chart.labelPosition ?? "outside") === v} disabled={chart.valueLabels === "off"} onSelect={() => onDisplay({ labelPosition: v })} testId={`label-position-${v}`}>
-                                {labels.labelPositionNames[v]}
-                            </Option>
-                        ))}
-                    </div>
-                </Sub>
-            ) : null}
-            <Sub title={labels.legend}>
-                <div className="pk-choice-grid">
-                    {LEGENDS.map((v) => (
-                        <Option key={v} checked={chart.legend === v} onSelect={() => onDisplay({ legend: v })} testId={`legend-${v}`}>
-                            {labels.legendNames[v]}
-                        </Option>
-                    ))}
-                </div>
-            </Sub>
-            <Sub title={labels.chartTitle}>
-                <ChartTitle title={chart.title} labels={labels} onDisplay={onDisplay} />
-            </Sub>
-            {axis ? (
-                <Sub title={labels.axisLabels}>
-                    <div className="pk-choice-grid">
-                        {AXIS_LABELS.map((v) => (
-                            <Option key={v} checked={chart.axisLabels === v} onSelect={() => onDisplay({ axisLabels: v })} testId={`axis-${v}`}>
-                                {labels.axisLabelNames[v]}
-                            </Option>
-                        ))}
-                    </div>
-                </Sub>
-            ) : null}
-            {axis && view.rows.length >= 2 ? (
-                <Sub title={labels.groupLabels} info="groupLabels">
-                    <div className="pk-choice-grid">
-                        {GROUP_LABELS.map((v) => (
-                            <Option key={v} checked={chart.groupLabels === v} onSelect={() => onDisplay({ groupLabels: v })} testId={`groups-${v}`}>
-                                {labels.groupLabelNames[v]}
-                            </Option>
-                        ))}
-                    </div>
-                </Sub>
-            ) : null}
-            {drawn === "line" || drawn === "area" ? (
-                <Sub>
-                    <Switch checked={chart.smooth} onChange={(on) => onDisplay({ smooth: on })} testId="chart-smooth">
-                        {labels.smoothLines}
-                    </Switch>
-                </Sub>
-            ) : null}
+export function ChartTypePanel({ view, plan, encoded, lineChecks, labels, locale, onChart, onDisplay, close, series }) {
+    const drawn = plan ? plan.name : chartTypeOf(view.chart);
+    const names = legendNames(drawn, series);
+    // which reference lines the chart can draw: the drawn chart's checks with its numbers, else the
+    // view's rules (rows and columns swapped where the chart swaps them) and a note asking for the chart
+    const lines = view.chart.referenceLines;
+    const plain = plan?.chart && encoded ? referenceLineRules(plan.swap ? swapAxes(view) : view, { ...view.chart, ...plan.chart }, encoded) : { average: true, trend: true, target: true };
+    const rules = lineChecks ?? { ...plain, notes: ["table"] };
+    const topics = chartTopics({ view, drawn, labels, names, act: { display: onDisplay }, lines: { rules, targetText: numberText(lines?.target, locale) } });
+    const head = (
+        <Section title={labels.chartType}>
+            <div className="pk-choice-grid">
+                <ChartTypeOptions view={view} plan={plan} labels={labels} onChart={onChart} close={close} />
+            </div>
         </Section>
     );
-}
-
-/** The chart type menu: the types (a pick closes it) and how the chart is drawn. */
-export function ChartTypePanel({ view, plan, labels, onChart, onDisplay, close }) {
     return (
-        <>
-            <Section title={labels.chartType}>
-                <div className="pk-choice-grid">
-                    <ChartTypeOptions view={view} plan={plan} labels={labels} onChart={onChart} close={close} />
-                </div>
-            </Section>
-            <ChartDisplay view={view} plan={plan} labels={labels} onDisplay={onDisplay} />
-        </>
+        <LevelMenu
+            name={labels.chartDisplay}
+            labels={labels}
+            topics={topics}
+            close={close}
+            onPick={runChoice(close)}
+            head={head}
+            panel={(id) =>
+                id === "title" ? (
+                    <ChartTitle title={view.chart.title} labels={labels} onDisplay={onDisplay} />
+                ) : id === "linesTarget" ? (
+                    <TargetField target={lines?.target ?? null} labels={labels} locale={locale} format={lineChecks?.format} onTarget={(target) => onDisplay({ referenceLines: { ...lines, target } })} />
+                ) : null
+            }
+        />
     );
 }
 
@@ -220,20 +227,6 @@ function Shortcuts({ labels, mod }) {
     );
 }
 
-/**
- * A switch: a checkbox drawn as a track, on one line (the chart's smooth lines).
- * @param {{ checked: boolean, onChange: (on: boolean) => void, testId?: string, children: React.ReactNode }} props
- */
-function Switch({ checked, onChange, testId, children }) {
-    const name = useFormName();
-    return (
-        <label className="pk-switch">
-            <input type="checkbox" name={name} checked={checked} onChange={(e) => onChange(e.target.checked)} data-testid={testId} />
-            <span className="pk-switch-track" aria-hidden="true" />
-            <span className="pk-switch-text">{children}</span>
-        </label>
-    );
-}
 
 /**
  * The Options menu (topics in menu-topics.js): the totals, Expand all and Collapse all, help with the
@@ -540,23 +533,50 @@ function viewActions(ctx, labels) {
         return run(
             () =>
                 target.kind === "publish"
-                    ? ctx.onPublish(name, ctx.view)
+                    ? ctx.onPublish(name, ctx.view, { source: ctx.source })
                     : target.kind === "host"
-                      ? ctx.onSave(name, ctx.view, { scope: "user" })
-                      : write({ name, view: ctx.view, sourceId: ctx.sourceId, replace: target.at }),
+                      ? ctx.onSave(name, ctx.view, { scope: "user", source: ctx.source })
+                      : write({ name, view: ctx.view, sourceId: ctx.sourceId, sheet: ctx.sheet, replace: target.at }),
             labels.toastSaved,
             labels.toastSaveFailed,
             labels.toastSaveRejected,
             name
-        ).then((ok) => ok && ctx.onSaved({ name, scope: target.kind === "publish" ? "shared" : "user", store: target.kind === "store", storeSource: target.kind === "store" ? target.storeSource : null }, key));
+        ).then((ok) => ok && ctx.onSaved({ name, scope: target.kind === "publish" ? "shared" : "user", store: target.kind === "store", storeSource: target.kind === "store" ? target.storeSource : null, storeSheet: target.kind === "store" ? storedSheet(target, ctx) : null }, key));
     };
     return {
         // Save and Save as: where to is view-save.js's (the host's onSaveTemplate wins over the store)
         save,
         remove: ctx.onDelete || ctx.store ? (t) => run(() => (t.at !== undefined ? write({ remove: t.at, removeName: t.name }) : ctx.onDelete(t.name, { scope: t.scope })), labels.toastDeleted, labels.toastDeleteFailed, labels.toastDeleteRejected, t.name) : null,
-        publish: ctx.onPublish ? (t) => run(() => ctx.onPublish(t.name, ctx.normalized(t.view)), labels.toastPublished, labels.toastPublishFailed, labels.toastPublishRejected, t.name) : null
+        // a view of the menu is published with the data it was made for, which is the data shown unless
+        // the entry names other data (a view of the browser store kept for another file or sheet)
+        publish: ctx.onPublish ? (t) => run(() => ctx.onPublish(t.name, ctx.normalized(t.view), { source: entrySource(t, ctx.source) }), labels.toastPublished, labels.toastPublishFailed, labels.toastPublishRejected, t.name) : null
     };
 }
+
+/**
+ * The data an entry of the Views menu was made for, as the host's callbacks get a source: the browser
+ * store's by its id and sheet, a host's view file's source id and sheet (named as the data shown when
+ * it is that data); the data shown when the entry names none (a host's view, which the host lists for
+ * the data shown; a view of the browser store saved without data), as onSaveTemplate gets it.
+ * @param {{ sourceId?: string, sheetOf?: string, fileSource?: string, sheet?: string }} t
+ * @param {{ id: string, name?: string, params?: Record<string, string> } | null | undefined} shown
+ */
+const entrySource = (t, shown) => {
+    const id = t.sourceId ?? t.sheetOf ?? t.fileSource;
+    if (!id) {
+        return shown ?? null;
+    }
+    return { id, ...(shown?.id === id && shown.name ? { name: shown.name } : {}), ...(t.sheet ? { params: { sheet: t.sheet } } : {}) };
+};
+
+/**
+ * The sheet a save into the browser store leaves its view with: the sheet shown when the view is
+ * stored for the data shown (a new one, or one saved before views named their sheet, which takes it:
+ * view-store.js), else the sheet it had.
+ * @param {{ storeSource: string | null, storeSheet?: string | null }} target
+ * @param {{ sourceId?: string, sheet?: string | null }} ctx
+ */
+const storedSheet = (target, ctx) => (target.storeSource && target.storeSource === ctx.sourceId ? (ctx.sheet ?? null) : (target.storeSheet ?? null));
 
 /**
  * The Views menu in levels: what persists, as one list to scan in groups - "This view" (Save the
@@ -575,7 +595,7 @@ function viewActions(ctx, labels) {
  */
 export function ViewsPanel({ templates, labels, onLoad, actions, close, share }) {
     const { save, remove: onDelete, publish: onPublish } = viewActions(actions, labels);
-    const can = { host: Boolean(actions.onSave), store: Boolean(actions.store), publish: Boolean(onPublish), sourceId: actions.sourceId };
+    const can = { host: Boolean(actions.onSave), store: Boolean(actions.store), publish: Boolean(onPublish), sourceId: actions.sourceId, sheet: actions.sheet ?? null };
     const target = saveTarget(actions.loaded, templates, can, actions.empty);
     // "My views" says where they are kept while the browser store takes the saves
     const store = actions.store && !actions.onSave;
@@ -602,6 +622,9 @@ export function ViewsPanel({ templates, labels, onLoad, actions, close, share })
             id,
             testId: `saved-view-${t.name}`,
             text: t.name,
+            // while a workbook's sheet is shown, a view made on a sheet says which (two views of a
+            // name can be kept, one per sheet; one of another sheet reads that sheet when opened)
+            hint: t.sheet && actions.sheet ? fill(labels.viewSheet, { sheet: t.sheet }) : undefined,
             icon: "bookmark",
             current: isLoadedEntry(t, actions.loaded),
             closes: true,
@@ -726,16 +749,18 @@ export function ViewsPanel({ templates, labels, onLoad, actions, close, share })
 
 /**
  * One entry of an export menu: the option and, when it needs explaining, its "i".
- * @param {{ icon: string, text: string, info?: string, onSelect: () => void, testId: string, disabled?: boolean, reason?: string }} props
+ * @param {{ icon: string, text: string, info?: string, onSelect: () => void, testId: string, disabled?: boolean, reason?: string, onIntent?: () => void }} props
+ *   `onIntent`: when the pointer comes to the entry, presses on it or the focus does (an entry with
+ *   its "i")
  */
-export function ExportOption({ icon, text, info, onSelect, testId, disabled, reason }) {
+export function ExportOption({ icon, text, info, onSelect, testId, disabled, reason, onIntent }) {
     const option = (
         <Option icon={icon} onSelect={onSelect} disabled={disabled} reason={reason} testId={testId}>
             {text}
         </Option>
     );
     return info ? (
-        <div className="pk-setting-row">
+        <div className="pk-setting-row" onPointerEnter={onIntent} onPointerDown={onIntent} onFocus={onIntent}>
             {option}
             <SettingInfo id={/** @type {any} */ (info)} name={text} />
         </div>
@@ -745,16 +770,20 @@ export function ExportOption({ icon, text, info, onSelect, testId, disabled, rea
 }
 
 /**
- * The Export menu: the table as a file (Excel, CSV), the chart as an image, and the table on the
- * clipboard (as shown, or its data as JSON). The export module loads when the menu opens, so a copy
- * happens right in the click.
- * An empty report (no field placed) has nothing to export: every entry is off, and says so.
- * @param {{ labels: import("./labels.js").UiLabels, onExport: (kind: string) => void, chartReady: boolean, display: string, empty?: boolean, prepare: () => void, close: () => void }} props
+ * The Export menu: the table as a file (Excel, CSV), the chart as an image (PNG, SVG), an HTML report,
+ * printing (or saving as PDF from the print dialog), the table on the clipboard (as shown, or its data
+ * as JSON), and last, when the host turns it on (exportData), the source data: every row as it is,
+ * CSV or JSON, apart from the table's exports so the two are not taken for each other. The export module loads when the menu opens, so a copy happens right in
+ * the click; so does a print (the print frame is made ready when the menu opens, the report's modules
+ * load when Print is pointed at or focused: use-export.js). An empty report (no field placed) has no table to export: those entries are off, and say
+ * so; the source data is there all the same. The chart's images are off while the table is shown.
+ * `dataExport`: the host's exportData with the data shown, read by export-scope.js (#259).
+ * @param {{ labels: import("./labels.js").UiLabels, onExport: (kind: string) => void, chartReady: boolean, display: string, empty?: boolean,
+ *   dataExport?: { exportData: unknown, encoded: import("pivotkit-core").Encoded | null }, prepare: (what: "menu" | "print") => (() => void) | undefined, close: () => void }} props
  */
-export function ExportPanel({ labels, onExport, chartReady, display, empty = false, prepare, close }) {
-    useEffect(() => {
-        prepare();
-    }, [prepare]);
+export function ExportPanel({ labels, onExport, chartReady, display, empty = false, dataExport, prepare, close }) {
+    const source = dataExport ? dataExportFor(dataExport.exportData, dataExport.encoded).source : false;
+    useEffect(() => prepare("menu"), [prepare]);
     const run = (kind) => () => {
         close();
         onExport(kind);
@@ -766,12 +795,23 @@ export function ExportPanel({ labels, onExport, chartReady, display, empty = fal
             <Section title={labels.exportDownload}>
                 <ExportOption icon="file" text={labels.exportXlsx} info="exportXlsx" onSelect={run("xlsx")} {...off} testId="export-xlsx" />
                 <ExportOption icon="file" text={labels.exportCsv} info="exportCsv" onSelect={run("csv")} {...off} testId="export-csv" />
+                <ExportOption icon="file" text={labels.exportHtml} info="exportHtml" onSelect={run("html")} {...off} testId="export-html" />
                 <ExportOption icon="image" text={labels.exportPng} disabled={empty || !chartReady} reason={empty ? off.reason : display !== "chart" ? labels.exportPngNeedsChart : undefined} onSelect={run("png")} testId="export-png" />
+                <ExportOption icon="image" text={labels.exportSvg} disabled={empty || display !== "chart"} reason={empty ? off.reason : display !== "chart" ? labels.exportPngNeedsChart : undefined} onSelect={run("svg")} testId="export-svg" />
+            </Section>
+            <Section title={labels.exportPrintGroup}>
+                <ExportOption icon="print" text={labels.exportPrint} info="exportPrint" onSelect={run("print")} {...off} testId="export-print" onIntent={() => prepare("print")} />
             </Section>
             <Section title={labels.exportCopy}>
                 <ExportOption icon="copy" text={labels.copyTable} info="copyTable" onSelect={run("copy-table")} {...off} testId="export-copy-table" />
                 <ExportOption icon="copy" text={labels.copyDataJson} info="copyDataJson" onSelect={run("copy-json")} {...off} testId="export-copy-json" />
             </Section>
+            {source ? (
+                <Section title={labels.exportDataGroup}>
+                    <ExportOption icon="file" text={labels.exportDataCsv} info="exportDataCsv" onSelect={run("data-csv")} testId="export-data-csv" />
+                    <ExportOption icon="file" text={labels.exportDataJson} info="exportDataJson" onSelect={run("data-json")} testId="export-data-json" />
+                </Section>
+            ) : null}
         </>
     );
 }

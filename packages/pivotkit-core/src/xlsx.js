@@ -3,9 +3,13 @@
  * Office Open XML package Excel, LibreOffice and Numbers open, zipped with fflate.
  *
  * Value cells stay numbers (dates are date serials) with an Excel number format that shows them as
- * the grid does, header labels are merged as in the grid, totals are bold, header rows and label
+ * the grid does, header labels are merged as in the grid (a label over several rows at their top, as
+ * the report draws it), totals are bold, header rows and label
  * columns are frozen, and colour scales and data bars become native Excel conditional formats. Text
  * is written as inline strings, which Excel never evaluates as formulas.
+ *
+ * `dataAsOf` (when the data is from) becomes the custom document property DataAsOf (a date), the
+ * only document property written.
  *
  * Excel's limits: a sheet holds 1,048,576 rows and 16,384 columns (a larger grid throws a
  * PivotkitError), a cell 32,767 characters (longer text is cut). Dates before 1900-01-01 or after
@@ -13,6 +17,7 @@
  */
 
 import { strToU8, zipSync } from "fflate";
+import { BIDI_CONTROLS } from "./csv.js";
 import { DEFAULT_THEME } from "./defaults.js";
 import { checkLimit, expect } from "./errors.js";
 import { excelNumberFormat } from "./format.js";
@@ -30,10 +35,23 @@ const FIRST_SERIAL_DAY = Date.UTC(1900, 0, 1);
 const LEAP_BUG_DAY = Date.UTC(1900, 2, 1);
 const LAST_SERIAL_DAY = Date.UTC(10000, 0, 1);
 const RESERVED_SHEET_NAMES = new Set(["history"]);
+/** The one form of a dataAsOf: ISO 8601 in UTC to the second. */
+const DATA_AS_OF = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+
+/**
+ * Whether a value is a dataAsOf: a text in UTC to the second ("2026-11-15T08:00:00Z") that names a
+ * time that exists (no 30 February, no hour 25). pivotkit-report's render checks with it too.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isDataAsOf(value) {
+    return typeof value === "string" && DATA_AS_OF.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().replace(".000Z", "Z") === value;
+}
 
 /** Characters XML 1.0 does not allow are removed; markup characters are escaped. */
 export function xmlEscape(text) {
     return String(text)
+        .replace(BIDI_CONTROLS, "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
@@ -121,22 +139,29 @@ function sqref(cells) {
 /**
  * The grid as an .xlsx workbook.
  * @param {import("./grid.js").Grid} grid  from toGrid()
- * @param {{ sheetName?: string, theme?: { colorScale?: string[], dataBar?: string } }} [options]
- *   theme: colours for conditional formats whose view names none
+ * @param {{ sheetName?: string, theme?: { colorScale?: string[], dataBar?: string }, dataAsOf?: string }} [options]
+ *   theme: colours (#rgb or #rrggbb) for conditional formats whose view names none; colorScale two or
+ *   three, low to high (pivotkit-react passes the report's resolved --pk-scale-* tokens); dataAsOf:
+ *   when the data is from, ISO 8601 in UTC to the second ("2026-11-15T08:00:00Z"), written as the
+ *   custom document property DataAsOf
  * @returns {Uint8Array}
  */
 export function toXlsx(grid, options) {
     options = optionsOf(options, "toXlsx");
     expect(isGrid(grid), "toXlsx(grid): grid must come from toGrid()");
+    const asOf = options.dataAsOf;
+    expect(asOf === undefined || isDataAsOf(asOf), "toXlsx: dataAsOf must be a time like 2026-11-15T08:00:00Z");
     checkLimit("xlsxRows", grid.rows.length, EXCEL_MAX_ROWS, "rows (an Excel sheet)");
     checkLimit("xlsxColumns", grid.columnCount, EXCEL_MAX_COLUMNS, "columns (an Excel sheet)");
     const theme = { ...DEFAULT_THEME, ...(options.theme || {}) };
     const locale = grid.locale;
-    // Styles: one cellXfs entry per (number format, bold) pair, created as cells need them.
+    // Styles: one cellXfs entry per (number format, bold, top) triple, created as cells need them.
+    // "top": a label merged over several rows; Excel draws a merged cell's text at its bottom, the
+    // report draws a group's label next to its first row
     const numFmts = new Map(); // code -> id
-    const xfs = [{ fmt: 0, bold: false }];
-    const xfIndex = new Map([["0|false", 0]]);
-    const styleOf = (code, bold) => {
+    const xfs = [{ fmt: 0, bold: false, top: false }];
+    const xfIndex = new Map([["0|false|false", 0]]);
+    const styleOf = (code, bold, top = false) => {
         let fmt = 0;
         if (code && code !== "General") {
             if (!numFmts.has(code)) {
@@ -144,18 +169,18 @@ export function toXlsx(grid, options) {
             }
             fmt = numFmts.get(code);
         }
-        const key = `${fmt}|${bold}`;
+        const key = `${fmt}|${bold}|${top}`;
         if (!xfIndex.has(key)) {
             xfIndex.set(key, xfs.length);
-            xfs.push({ fmt, bold });
+            xfs.push({ fmt, bold, top });
         }
         return xfIndex.get(key);
     };
-    const textCell = (ref, text, bold) => {
+    const textCell = (ref, text, bold, top) => {
         const t = text.length > EXCEL_MAX_TEXT ? text.slice(0, EXCEL_MAX_TEXT) : text;
-        return `<c r="${ref}" t="inlineStr" s="${styleOf("General", bold)}"><is><t xml:space="preserve">${xmlEscape(t)}</t></is></c>`;
+        return `<c r="${ref}" t="inlineStr" s="${styleOf("General", bold, top)}"><is><t xml:space="preserve">${xmlEscape(t)}</t></is></c>`;
     };
-    const numberCell = (ref, v, code, bold) => `<c r="${ref}" s="${styleOf(code, bold)}"><v>${v}</v></c>`;
+    const numberCell = (ref, v, code, bold, top) => `<c r="${ref}" s="${styleOf(code, bold, top)}"><v>${v}</v></c>`;
 
     const widths = new Array(grid.columnCount).fill(6);
     /** valueIndex -> { cells: [[r, c]], min, max } */
@@ -185,15 +210,16 @@ export function toXlsx(grid, options) {
                 }
                 return numberCell(ref, cell.value, excelNumberFormat(cell.format, cell.value, locale), bold);
             }
+            const top = (cell.rowSpan ?? 1) > 1;
             if ((cell.kind === "rowHeader" || cell.kind === "colHeader") && typeof cell.value === "number" && cell.text === String(cell.value)) {
                 // a label that is a plain number (a year, a number key) stays a number
-                return numberCell(ref, cell.value, "General", bold);
+                return numberCell(ref, cell.value, "General", bold, top);
             }
             if (cell.text === "") {
                 // keeps the bold total style on empty cells of a total row
                 return bold ? `<c r="${ref}" s="${styleOf("General", true)}"/>` : "";
             }
-            return textCell(ref, cell.text, bold);
+            return textCell(ref, cell.text, bold, top);
         });
         return `<row r="${r + 1}">${cells.join("")}</row>`;
     });
@@ -231,17 +257,19 @@ export function toXlsx(grid, options) {
 
     const fmtXml = [...numFmts.entries()].map(([code, id]) => `<numFmt numFmtId="${id}" formatCode="${xmlEscape(code)}"/>`).join("");
     const styles = `${xml}<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${numFmts.size ? `<numFmts count="${numFmts.size}">${fmtXml}</numFmts>` : ""}<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs
-        .map((x) => `<xf numFmtId="${x.fmt}" fontId="${x.bold ? 1 : 0}"${x.fmt ? ` applyNumberFormat="1"` : ""}${x.bold ? ` applyFont="1"` : ""}/>`)
+        .map((x) => `<xf numFmtId="${x.fmt}" fontId="${x.bold ? 1 : 0}"${x.fmt ? ` applyNumberFormat="1"` : ""}${x.bold ? ` applyFont="1"` : ""}${x.top ? ` applyAlignment="1"><alignment vertical="top"/></xf>` : "/>"}`)
         .join("")}</cellXfs><dxfs count="0"/></styleSheet>`;
 
     const name = xmlEscape(sheetName(options.sheetName));
     const files = {
-        "[Content_Types].xml": `${xml}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
-        "_rels/.rels": `${xml}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+        "[Content_Types].xml": `${xml}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${asOf ? `<Override PartName="/docProps/custom.xml" ContentType="application/vnd.openxmlformats-officedocument.custom-properties+xml"/>` : ""}</Types>`,
+        "_rels/.rels": `${xml}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>${asOf ? `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties" Target="docProps/custom.xml"/>` : ""}</Relationships>`,
         "xl/workbook.xml": `${xml}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${name}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
         "xl/_rels/workbook.xml.rels": `${xml}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
         "xl/styles.xml": styles,
-        "xl/worksheets/sheet1.xml": sheet
+        "xl/worksheets/sheet1.xml": sheet,
+        // the property set Office uses for custom properties, pid 2 the first a document may use
+        ...(asOf ? { "docProps/custom.xml": `${xml}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" name="DataAsOf"><vt:filetime>${asOf}</vt:filetime></property></Properties>` } : {})
     };
     const zipped = {};
     for (const [path, content] of Object.entries(files)) {

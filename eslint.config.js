@@ -30,9 +30,23 @@ export default [
         languageOptions: { globals: { ...globals["shared-node-browser"] } }
     },
     {
-        // the reader plugins run in browsers and Node, as the engine
-        files: ["packages/pivotkit-xlsx/src/**/*.js"],
+        // the reader plugins and the report run in browsers and Node, as the engine
+        files: ["packages/pivotkit-xlsx/src/**/*.js", "packages/pivotkit-report/src/**/*.js"],
         languageOptions: { globals: { ...globals["shared-node-browser"] } }
+    },
+    {
+        // the command line, the REST service and the MCP server run in Node only
+        files: ["packages/pivotkit-cli/src/**/*.js", "packages/pivotkit-cli/bin/**/*.js", "packages/pivotkit-server/src/**/*.js", "packages/pivotkit-server/bin/**/*.js", "packages/pivotkit-mcp/src/**/*.js", "packages/pivotkit-mcp/bin/**/*.js"],
+        languageOptions: { globals: { ...globals.node } }
+    },
+    {
+        // a caller's access token leaves auth.js only through exchangeTokenFor, and only the token
+        // exchange of HTTP sources (sources/auth.js) may call it
+        files: ["packages/pivotkit-server/src/**/*.js"],
+        ignores: ["packages/pivotkit-server/src/auth.js", "packages/pivotkit-server/src/sources/auth.js"],
+        rules: {
+            "no-restricted-imports": ["error", { patterns: [{ regex: "(^|/)auth\\.js$", importNames: ["exchangeTokenFor"], message: "only sources/auth.js may use exchangeTokenFor (the caller's token goes to a token endpoint and nowhere else)" }] }]
+        }
     },
     {
         // the UI, the web component, the playground and the element example run in browsers
@@ -50,13 +64,13 @@ export default [
         languageOptions: { globals: { __PIVOTKIT_REACT_VERSION__: "readonly" } }
     },
     {
-        files: ["packages/pivotkit-react/src/**", "examples/*/src/**", "tests/browser/pages/**"],
+        files: ["packages/pivotkit-react/src/**", "examples/*/src/**", "tests/browser/pages/**", "bench/browser/**"],
         ...reactHooks.configs.flat["recommended-latest"],
         rules: { ...reactHooks.configs.flat["recommended-latest"].rules, "react-hooks/exhaustive-deps": "error" }
     },
     {
         // browser tests: Node code that also hands functions to the page
-        files: ["tests/browser/**"],
+        files: ["tests/browser/**", "examples/angular/test/**", "bench/browser/**"],
         languageOptions: { globals: { ...globals.node, ...globals.browser } }
     }
 ];

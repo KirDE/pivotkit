@@ -6,6 +6,481 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Upgrading from 0.7
+
+- The chart type menu lists the types, then a row per Display topic that opens a level: Value
+  labels, Legend, Title, Axis, Tooltip, Series and Layout ([#106](https://github.com/eizedev/pivotkit/issues/106)). Tests open the
+  level first; a choice is a menu item with `aria-checked`.
+- Bars, lines and areas with more than 20 categories get a zoom slider. Display › Axis › Zoom slider
+  › Off draws every category as before. A click on the legend changes the view, so Undo takes it
+  back ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-7)).
+- With `exportData` off, the default, the drill-down panel has no Export menu: no copy and no
+  download of its rows. Set `drillDownExport` to keep it
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#drill-export)).
+- The row count under the result says "2,190 of 4,386 rows" when a filter leaves rows out. A host
+  whose `labels` set `rowsCount` or add a language sets the new label `rowsFiltered` too
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#rows-filtered)).
+
+### Deprecated
+
+- The theme token `--pk-knob` is unused: the chart's Display settings have no switch any more. It
+  goes in 0.9.0 ([#106](https://github.com/eizedev/pivotkit/issues/106)).
+
+### Added
+
+- Date-field ranges in the footer and field descriptions, data-driven Group hints and
+  year context for cyclic groupings, in English and German (#109).
+- A zoom slider under a long category axis, Display › Axis › Zoom slider (Automatic, On, Off). It
+  works by mouse, touch and keyboard, and keeps its place when the chart is drawn again. The PNG
+  image leaves it out ([#36](https://github.com/eizedev/pivotkit/issues/36)), ([#575](https://github.com/eizedev/pivotkit/issues/575)).
+- A click on the legend hides or shows a series, or a slice. The view keeps it, a screen reader
+  hears it, and Undo takes it back. Display › Series does the same by keyboard ([#36](https://github.com/eizedev/pivotkit/issues/36)).
+- Display › Layout › Stacked to 100 % for stacked bars and areas of sums and counts. The tooltip
+  shows each part's value and share, and the total of the values ([#36](https://github.com/eizedev/pivotkit/issues/36)).
+- Display › **Reference lines** in the chart type menu, for bars, lines and areas: a level with
+  **Average**, **Trend** and a **Target** (`chart.referenceLines`, [#48](https://github.com/eizedev/pivotkit/issues/48)).
+  Its row says which lines are on. The level offers only the lines the chart can draw, with a note
+  on the rest. The Target field reads "25%" as a share, with a hint for a value shown in percent.
+  The tooltip names the lines at the category, and the chart's text alternative names each with
+  its value.
+- `labels.chartLines` and `labels.chartTrendSpan`: the reference lines in the chart's text
+  alternative ("Reference lines: {lines}.", "from {from} to {to}"), and the token
+  `--pk-chart-reference` for a target and the lines of a stack's total (default `--pk-muted`).
+- Display › **Tooltip** in the chart type menu, for bars, lines and areas: **Automatic** or **All
+  series** (`chart.tooltip`, [#106](https://github.com/eizedev/pivotkit/issues/106)). All series lists
+  every series at the pointer's category, the hovered one first, its name in the strong weight.
+- `labels.chartTotal`, the tooltip's "Total" line (German "Gesamt"), and `labels.chartMore`, the
+  line for the series that do not fit ("+{count} more"), and `labels.chartMoreInTotal` for it when
+  a total is shown ("+{count} more (in the total)").
+- `--pk-tooltip-name-w` (default `12em`): the widest series name in the tooltip. A longer one ends
+  in "…".
+
+- `drillDownExport`: the drill-down panel's copy and download while `exportData` is off, with every
+  column. Off by default.
+
+### Changed
+
+- The chart's tooltip names the element under the pointer
+  ([#376](https://github.com/eizedev/pivotkit/issues/376)):
+  - A bar or a line point shows that series alone.
+  - A segment of stacked bars, or a point of a stacked area, adds the sum of the stack's parts. A
+    value that does not add up gets no total: only sums and counts do, and not when shown as a rank
+    or a percent difference.
+  - Between the elements it lists every series at the category. Between stacked bars it shows the
+    total only.
+  - A series without a value at the category is left out, not shown as an empty line.
+  - Pie, donut and heatmap keep the tooltip of the slice or cell.
+  - The tooltip stays inside the chart. When more series are there than fit, the last line says how
+    many more there are.
+
+- The drill-down panel's copy and download follow `exportData`. With it off, the panel shows the
+  rows but offers no copy and no download (#263).
+- pivotkit-core's ECharts option (`toEChartsOption`) loads with ECharts, from `pivotkit-core/chart`,
+  not with the first load (#546).
+- The row count under the result says how many of the data's rows the filters keep: "2,190 of 4,386
+  rows", German "2.190 von 4.386 Zeilen". With nothing filtered it says "4,386 rows" (#108).
+  Its words are pivotkit-core's `ROW_COUNT_TEXTS`, so the HTML report says the same (#547).
+
+### Fixed
+
+- On a touch screen, the first tap on a bar, a point or a heatmap cell shows its tooltip. The second
+  tap on it opens the rows behind it and calls `onCellClick`. The tooltip no longer stays over the
+  panel, and the panel no longer closes right after it opens ([#538](https://github.com/eizedev/pivotkit/issues/538)).
+- A heatmap whose `--pk-heat-low` or `--pk-heat-high` is in a form ECharts cannot mix, such as
+  `oklch()` or `rgb()` with spaces, shows the host's colours instead of black cells. So do the HTML
+  report and the SVG of the Export menu, whose table also takes an `oklch()` colour scale ([#386](https://github.com/eizedev/pivotkit/issues/386)).
+- With a field on Columns, a pie's, a donut's and a heatmap's tooltip is titled by the value, not by
+  the first column, from pivotkit-core ([#537](https://github.com/eizedev/pivotkit/issues/537)).
+- A view's locale that the browser has no data for, such as `xx-XX`, is reported as unknown, and
+  the report takes the `locale` prop. Such a `locale` prop takes `en-US` with a warning. Before,
+  both took the machine's locale, from pivotkit-core ([#552](https://github.com/eizedev/pivotkit/issues/552)).
+- "Table as CSV" in a locale whose own decimal mark is `٫` (`ar-EG`, `ar-SA`, `fa-IR`, `ur-IN`,
+  `ps-AF` and others) writes the decimal mark the locale uses with Latin digits, from pivotkit-core:
+  `9.6`, not `9٫6`, which parsers misread ([#478](https://github.com/eizedev/pivotkit/issues/478)).
+- The chart's labels at small sizes, from pivotkit-core: slanted category names leave the plot its
+  height, a donut's outside labels stay whole, the value at the end of a horizontal bar is not cut,
+  and a heatmap names every row that has room ([#228](https://github.com/eizedev/pivotkit/issues/228), [#229](https://github.com/eizedev/pivotkit/issues/229), [#230](https://github.com/eizedev/pivotkit/issues/230),
+  [#231](https://github.com/eizedev/pivotkit/issues/231)).
+- The zones fold when they no longer fit the report's box, also when the box keeps its size. Longer
+  texts in another language, more fields in Rows, a tip or a late stylesheet made them taller without
+  a resize, and they stayed open over a squeezed result. Folded that way, they open again once they
+  fit (#93).
+
+## [0.7.0] - 2026-11-16
+
+### Upgrading from 0.6
+
+What a host checks; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-6-1) has the details.
+
+- Export → HTML report carries the host's dark colours too. On a dark screen a colour scale's middle
+  colour (`--pk-scale-mid`) is the one your dark theme sets, not the light one; without it the cells
+  run halfway between the dark low and high colours ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#dark-mid-colour)).
+- A field's Filter level shows its rules in a single column as wide as the menu, in every browser.
+  Tests or screenshots of that form take the new layout.
+- pivotkit-core moves to `^0.7.0` and pivotkit-report to `^0.3.0` with it.
+
+### Changed
+
+- Depends on `pivotkit-core` `^0.7.0` (was `^0.6.1`) and `pivotkit-report` `^0.3.0` (was `^0.2.1`): a host
+  that also lists pivotkit-core updates both together, or it gets two copies.
+
+### Fixed
+
+- The rules in a field's Filter level show in the WebKit of Playwright 1.65 (build 2388): the rule
+  list stacked in a wrapping column got no size there, so a new rule's row and its value field could
+  not be seen or used. The rules form is a single column as wide as the menu, each row with room for
+  its value, in every browser. Whether a Safari release shows the same fault was not checked
+  ([#474](https://github.com/eizedev/pivotkit/issues/474)).
+- Export → HTML report carries the host's dark colours too (pivotkit-report's `darkTokens`), read
+  from the report's dark theme whichever theme it shows: a reader on a dark screen sees the host's
+  dark design, not pivotkit's default dark colours. Paper and a print stay light. The report's
+  `--pk-scale-mid` on a dark screen is the one your dark theme resolves (pivotkit-report no longer
+  takes the light one there) ([#385](https://github.com/eizedev/pivotkit/issues/385)).
+- Print or save as PDF opens the print dialog in the click itself: the Export menu makes the print
+  frame ready when it opens, and the report's modules load when Print is pointed at or focused. A
+  page hidden while it printed (it gets no animation frame) did not print at all. Safari still asks
+  "This webpage is trying to print" after a cancelled print dialog: that is Safari's own rule
+  ([print or save as PDF](https://pivotkit.eize.dev/use/export/)) ([#210](https://github.com/eizedev/pivotkit/issues/210)).
+- A second click on a menu's button closes the menu in Safari and other WebKit browsers, as in the
+  others: the toolbar's menus (Export, Views, Data, Start over, More) and a field's chip menu. WebKit
+  does not focus a clicked button, so the press moved the focus out of the menu, which closed it,
+  and the click opened it again ([#393](https://github.com/eizedev/pivotkit/issues/393)).
+- `import "pivotkit-react/styles.css"` compiles in a strict TypeScript project without a bundler's
+  CSS types: the stylesheet ships its own declaration (`styles.css.d.ts`, the `types` condition of
+  its export); TypeScript answered TS2882 before
+  ([#165](https://github.com/eizedev/pivotkit/issues/165)).
+
+## [0.6.1] - 2026-11-14
+
+### Added
+
+- `exportData={{ columns: [...] }}`: Source data and the drill-down's copies and files hold only
+  those columns, in that order (matched case-insensitively, derived fields never). A name the data
+  lacks is left out and said once in the console; with no column left, or `columns` that is no list
+  (said once too), Source data and the drill-down's Export menu are off; an `exportData` of another
+  shape is off, as `false` ([#259](https://github.com/eizedev/pivotkit/issues/259)).
+
+### Changed
+
+- Source data as CSV is built in pieces of whole lines (pivotkit-core's `dataToCsvParts`), so the
+  browser holds about twice the file's size while it is made, not about five times
+  ([#260](https://github.com/eizedev/pivotkit/issues/260)).
+
+### Fixed
+
+- Filter level: Years combined (its year buttons, "The table shows … only" and the summary) writes a
+  year before 1 AD as the table does ("5 BC", not "-4"); the reference date's field shows and takes a
+  day after 9999 ("+010000-01-01" was cut off and could not be typed), and whether a quick choice
+  reaches the data compares days, not their text, for years with a sign
+  ([#351](https://github.com/eizedev/pivotkit/issues/351)).
+- An open menu no longer moves when its own content is scrolled: a click on a control reached by
+  scrolling (Rolling under More choices of a date's quick choices) could land beside it when the
+  menu was placed again between the press and the release. A menu whose content grew while it was
+  already as tall as its room is placed again in the next frame instead
+  ([#222](https://github.com/eizedev/pivotkit/issues/222)).
+- A workbook whose shared strings and formats reach `limits.importCells` is said as "more than …
+  different texts and formats" (`labels.dataImport.workbookCells`), chosen by the reader's
+  `details.what`, not as "values (rows x columns)", which stays for a table's own extent
+  ([#325](https://github.com/eizedev/pivotkit/issues/325)).
+- Filter level: a rule's × clicked while its value still waits to apply (a moment after typing)
+  takes the rule away; before, the field's blur applied the value and the click was lost. What waits
+  in a removed row applies nothing ([#320](https://github.com/eizedev/pivotkit/issues/320)).
+- Filter level: emptying the value of a rule on the item or on its total takes the rule off, as
+  emptying the text of a rule on the name does; its row stays, says "Applies once it is complete."
+  and applies again with the next value, in its place among the rules. Before, the field looked empty
+  while the previous rule kept filtering ([#244](https://github.com/eizedev/pivotkit/issues/244)).
+- Filter level: a rule added while the text or number of a new rule still waits to apply is a row of
+  its own; the comparison and the value chosen next no longer change the first rule. The add buttons
+  keep the focus in the field until the click, and a new row not yet complete stays in its place when
+  another one is added ([#245](https://github.com/eizedev/pivotkit/issues/245)).
+- Filter level: a click on a date's quick choice (All, This, Last, …) focuses it in Safari too, as
+  Top items' choices do; both use one radio button that takes the focus on a click
+  ([#203](https://github.com/eizedev/pivotkit/issues/203)).
+- A saved view that reads another sheet of the loaded workbook no longer loads that sheet unseen when
+  the reader has notes on it (a used range, values not read, columns renamed): the preview stays
+  open with the notes and a line naming the view that needs the sheet, and **Load data** loads the
+  sheet and opens the view. Another sheet picked in that preview does not load by itself, and loaded
+  it does not open the view; a note says so
+  ([#274](https://github.com/eizedev/pivotkit/issues/274)). Browser tests cover Cancel, a host's
+  refusal, another file dropped during the read and a sheet without rows
+  ([#277](https://github.com/eizedev/pivotkit/issues/277)).
+- A controlled report whose host does not pass its views back (it rejects or ignores
+  `onViewChange`) keeps at most 100 of the views it told the host waiting, the newest ones, instead
+  of one more with every change ([#204](https://github.com/eizedev/pivotkit/issues/204)).
+- The dashed rule between the parts of a menu's group (the chart's Display: Value labels, Legend,
+  Title) uses `--pk-rule`, 3:1 against the menu as the rule between groups, instead of `--pk-border`
+  (about 1.3:1) ([#205](https://github.com/eizedev/pivotkit/issues/205)).
+- The filter's texts and Years combined read and write years before 0 and after 9999 (signed ISO
+  days), compare such days in time order, and write years before 1 AD as the table does ("2 BC");
+  Years combined keeps the first and last year a `Date` holds as far as it holds
+  ([#349](https://github.com/eizedev/pivotkit/issues/349)).
+- The import UI takes a plugin's table as pivotkit-core's `readFile` completes it; its own
+  `completeTable` is gone ([#130](https://github.com/eizedev/pivotkit/issues/130)).
+
+## [0.6.0] - 2026-11-14
+
+### Upgrading from 0.5
+
+What a host checks; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-5) has the details.
+
+- Export → **CSV file (.csv)** is called **Table as CSV (.csv)** (German **Tabelle als CSV (.csv)**);
+  its label key `exportCsv` and its `onExport` kind `"csv"` stay. Tests or screenshots that look for
+  the old text take the new one.
+- `exportData` (Export → Source data) is new and off by default.
+- pivotkit-core moves to `^0.6.0` with it.
+
+### Added
+
+- `onSaveTemplate(name, view, { scope, source })` and `onPublishTemplate(name, view, { source })`
+  get the data shown as a view file names it (`{ id, name, params }`, `null` without a source id),
+  so a host that keeps views can keep a workbook's sheet with them; Publish of a view file or of a
+  view of the browser store made for other data gives that data ([#252](https://github.com/eizedev/pivotkit/issues/252)).
+- `exportData` (default `false`): the Export menu's last group **Source data** with **All rows as CSV
+  (.csv)** and **All rows as JSON (.json)**: every row of the data shown, every column except derived
+  fields, under the fields' own names, values not formatted (`<fileName>-data.csv`,
+  `<fileName>-data.json`; `onExport` kinds `"data-csv"`, `"data-json"`). With the view file of
+  Download view, `pivotkit render` makes the report again. It holds what the report holds, also
+  columns no view places, so it is off unless the host turns it on (docs/security.md, "Source data").
+
+### Changed
+
+- The identifier rule of the field list (`isIdentifierName`), the names of groupings and a loaded
+  file's source id come from pivotkit-core; nothing changes in the report ([#253](https://github.com/eizedev/pivotkit/issues/253)).
+- Export → **CSV file (.csv)** is called **Table as CSV (.csv)** (German **Tabelle als CSV (.csv)**),
+  and its "i" says it is the table, not the rows behind it; its `kind` stays `"csv"`.
+- Depends on `pivotkit-core` `^0.6.0` (was `^0.5.0`) and `pivotkit-report` `^0.2.0` (was `^0.1.0`): a host
+  that also lists pivotkit-core updates both together, or it gets two copies.
+
+### Fixed
+
+- A view made on a sheet of a loaded workbook other than the first opens on that sheet again after
+  the same workbook is loaded anew: views saved, downloaded and linked from a workbook's sheet name it
+  in `source.params.sheet`; while a workbook is shown, Views lists the views of its other sheets with
+  "Sheet “…”" next to them, and opening one (or such a view file) reads that sheet of the file again
+  (a step Undo takes back) before the view is shown. The browser store keeps a view of a name per
+  sheet. A view whose sheet the workbook does not have says so ([#252](https://github.com/eizedev/pivotkit/issues/252)).
+- A rule on the name whose text is emptied (select all and delete, the field's ×, or only spaces)
+  no longer keeps filtering by its last text while the field looks empty: the rule leaves the view
+  a moment later, its row stays as a rule not yet complete, and a new text applies it again in its
+  place among the rules, with its blank items kept as before ([#159](https://github.com/eizedev/pivotkit/issues/159)).
+
+## [0.5.0] - 2026-11-13
+
+### Upgrading from 0.4
+
+What a host checks; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-4) has the details.
+
+- **Breaking:** views, view files and links are written in format version 2; pivotkit 0.4 refuses
+  them as newer. Version 1 loads with the same result.
+- **Breaking:** dark colours of a host go on `.pk-root[data-pk-theme="dark"]`, not on an attribute of
+  the page (`html[data-theme="dark"] .pk-root`): the Excel export and the HTML report read the light
+  theme by showing it on the report for a moment, and a rule on the page's attribute would put the
+  dark colours into the file.
+- **Breaking:** a page with an import map maps `pivotkit-report` and `pivotkit-core/chart`.
+- The colour scale's default is blue; red, yellow, green come back with `--pk-scale-low: #f8696b`,
+  `--pk-scale-mid: #ffeb84`, `--pk-scale-high: #63be7b` (dark: `#c2413f`, `#b39a2e`, `#3f9a5c`).
+  `--pk-scale-mid` is no longer set.
+- The label key `filter` is removed (a host's text for it is ignored).
+- The font weights 550 and 650 are 600 (`--pk-weight-strong`).
+- The chart's text is 14 px, not 12 px.
+- Column subtotals are off by default: a start view or template without `totals.colSubtotals` adds
+  `totals: { colSubtotals: true }` to keep them.
+
+### Changed
+
+- Depends on `pivotkit-core` `^0.5.0` (was `^0.4.0`): a host updates both together, or it gets
+  two copies of pivotkit-core.
+- The chart's axes, legend and labels are 14 px or more (`--pk-chart-text-size`, by default
+  `var(--pk-small)`), not ECharts' 12 px; the labels are laid out for that size ([#221](https://github.com/eizedev/pivotkit/issues/221)).
+- Export → HTML report takes the report's font size (`--pk-font-size` and `--pk-small` in px, so a
+  report on a 16 px page writes a 16 px file) and a host's `--pk-report-title-size`,
+  `--pk-print-size` and `--pk-print-small` ([#220](https://github.com/eizedev/pivotkit/issues/220)).
+- A colour scale in the theme's colours runs from light to strong blue (`--pk-scale-low` and
+  `--pk-scale-high` are `var(--pk-heat-low)` and `var(--pk-heat-high)`, the heatmap's colours), not
+  from red over yellow to green: it says "more", not "good" or "bad". `--pk-scale-mid` is no longer
+  set; a host that sets it gets a three-colour scale ([#212](https://github.com/eizedev/pivotkit/issues/212)).
+- The chart's plan, its colours from the tokens and its marks are pivotkit-core's (`chartPlan`,
+  `chartThemeFrom`, `pivotkit-core/chart`), so an SVG and a printed report of pivotkit-report draw
+  the same chart; the report looks the same. A host page with an import map adds
+  `pivotkit-core/chart` next to `pivotkit-core/export`, and `pivotkit-report` (a dependency, loaded on
+  the first HTML report, SVG or print of the Export menu) ([#165](https://github.com/eizedev/pivotkit/issues/165)).
+- The table follows pivotkit-core's totals ([#155](https://github.com/eizedev/pivotkit/issues/155), [#156](https://github.com/eizedev/pivotkit/issues/156)): column subtotals off in a new report,
+  no empty column and no total rows for fields in Rows without a value, no subtotal for a group of
+  one item (its arrow stays). Labels without a value column next to them take up to 85 % of the
+  report's width instead of 40 %, so a name on a phone is not broken inside a word.
+- A subtotal column is set apart from its group: a line before it (`--pk-border-strong`) and a
+  slightly darker `--pk-total` (light `#eef1f5`, dark `#21252d`; text on it 14.9:1 and 12.8:1, the
+  muted header text 5.4:1 and 6.6:1), and its header's tooltip says what it adds up ([#156](https://github.com/eizedev/pivotkit/issues/156)).
+- Options: a total switch that changes nothing is disabled without a tick; every total also needs a
+  field in Values ("Needs a field in Values.", `needsValue`). The explanations of the subtotals say
+  "subtotal", name a subtotal's label ("North Total") and say that a group of one item has none ([#156](https://github.com/eizedev/pivotkit/issues/156)).
+- The npm description names views as JSON files, as the README and the docs do, instead of templates
+  ([#191](https://github.com/eizedev/pivotkit/issues/191)).
+- npm keywords `pivot-grid`, `pivottable` and `excel-export`, the terms people search for ([#172](https://github.com/eizedev/pivotkit/issues/172)).
+- The report reads and writes pivotkit-core's view version 2 ([#165](https://github.com/eizedev/pivotkit/issues/165)):
+  the picks of a field are an `in` filter with `not: true` and `blanks`, a rule on the names a `text`
+  filter (case and runs of whitespace ignored, `on: "label"` for a field that is not text), "is not",
+  "does not contain" and "is not between" the positive operator with `not: true`. Views of version 1
+  (stored, shared, the host's) load with the same result. A rule the menus have no word for (a
+  loaded view's "is not greater than") is said as "not (…)".
+- A relative range the quick choices do not write (a loaded view's hours, or a second range of a
+  field) says what it keeps in words, in English and German, and stays as it is: its row in the
+  Filter level can only be removed.
+- A comparison of dates by another precision (a loaded view's) says its unit ("Feb 2026", "from Q2
+  2026") and stays as it is.
+- The view files and links the report writes are of format version 2, with the `$schema`
+  `https://pivotkit.eize.dev/schema/view-file-2.json` by default; files and links of version 1 load as
+  before. The link's place in the fragment is pivotkit-core's (`linkFragment`, `withLinkFragment`).
+- A view read from a link, a file, pasted JSON or the tab's storage keeps at most 50 filters and is
+  at most 1,000,000 characters long (pivotkit-core's `outsideLimits`), or the host's lower limits.
+- The field list's menu has one entry for filtering, **Add to Filters**, instead of two that did almost
+  the same ([#157](https://github.com/eizedev/pivotkit/issues/157)): it opens the field's filter at
+  once, **Apply** puts the field into Filters with the choice, **Cancel** places nothing. A field on
+  Rows or Columns moves to Filters on Apply; a field in Filters opens its filter. "Filter…" is gone,
+  and with it the label `filter` (a host's text for it is ignored).
+
+### Added
+
+- The token `--pk-chart-text-size`: the chart's text but the title, resolved to px like
+  `--pk-chart-title-size`; it reaches the PNG, the SVG and the HTML report too ([#221](https://github.com/eizedev/pivotkit/issues/221)).
+- Corners, the code font, the focus ring and the chart's title and marks as tokens ([#216](https://github.com/eizedev/pivotkit/issues/216)):
+  `--pk-radius-xs`, `--pk-radius-mark` and `--pk-radius-icon` (4, 5 and 6 px, four, five and six
+  sevenths of `--pk-radius-sm`, so a host that sets `--pk-radius-sm` changes them too),
+  `--pk-radius-card` (8 px, the chart's tooltip), `--pk-radius-chart` (the chart's bars and slices,
+  `var(--pk-radius-xs)`), `--pk-font-mono` (the JSON text field), `--pk-chart-title-size`
+  (`max(16px, var(--pk-font-size))`: 16 px as before up to a 16 px font, as large as the report's text
+  above it), `--pk-focus-width` and `--pk-focus-offset` (2 px), `--pk-glow-width` (3 px, the soft ring
+  of a focused text field and of a zone a field is dragged over) and `--pk-ring-width` (2 px, the
+  inset rings). The report looks the same with the defaults. The chart resolves its title size and
+  corners to px, so a host may write them in `em` or `calc()`. A test fails on a corner radius, a
+  font family or a ring width written outside the token blocks, and on a radius or a title size set
+  from code.
+- Font weights as tokens ([#201](https://github.com/eizedev/pivotkit/issues/201)):
+  `--pk-weight-normal` (400), `--pk-weight-medium` (500), `--pk-weight-strong` (600) and
+  `--pk-weight-bold` (700), documented in Theming. Every rule uses them, the chart's tooltip, title
+  and group labels too, so a host whose font looks too heavy or too light sets four tokens instead of
+  overriding selectors. The weights 550 (field chips, the drill-down's path) and 650 (titles, table
+  headers) are now 600, to keep the scale at four steps; a font without those faces drew them as 600
+  or 700 anyway. The HTML report and print take the report's weights along, in the dark theme too
+  (its colours only in the light theme, as before). A test fails on a colour or font weight written
+  outside the token blocks.
+- Export → "HTML report (.html)", "Chart image (.svg)" and a group "Print" with "Print or save as
+  PDF…": the table as it is shown (and the chart when it is shown) as a page that opens anywhere and
+  prints well, the chart as SVG, and the same report in the browser's print dialog, from a sandboxed
+  frame a strict Content-Security-Policy allows. `onExport` gets the kinds `html`, `svg` and `print`
+  (with the report's HTML; `false` prints nothing). pivotkit-report is a new dependency, loaded on the
+  first of these exports ([#165](https://github.com/eizedev/pivotkit/issues/165)).
+- The tip `colSubtotals`: while a Total column shows (column subtotals on, two or more fields in
+  Columns, a value, an open column group of two or more items), it says that a Total column adds up the group before it, with the button **Hide column subtotals** ([#156](https://github.com/eizedev/pivotkit/issues/156)).
+- The prop `importLimits` ([#169](https://github.com/eizedev/pivotkit/issues/169)): the limits a file
+  loaded with `allowImport` is read and shown with, merged key by key over `limits`. The host's data
+  keeps `limits`, so a host can keep uploads small (`importLimits={{ rows: 1000 }}`) without capping
+  its own data. Without it a file has `limits`, as before. A key of `importLimits` is not capped by
+  `limits`, so a file may also get more. Compared by value, as `limits`.
+- The Filter level edits what view version 2 can say:
+  - A rule on the name offers "does not begin with" and "does not end with".
+  - **Also keep items without a value (N rows)** under the rules, for a field with blank items and a
+    rule on its items or a quick choice: every such rule keeps the blank items (`blanks: "include"`),
+    a new rule too; off, none does. Only the blanks stay a pick: Select none, then "(blank)".
+  - A date's quick choices count in a unit: **This [unit]** (the units whose current period has
+    data) and **Last [N] [unit]**, with **Include the current <unit>** under it while it is set;
+    **More choices**, folded: **Next [N] [unit]**, **Before the last [N] [unit]** and **Rolling
+    instead of whole calendar periods**. No unit is finer than the grouping (by month: months,
+    quarters, years; a date or by day: days and weeks too). Last keeps its count when the unit
+    changes while it reaches the data. **Counted back from** offers the first record and a date of
+    your own as well; it stands under the choices when the data end before the current period or it
+    is not today, else among More choices. A date being typed keeps the last whole date for the
+    ranges and says so; left incomplete, the field shows that date again. When Last's current period
+    has no data, **Count back from the latest record (date) instead** under it does that in one
+    click. A loaded view's next, this, before, rolling, quarter or week range is its quick choice,
+    editable there.
+  - **Top items**: **Also show items with the same value as the last one** while a top is set
+    (`ties: "all"`); another count or measure keeps it. Under it the level says how many items
+    show ("7 items shown"), or, for a field below another on its axis, that a group can show more.
+  - The menu's search finds the rule on the name by its operators ("does not begin with").
+  Texts in English and German. The chip says a range of quarters, weeks or this period by its
+  periods ("this quarter (Q4 2026)", "last 3 months, current period excluded (Aug–Oct 2026)"); a
+  rolling range counted from a date says its days, not midnight as a time. The unit selects of the
+  quick choices are named after their choice ("Unit of “Last …”") and as high as the count beside
+  them. In German, a range counted from the latest or first record says "Datensatz", as the menu
+  does.
+- The warning about a view's unused parts says when a filter's item is in the data in another case
+  (“north”, but “North”), and names a key inside a part of the view by itself. It says when an item
+  is longer than 10,000 characters, and how many more problems it does not list.
+
+### Fixed
+
+- The warning about unused view parts keeps the view's or host's locale when the pivot fails
+  (including the work and group limits), and falls back to English for an invalid locale
+  ([#162](https://github.com/eizedev/pivotkit/pull/162)).
+- A workbook and an HTML report exported from the dark theme carry the host's light colours
+  (`--pk-scale-*`, `--pk-heat-*`, `--pk-chart-1` and the rest of the light theme): the report reads
+  its light theme for the export, without a transition or a frame in between, also inside
+  pivotkit-element. Before, they got pivotkit-core's and pivotkit-report's defaults. The HTML report
+  takes a host's `--pk-scale-mid` too ([#217](https://github.com/eizedev/pivotkit/issues/217)).
+- A change made while a controlled host is still passing back an earlier view (a host whose view
+  goes through its server) builds on the report's own history, also when some of the earlier views
+  have come back in between: Undo takes back the user's steps one by one and records no "change
+  from outside" ([#141](https://github.com/eizedev/pivotkit/issues/141)).
+- The Excel export writes a colour scale and data bars in the theme's colours the report resolves
+  from its tokens (`--pk-scale-low`, `--pk-scale-mid`, `--pk-scale-high`, `--pk-chart-1`), so a
+  theme of the host's carries over; a dark report writes the light theme's colours. Before, the
+  workbook always had Excel's red, yellow, green ([#212](https://github.com/eizedev/pivotkit/issues/212)).
+- The explanation of an "i" inside a menu (Copy table in Export, a total in Options) is drawn above
+  the menu; at the window's right edge the menu in the browser's top layer covered it ([#213](https://github.com/eizedev/pivotkit/issues/213)).
+- A description shown on hover of an "i" stays while the pointer is on its way from the "i" to it
+  (beside the "i" towards a description moved aside to stay in the window, or in the gap between
+  them) for up to one and a half seconds, so a slow move gets there; a pointer that took more than a
+  quarter of a second there closed it ([#213](https://github.com/eizedev/pivotkit/issues/213)).
+- A choice clicked in a field's Top items level keeps the focus, also in Safari, where a click does
+  not focus a radio button ([#119](https://github.com/eizedev/pivotkit/issues/119)).
+- The rule between a menu's groups had 1.3:1 contrast in the light theme and 1.2:1 in the dark one,
+  and in More, whose groups have no titles, it is the only thing that tells them apart. It is drawn
+  in the new token `--pk-rule`, 3:1 against the menu in both themes
+  ([#128](https://github.com/eizedev/pivotkit/issues/128)).
+- An open menu or popover follows its anchor when the anchor moves or changes size while it is open
+  (the zones' open animation, a transition of the host page)
+  ([#120](https://github.com/eizedev/pivotkit/issues/120)).
+- A delayed popover autofocus frame no longer steals focus from a control already in use
+  ([#139](https://github.com/eizedev/pivotkit/issues/139)).
+- Outside pie and donut labels appear on the first draw, including their chosen values
+  ([#103](https://github.com/eizedev/pivotkit/issues/103)).
+- The menus' text actions drew as plain text in the text colour, so they did not look clickable:
+  **Back**, **Reset filter**, **Clear**, **Remove**, **change it above**, **Select all**, **Select
+  none**, **Only** and **Swap rows and columns** are in the accent colour and semibold (Back at the
+  size of the text around it, the others at the small size); Reset filter, Clear, Remove and Swap
+  are greyed out while they would change nothing. A status note's **Undo** is semibold in a tint of
+  the accent that reads on the note. The reset that gives buttons and fields the report's font and
+  colour had outranked these styles; it no longer does, so the other controls look as designed too:
+  the icon buttons (×, "i", a field's menu, a tip's ×, a table row's expand arrow) and the folding
+  lines of the Filter level (More choices, the items left out by the rules) are muted until hovered,
+  a chip's name is semibold, the folded field list's **Fields** button is bold, the link **Skip to
+  the toolbar** (shown only while it has the keyboard focus) is in the accent colour and semibold,
+  and the folded layout line is at the small size. A field's menu button is
+  no longer faded on top of that, so it keeps 3:1. Text fields and selects keep the report's font
+  ([#193](https://github.com/eizedev/pivotkit/issues/193)).
+- The Filter level's **Count back from the latest record (…) instead** looked like a note, not like
+  something to click: it is a small button as the level's **Compare** buttons (a border, an icon
+  before its words, at least 24 px high, its text wrapping inside it at a narrow width)
+  ([#179](https://github.com/eizedev/pivotkit/issues/179)).
+- The note of a file over a limit named the file twice (`big.csv could not be loaded: "big.csv" has
+  more than …`) and only `limits.*` as what a host raises, although `importLimits` may set the limit.
+  It says the limit in the report's language (English, German), with its key in brackets, and that a
+  host can raise this limit: "big.csv could not be loaded: it has more than 1,000 rows (limits.rows):
+  load a smaller extract of it, or a host can raise this limit"; other errors of a reader lose the
+  file's name in front in both of its forms ([#185](https://github.com/eizedev/pivotkit/issues/185)).
+- A workbook over pivotkit-xlsx's limits `archiveEntries` or `unpackedBytes` is said in the report's
+  language too ("book.xlsx could not be loaded: it has more than 524,288,000 bytes unpacked
+  (limits.unpackedBytes): …"), with the words in `labels.dataImport.limitWhat`; it showed
+  pivotkit-xlsx's English message ([#239](https://github.com/eizedev/pivotkit/issues/239)).
+- A rule on the names ("begins with “ACTIVE DIRECTORY”") keeps the items whose names hold a no-break
+  space or other whitespace, and a space typed at the end does not matter
+  ([#159](https://github.com/eizedev/pivotkit/issues/159)).
+- The search of a field's item list and of a grouping's item picker finds an item whose label holds
+  a no-break space or another run of whitespace when a plain space is typed, and ignores spaces
+  typed at the ends ([#159](https://github.com/eizedev/pivotkit/issues/159)). Both searches fold
+  text with pivotkit-core's `foldText`.
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
@@ -79,6 +554,8 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
   (`menuitemcheckbox`), not one of a set of choices.
 
 ### Fixed
+
+- Avoid distinct-date scratch allocations, localize Group timeline years, keep cyclic context in enlarged summaries, and describe Group menus with valid ARIA ownership (#109).
 
 - A loaded file shown again after a new mount lost its view when the host mounted the report twice in
   a row (PowerShell Universal's `Sync-UDElement`, two mounts within about 30 ms) or mounted it again
@@ -718,7 +1195,11 @@ First release.
   weather (Open-Meteo), countries (World Bank), earthquakes (USGS), Nobel laureates and the release
   cycles of software products (endoflife.date).
 
-[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.4.0...HEAD
+[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.7.0...HEAD
+[0.7.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.6.1...pivotkit-react@0.7.0
+[0.6.1]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.6.0...pivotkit-react@0.6.1
+[0.6.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.5.0...pivotkit-react@0.6.0
+[0.5.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.4.0...pivotkit-react@0.5.0
 [0.4.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.3.0...pivotkit-react@0.4.0
 [0.3.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.2.0...pivotkit-react@0.3.0
 [0.2.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.1.0...pivotkit-react@0.2.0

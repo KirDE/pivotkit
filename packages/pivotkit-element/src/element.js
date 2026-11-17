@@ -69,9 +69,11 @@ export { EVENTS };
 /**
  * @typedef {object} ExportFile  the detail of pivot-export: a file before its download, or a text
  *   before it goes on the clipboard
- * @property {"xlsx" | "csv" | "png" | "json" | "copy-table" | "copy-json" | "drill-copy" | "drill-json" | "drill-csv" | "drill-xlsx"} kind
- *   "json": the view file (Views, "Download view"); "copy-table", "copy-json": Export → Copy table,
- *   Copy data as JSON; "drill-*": the drill-down panel's Export menu
+ * @property {"xlsx" | "csv" | "png" | "html" | "svg" | "print" | "json" | "data-csv" | "data-json" | "copy-table" | "copy-json" | "drill-copy" | "drill-json" | "drill-csv" | "drill-xlsx"} kind
+ *   "html": the HTML report; "svg": the chart as SVG; "print": the HTML report before it is printed
+ *   (respondWith(false) prints nothing); "json": the view file (Views, "Download view"); "data-csv",
+ *   "data-json": Export → Source data, every row of the data shown as it is; "copy-table",
+ *   "copy-json": Export → Copy table, Copy data as JSON; "drill-*": the drill-down panel's Export menu
  * @property {string} fileName  with the extension ("pivot.xlsx"); for a copy the name it would have as a file
  * @property {Blob} blob
  * @property {string} [text]  a copy's text
@@ -83,6 +85,8 @@ export { EVENTS };
  * @property {string} name
  * @property {PivotView} view  the normalized view to store
  * @property {"shared" | "user"} scope  where it goes: "user", the user's own views
+ * @property {{ id: string, name?: string, params?: Record<string, string> } | null} source  the data
+ *   shown, as a view file names it (a loaded workbook's sheet in `params.sheet`); null without a source id
  * @property {(result: unknown) => void} respondWith  call it in the listener with the promise of the
  *   host's save: "Saved" shows when it resolves, the error's message when it rejects
  */
@@ -99,6 +103,7 @@ export { EVENTS };
  * @typedef {object} TemplatePublish  the detail of pivot-template-publish (with `can-publish`)
  * @property {string} name
  * @property {PivotView} view  the user's view to publish as a shared view
+ * @property {{ id: string, name?: string, params?: Record<string, string> } | null} source  the data shown, as for pivot-template-save
  * @property {(result: unknown) => void} respondWith  as for pivot-template-save: "Published" shows
  *   when the promise resolves (the host then sets `templates` with the new shared entry)
  */
@@ -147,11 +152,27 @@ export { EVENTS };
  */
 
 /**
- * Starts the import worker of the package (dist/import-worker.js, next to this module's chunk): CSV
- * and JSON files are read off the page. A file of the page's origin, never blob:, so a policy with
- * script-src 'self' allows it; where it cannot start, the report reads on the page.
+ * Starts the import worker: the package's (dist/import-worker.js, next to this module's chunk), or
+ * the app's own copy at `url` (importWorkerUrl, relative to the page) where a bundle moved the module
+ * away from it (#194). CSV and JSON files are read off the page. A file of the page's origin, never
+ * blob:, so a policy with script-src 'self' allows it; a URL of another origin is refused here (a
+ * browser would refuse it too, Firefox with a SecurityError in the console). Where it cannot start,
+ * the report reads on the page.
+ * @param {string | URL | null | undefined} url
  */
-const startImportWorker = () => new Worker(new URL(IMPORT_WORKER, import.meta.url), { type: "module" });
+const startImportWorker = (url) => {
+    const at = url ? new URL(String(url), document.baseURI) : new URL(IMPORT_WORKER, import.meta.url);
+    if (url && at.origin !== location.origin) {
+        if (!refusedWorkers.has(at.href)) {
+            refusedWorkers.add(at.href);
+            console.warn(`pivotkit: importWorkerUrl ${JSON.stringify(at.href.slice(0, 80))} is not of the page's origin; files are read on the page`);
+        }
+        throw new Error("import worker of another origin");
+    }
+    return new Worker(at, { type: "module" });
+};
+/** The worker URLs of another origin said once in the console. */
+const refusedWorkers = new Set();
 
 /** Where the worker is from the module this code lands in (build.js: the bundle's layout). */
 const IMPORT_WORKER = typeof __PIVOTKIT_IMPORT_WORKER__ === "string" ? __PIVOTKIT_IMPORT_WORKER__ : "./import-worker.js";
@@ -302,6 +323,28 @@ export class PivotReportElement extends Base {
     }
     set drillDown(value) {
         this.#write("drill-down", value);
+    }
+
+    /**
+     * Export → Source data and the drill-down's copy and download: true for every column,
+     * `{ columns }` for those only (default false; attribute export-data, present or a JSON object).
+     */
+    get exportData() {
+        return /** @type {boolean | { columns?: string[] }} */ (this.#read("export-data"));
+    }
+    set exportData(value) {
+        this.#write("export-data", value);
+    }
+
+    /**
+     * The drill-down's copy and download while export-data is off, with every column (default false;
+     * attribute drill-down-export). With export-data set, the panel has them anyway.
+     */
+    get drillDownExport() {
+        return /** @type {boolean} */ (this.#read("drill-down-export"));
+    }
+    set drillDownExport(value) {
+        this.#write("drill-down-export", value);
     }
 
     /** Rows passed to the panel and to pivot-cell-click (default 1000). */
@@ -564,6 +607,19 @@ export class PivotReportElement extends Base {
     }
 
     /**
+     * Where the import worker of allow-import is served (a URL, relative to the page, of the page's
+     * origin): for an app that bundles the element and serves dist/import-worker.js at a path of its
+     * own (a base href). Default (null): next to the element's own module. A property only.
+     */
+    get importWorkerUrl() {
+        return /** @type {string | URL | null} */ (this.#values.importWorkerUrl ?? null);
+    }
+    /** @param {string | URL | null | undefined} value */
+    set importWorkerUrl(value) {
+        this.#set("importWorkerUrl", value);
+    }
+
+    /**
      * Reader plugins for more formats with allow-import (pivotkit-xlsx for Excel workbooks); CSV, TSV,
      * text and JSON are built in.
      */
@@ -574,12 +630,23 @@ export class PivotReportElement extends Base {
         this.#set("plugins", value);
     }
 
-    /** pivotkit-core's limits (rows, cells, ...). */
+    /** pivotkit-core's limits (rows, cells, ...) for the host's data. */
     get limits() {
         return /** @type {Record<string, number> | undefined} */ (this.#values.limits);
     }
     set limits(value) {
         this.#set("limits", value);
+    }
+
+    /**
+     * The limits a file loaded with allow-import is read and shown with, merged key by key over
+     * `limits` (default: `limits`), so uploads can be kept small without capping the host's data.
+     */
+    get importLimits() {
+        return /** @type {Record<string, number> | undefined} */ (this.#values.importLimits);
+    }
+    set importLimits(value) {
+        this.#set("importLimits", value);
     }
 
     // ---- internals ----
@@ -692,12 +759,15 @@ export class PivotReportElement extends Base {
             onExport: this.#onExport,
             drillDown: this.drillDown,
             drillDownLimit: this.drillDownLimit,
+            exportData: this.exportData,
+            drillDownExport: this.drillDownExport,
             locale: localeOf(this.locale, this.getAttribute("lang")),
             timeZone: this.timeZone,
             labels: v.labels,
             theme: this.theme,
             height: this.height,
             limits: v.limits,
+            importLimits: v.importLimits,
             fileName: this.fileName,
             label: this.label,
             tips: this.tips,
@@ -721,9 +791,12 @@ export class PivotReportElement extends Base {
             allowImport: this.allowImport,
             plugins: Array.isArray(v.plugins) ? v.plugins : undefined,
             onDataLoad: this.#onDataLoad,
-            importWorker: startImportWorker
+            importWorker: this.#startImportWorker
         };
     }
+
+    /** The import worker, from importWorkerUrl as it is when a file is read. */
+    #startImportWorker = () => startImportWorker(/** @type {string | URL | null | undefined} */ (this.#values.importWorkerUrl));
 
     /** @param {PivotView} view */
     #onViewChange = (view) => {
@@ -736,14 +809,14 @@ export class PivotReportElement extends Base {
         emit(this, EVENTS.cellClick, cell);
     };
 
-    /** @param {string} name @param {PivotView} view @param {{ scope: "shared" | "user" }} where */
-    #onSaveTemplate = (name, view, where) => request(this, EVENTS.templateSave, { name, view, scope: where.scope });
+    /** @param {string} name @param {PivotView} view @param {{ scope: "shared" | "user", source?: TemplateSave["source"] }} where */
+    #onSaveTemplate = (name, view, where) => request(this, EVENTS.templateSave, { name, view, scope: where.scope, source: where.source ?? null });
 
     /** @param {string} name @param {{ scope: "shared" | "user" }} where */
     #onDeleteTemplate = (name, where) => request(this, EVENTS.templateDelete, { name, scope: where.scope });
 
-    /** @param {string} name @param {PivotView} view */
-    #onPublishTemplate = (name, view) => request(this, EVENTS.templatePublish, { name, view });
+    /** @param {string} name @param {PivotView} view @param {{ source?: TemplatePublish["source"] }} [where] */
+    #onPublishTemplate = (name, view, where) => request(this, EVENTS.templatePublish, { name, view, source: where?.source ?? null });
 
     /** @param {TipDismiss} change */
     #onTipDismiss = (change) => {

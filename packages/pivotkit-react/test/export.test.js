@@ -4,11 +4,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { cellRows, computePivot, encode } from "pivotkit-core";
 import { exportDrill, rowsText } from "../src/drill-export.js";
+import { dataExportOf, drillExportOn, pickColumns } from "../src/export-scope.js";
+import { strFromU8, unzipSync } from "fflate";
 import { drillTable } from "../src/drill-table.js";
 import { LABELS } from "../src/labels.js";
 import { de as menuDe } from "../src/menu-labels-de.js";
 import { addMenuTexts, menuLabels } from "../src/menu-labels.js";
-import { loadExporters, runExport } from "../src/export-run.js";
+import { hexColor, loadExporters, runExport, xlsxThemeOf } from "../src/export-run.js";
 
 // the German menu texts, as lazy-menus.jsx adds them once their chunk has loaded
 addMenuTexts("de", menuDe);
@@ -32,10 +34,10 @@ function drillOf(limit, locale = "en-US", labels = en) {
 }
 
 /** Runs one export with an onExport that keeps everything, and returns what it got and what was said. */
-async function run(kind, drill, labels = en) {
+async function run(kind, drill, labels = en, columns = undefined) {
     const seen = [];
     const said = [];
-    await exportDrill(kind, { drill, encoded, labels, onExport: (file) => (seen.push(file), false), announce: (text, extra) => said.push({ text, extra }), root: null });
+    await exportDrill(kind, { drill, encoded, labels, columns, onExport: (file) => (seen.push(file), false), announce: (text, extra) => said.push({ text, extra }), root: null });
     return { file: seen[0], said };
 }
 
@@ -78,6 +80,27 @@ test("drill-down downloads: CSV with the panel's headers and formats, an Excel w
     assert.ok(xlsx.file.blob.size > 0);
 });
 
+test("drill-down exports with the host's exportData columns: only those, in that order, in every export (#259)", async () => {
+    // as PivotReport resolves them against the data: the data's own names
+    const columns = dataExportOf({ columns: ["Units", "region"] }, encoded.columns.map((c) => c.name)).columns;
+    assert.deepEqual(columns, ["Units", "Region"]);
+    const copy = await run("drill-copy", drillOf(1000), en, columns);
+    assert.deepEqual(copy.file.text.trimEnd().split("\r\n"), ["Units sold\tRegion", "1,234.5\tCentral", "2\tCentral"]);
+    const json = await run("drill-json", drillOf(1000), en, columns);
+    assert.deepEqual(JSON.parse(json.file.text), [{ Units: 1234.5, Region: "Central" }, { Units: 2, Region: "Central" }]);
+    const csv = await run("drill-csv", drillOf(1000), en, columns);
+    assert.equal(new TextDecoder().decode(await csv.file.blob.arrayBuffer()), "Units sold,Region\r\n1234.5,Central\r\n2,Central\r\n");
+    const xlsx = await run("drill-xlsx", drillOf(1000), en, columns);
+    const files = unzipSync(new Uint8Array(await xlsx.file.blob.arrayBuffer()));
+    const sheet = Object.entries(files).filter(([name]) => name.startsWith("xl/")).map(([, bytes]) => strFromU8(bytes)).join("\n");
+    for (const kept of ["Units sold", "Region", "Central"]) {
+        assert.ok(sheet.includes(kept), kept);
+    }
+    for (const left of ["Note", "Paid", "Month", "plain"]) {
+        assert.ok(!sheet.includes(`>${left}<`), left);
+    }
+});
+
 test("drill-down exports of the first of more rows hold those rows and say so", async () => {
     const said = [];
     const files = [];
@@ -117,6 +140,46 @@ test("Export → Copy table and Copy data as JSON go to the host's onExport firs
     assert.deepEqual(refused, [[en.toastCopyBlocked, { tone: "error" }]]);
 });
 
+test("Export → Source data: only with exportData; then every row through onExport as <fileName>-data", async () => {
+    await loadExporters();
+    const files = [];
+    const said = [];
+    const base = { fileName: "sales", result, encoded, locale: "en-US", labels: LABELS.en, limits: undefined, root: { current: null }, chartRef: { current: null }, announce: (t) => said.push(t), onExport: (f) => (files.push(f), false) };
+    // off (the default): nothing is built, onExport is not called, nothing is said
+    await runExport("data-csv", base);
+    await runExport("data-json", { ...base, exportData: false });
+    assert.deepEqual(files, []);
+    assert.deepEqual(said, []);
+    await runExport("data-csv", { ...base, exportData: true });
+    await runExport("data-json", { ...base, exportData: true });
+    assert.deepEqual(files.map((f) => [f.kind, f.fileName]), [["data-csv", "sales-data.csv"], ["data-json", "sales-data.json"]]);
+    const csv = new TextDecoder("utf-8", { ignoreBOM: true }).decode(await files[0].blob.arrayBuffer());
+    assert.equal(csv, "\uFEFFRegion,Month,Units,Note,Paid\r\nCentral,2026-07-01,1234.5,'=cmd(),true\r\nCentral,2026-07-01,2,plain,false\r\nNorth,2026-08-01,3,,true\r\n");
+    assert.equal(JSON.parse(await files[1].blob.text()).length, 3);
+    // the host's columns (#259): only those; none that matches, nothing at all
+    files.length = 0;
+    await runExport("data-csv", { ...base, exportData: { columns: ["units", "Region"] } });
+    assert.equal(new TextDecoder().decode(await files[0].blob.arrayBuffer()), "Units,Region\r\n1234.5,Central\r\n2,Central\r\n3,North\r\n");
+    const warn = console.warn;
+    const warnings = [];
+    console.warn = (text) => warnings.push(text);
+    try {
+        await runExport("data-json", { ...base, exportData: { columns: ["Nope"] } });
+        await runExport("data-json", { ...base, exportData: { columns: ["Nope"] } });
+        await runExport("data-csv", { ...base, exportData: { columns: [] } });
+        await runExport("data-csv", { ...base, exportData: { columns: "Region" } });
+        await runExport("data-csv", { ...base, exportData: { columns: () => ["Region"] } });
+    } finally {
+        console.warn = warn;
+    }
+    assert.equal(files.length, 1);
+    assert.deepEqual(warnings, [
+        'pivotkit: exportData.columns names no column of the data: "Nope"; no column is left, so Source data and the drill-down\'s exports are off',
+        "pivotkit: exportData.columns is empty; no column is left, so Source data and the drill-down's exports are off",
+        "pivotkit: exportData.columns is not a list; Source data and the drill-down's exports are off"
+    ]);
+});
+
 test("the menus' export texts exist in English and German, distinct from the view's copy", () => {
     for (const labels of [en, de]) {
         for (const key of ["copyTable", "copyDataJson", "drillCopy", "drillJson", "drillCsv", "drillXlsx", "drillPart", "drillCopied", "drillCopiedJson", "drillExported", "drillExportNote", "exportDownload", "exportCopy"]) {
@@ -132,4 +195,149 @@ test("the menus' export texts exist in English and German, distinct from the vie
         assert.equal(typeof en[key], "string");
         assert.equal(typeof de[key], "string");
     }
+});
+
+/** The colours fakeContext takes by name. */
+const NAMED = { white: "#ffffff", rebeccapurple: "#663399" };
+/** CSS.supports("color", text) for what fakeContext takes. */
+const supports = (t) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(t.trim()) || Object.hasOwn(NAMED, t.trim().toLowerCase()) || /^oklch\(/.test(t);
+
+/** A stand-in for a canvas's 2D context: fillStyle takes #rgb, #rrggbb and two names as hex, oklch as it is. */
+function fakeContext() {
+    const named = NAMED;
+    let style = "#000000";
+    return {
+        get fillStyle() {
+            return style;
+        },
+        set fillStyle(v) {
+            const t = String(v).trim().toLowerCase();
+            const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(t);
+            if (short) style = `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+            else if (/^#[0-9a-f]{6}$/.test(t)) style = t;
+            else if (Object.hasOwn(named, t)) style = named[t];
+            else if (t.startsWith("oklch(")) style = t;
+            // anything else: a canvas keeps the colour it had
+        }
+    };
+}
+
+// #212: the workbook's colours are the report's resolved tokens
+test("hexColor: a colour the canvas takes as #rrggbb, else null (also black and white themselves)", () => {
+    const ctx = fakeContext();
+    const hex = (t, c = ctx) => hexColor(t, c, supports);
+    assert.equal(hex("#EAF1FB"), "#eaf1fb");
+    assert.equal(hex("#c00"), "#cc0000");
+    assert.equal(hex("white"), "#ffffff");
+    assert.equal(hex("#000000"), "#000000");
+    // no colour: refused, not the colour the canvas had before
+    assert.equal(hex("not a colour"), null);
+    assert.equal(hex(""), null);
+    // a colour the canvas does not write as hex (outside sRGB)
+    assert.equal(hex("oklch(0.5 0.1 200)"), null);
+    assert.equal(hex("#eaf1fb", null), null);
+    // without CSS.supports (Node) nothing is taken
+    assert.equal(hexColor("#eaf1fb", ctx), null);
+});
+
+test("xlsxThemeOf: the scale's low and high tokens (a middle one when set) and the bars' colour", () => {
+    const ctx = fakeContext();
+    const toHex = (t) => hexColor(t, ctx, supports);
+    const style = (tokens) => ({ getPropertyValue: (name) => tokens[name] ?? "" });
+    assert.deepEqual(xlsxThemeOf(style({ "--pk-scale-low": " #eaf1fb", "--pk-scale-high": "#2a78d6", "--pk-chart-1": "#2a78d6" }), toHex), { colorScale: ["#eaf1fb", "#2a78d6"], dataBar: "#2a78d6" });
+    assert.deepEqual(xlsxThemeOf(style({ "--pk-scale-low": "#00f", "--pk-scale-mid": "white", "--pk-scale-high": "#c00" }), toHex), { colorScale: ["#0000ff", "#ffffff", "#cc0000"] });
+    // one end missing or not a colour: pivotkit-core's default scale, not half of the theme's
+    assert.deepEqual(xlsxThemeOf(style({ "--pk-scale-low": "#00f", "--pk-scale-high": "oklch(0.5 0.1 200)" }), toHex), {});
+});
+
+test("the HTML report, the chart as SVG and the report to print go through onExport first; a host may take them", async () => {
+    const files = [];
+    const said = [];
+    const chartView = computePivot(encoded, { rows: ["Region"], values: [{ field: "Units", agg: "sum" }], display: "chart", chart: { type: "bar" } });
+    const context = {
+        fileName: "sales/2026",
+        result: chartView,
+        locale: "de-DE",
+        labels: LABELS.de,
+        limits: undefined,
+        root: { current: null },
+        chartRef: { current: { getWidth: () => 640.4, getHeight: () => 50 } },
+        announce: (t, extra) => said.push([t, extra]),
+        onExport: (f) => (files.push(f), false),
+        title: "Units by region",
+        source: "sales.csv",
+        loadECharts: () => import("../src/echarts.js")
+    };
+    await runExport("html", context);
+    await runExport("svg", context);
+    await runExport("print", context);
+    assert.deepEqual(files.map((f) => [f.kind, f.fileName, f.blob.type]), [["html", "sales-2026.html", "text/html;charset=utf-8"], ["svg", "sales-2026.svg", "image/svg+xml"], ["print", "sales-2026.html", "text/html;charset=utf-8"]]);
+    const html = await files[0].blob.text();
+    assert.match(html, /<html lang="de-DE"/);
+    assert.match(html, /<h1>Units by region<\/h1>/);
+    assert.match(html, /<dt>Quelle<\/dt><dd>sales\.csv<\/dd>/);
+    // the table as the report shows it, the chart as an image since the view shows the chart
+    assert.match(html, /<th scope="row" class="pk-th pk-row">Central<\/th><td class="pk-td pk-num">1\.236,5<\/td>/);
+    assert.match(html, /<img alt="Diagramm: Units by region" width="640" height="100" src="data:image\/svg\+xml;base64,/);
+    const svg = await files[1].blob.text();
+    assert.match(svg, /^<svg width="640" height="100" /);
+    assert.ok(svg.includes(">Central</text>"));
+    // printing: the chart inline (no data: image a strict page would block)
+    const print = await files[2].blob.text();
+    assert.match(print, /<figure class="pk-report-chart"><svg /);
+    assert.deepEqual(said, [], "a host that takes the file says itself what became of it");
+});
+
+test("the new export texts exist in English and German", () => {
+    for (const labels of [en, de]) {
+        for (const key of ["exportHtml", "exportSvg", "exportPrintGroup", "exportPrint", "toastPrintBlocked"]) {
+            assert.equal(typeof labels[key], "string", `${labels.lang} ${key}`);
+        }
+        for (const key of ["exportHtml", "exportPrint"]) {
+            assert.equal(typeof labels.settingInfo[key], "string", `${labels.lang} settingInfo.${key}`);
+        }
+    }
+    assert.equal(en.exportPrint, "Print or save as PDF…");
+    assert.equal(de.exportPrint, "Drucken oder als PDF speichern…");
+});
+
+test("the drill-down's copy and download: on with exportData, or with drillDownExport while exportData is off (#263)", () => {
+    const names = ["Region", "Country", "Revenue"];
+    // exportData off: no copy and no download, unless the host turns them on
+    for (const off of [undefined, false, null, "yes", ["Region"]]) {
+        assert.equal(drillExportOn(dataExportOf(off, names)), false, JSON.stringify(off));
+        assert.equal(drillExportOn(dataExportOf(off, names), { drillDownExport: true }), true, JSON.stringify(off));
+        assert.equal(drillExportOn(dataExportOf(off, names), { drillDownExport: false }), false, JSON.stringify(off));
+    }
+    // exportData on: the drill-down follows it, every column or the host's
+    assert.equal(drillExportOn(dataExportOf(true, names)), true);
+    assert.equal(drillExportOn(dataExportOf({}, names)), true);
+    assert.equal(drillExportOn(dataExportOf({ columns: ["Region"] }, names)), true);
+    // no column left, or columns that are no list: off, drillDownExport does not widen it
+    assert.equal(drillExportOn(dataExportOf({ columns: [] }, names), { drillDownExport: true }), false);
+    assert.equal(drillExportOn(dataExportOf({ columns: ["Nope"] }, names), { drillDownExport: true }), false);
+    assert.equal(drillExportOn(dataExportOf({ columns: "Region" }, names), { drillDownExport: true }), false);
+});
+
+test("exportData against the data's columns: off, every column, or the host's columns; none left is off (#259)", () => {
+    const names = ["Region", "Country", "Revenue"];
+    for (const off of [undefined, false, null, 0, "", "yes", ["Region"]]) {
+        assert.deepEqual(dataExportOf(off, names), { source: false, unknown: [] }, JSON.stringify(off));
+    }
+    // columns that are no list: both off, as an empty list (the drill-down's exports too)
+    for (const columns of ["Region", () => ["Region"], { 0: "Region" }, null]) {
+        assert.deepEqual(dataExportOf({ columns }, names), { source: false, columns: [], unknown: [], notList: true }, String(columns));
+    }
+    assert.deepEqual(dataExportOf(true, names), { source: true, unknown: [] });
+    assert.deepEqual(dataExportOf({}, names), { source: true, unknown: [] });
+    // the data's own names, in the host's order, each once; the names it lacks said
+    assert.deepEqual(dataExportOf({ columns: ["revenue", 3, "Nope", "REGION", "Revenue"] }, names), { source: true, columns: ["Revenue", "Region"], unknown: ["Nope"] });
+    // nothing to export: off, the drill-down's exports too (no column)
+    assert.deepEqual(dataExportOf({ columns: [] }, names), { source: false, columns: [], unknown: [] });
+    assert.deepEqual(dataExportOf({ columns: ["Nope"] }, names), { source: false, columns: [], unknown: ["Nope"] });
+    // a function, a symbol or a bigint in the prop: no throw, plain JSON out
+    assert.doesNotThrow(() => JSON.stringify(dataExportOf({ columns: ["Region"], extra: 1n, f: () => 1, s: Symbol("x") }, names)));
+    assert.deepEqual(pickColumns(names, undefined), [0, 1, 2]);
+    assert.deepEqual(pickColumns(names, ["revenue", "Nope", "REGION", "Revenue"]), [2, 0]);
+    assert.deepEqual(pickColumns(names, []), []);
 });

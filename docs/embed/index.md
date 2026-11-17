@@ -1,29 +1,48 @@
 ---
 title: Embed pivotkit
-description: For developers - which of the three pivotkit packages fits your page, a first report in a few lines for React, the web component and the engine, and where to go next.
+description: For developers and the people who run applications with pivotkit - which of the pivotkit packages fits, a first report in a few lines for React, the web component, the engine, reports in code, the command line, the REST service and the MCP server, what a host switches on or off, and where to go next.
 ---
 
 # Embed pivotkit
 
-pivotkit comes as three npm packages. Pick the one that fits your page, put a first report on it in a
-few lines, then follow the getting-started page of that package step by step.
+pivotkit comes as eight npm packages:
+
+- three to show the report
+- one plugin to read Excel files
+- two to make reports without a browser
+- two services that offer reports to programs and AI clients
+
+Pick the package that fits and put a first report on it in a few lines. Then follow its
+getting-started page step by step.
 
 ## Which package
 
 | Package | What it is | Use it when |
 | --- | --- | --- |
-| [`pivotkit-react`](../reference/react.md) | The report builder as a React component: field list, drag and drop, table and chart, filters, drill-down, undo, saved views and sharing, export. | Your page is a React app (or a host that renders React components). |
-| [`pivotkit-element`](../reference/element.md) | The same report builder as the web component `<pivot-report>`, with React bundled inside a shadow root. | Your page has no React: Angular, PHP and other server-rendered pages, plain HTML. |
-| [`pivotkit-core`](../reference/core.md) | The engine without UI: typed encoding, pivot computation, subtotals and totals, "show values as", filters, date grouping, grids, ECharts options, XLSX and CSV. | You draw your own UI, or build reports on a server. |
+| [`pivotkit-react`](../reference/react.md) | The report builder as a React component: field list, drag and drop, table and chart, filters, drill-down, undo, saved views and sharing, export. | Your page is a React app, or a host that renders React components. |
+| [`pivotkit-element`](../reference/element.md) | The same report builder as the web component `<pivot-report>`, with React bundled inside a shadow root. | Your page has no React: Angular, PHP and other server-rendered pages, or plain HTML. |
+| [`pivotkit-core`](../reference/core.md) | The engine without UI: typed encoding, pivot computation, subtotals and totals, "show values as", filters, date grouping, grids, ECharts options, XLSX and CSV, reading CSV and JSON files. | You draw your own UI, or compute pivots in your own code. |
+| [`pivotkit-xlsx`](../reference/plugins.md#pivotkit-xlsx) | A reader plugin for Excel workbooks (.xlsx). It checks a workbook before it parses it. | People load Excel files into the report with `allowImport`, or your code reads them. |
+| [`pivotkit-report`](../reference/report.md) | A view over rows as a file without a browser: HTML report, CSV, JSON, XLSX, SVG. | A script, a job or a server makes report files. |
+| [`pivotkit-cli`](../reference/cli.md) | The command line `pivotkit`: render, validate and describe views. | Reports and view checks in a terminal or CI, without code. |
+| [`pivotkit-server`](../reference/rest.md) | A REST service over the same operations, with an OpenAPI document, sign-in and per-caller policy. It also comes as a [container image](../reference/container.md), which runs [on Kubernetes](../getting-started/kubernetes.md). | Programs such as scripts, PowerShell, schedulers or other apps ask for reports over HTTP. |
+| [`pivotkit-mcp`](../reference/mcp.md) | An MCP server: an AI client builds reports and reads only what the policy shows. | People ask an AI client such as Claude or VS Code for reports. |
 
 <div class="cards" markdown>
 
 - [**React**](../getting-started/react.md)<br>`<PivotReport>` for React 18 and 19. React and ECharts come from your app, so the page has one copy of each.
 - [**Web component**](../getting-started/web-component.md)<br>`<pivot-report>` with its own React, for Angular, PHP and plain HTML pages. ECharts loads on the first chart.
-- [**PowerShell Universal**](../getting-started/react.md#powershell-universal)<br>pivotkit-react runs on the React 18.3.1 that PowerShell Universal provides to its components; the module [PowerShellUniversal.Component.Pivot](https://powershell-universal-components.eize.dev/pivot/) brings it ready-made as `New-UDPivotReport`.
+- [**PowerShell Universal**](../getting-started/react.md#powershell-universal)<br>pivotkit-react runs on the React 18.3.1 that PowerShell Universal provides to its components. The module [PowerShellUniversal.Component.Pivot](https://powershell-universal-components.eize.dev/pivot/) brings it ready-made as `New-UDPivotReport`.
 - [**Engine only**](../getting-started/engine.md)<br>`pivotkit-core`: pivot tables, grids, chart options and XLSX/CSV export in plain JavaScript, in the browser or in Node.
+- [**Reports in code**](../getting-started/report.md)<br>`pivotkit-report`: a view and rows to an HTML report, CSV or Excel in Node.
+- [**Command line**](../getting-started/cli.md)<br>`pivotkit-cli`: `pivotkit example`, then `pivotkit render` and `validate` in a terminal or CI.
+- [**REST service**](../getting-started/rest.md)<br>`pivotkit-server`: list sources, check and render views over HTTP, with curl or PowerShell. It also runs as a container.
+- [**MCP server**](../getting-started/mcp.md)<br>`pivotkit-mcp`: an AI client describes the data, writes a view and has the report made.
 
 </div>
+
+Coming from an earlier release? [Upgrading](../getting-started/upgrading.md) lists what a host checks.
+
 
 ## A first report
 
@@ -37,28 +56,35 @@ few lines, then follow the getting-started page of that package step by step.
     import { PivotReport } from "pivotkit-react";
     import "pivotkit-react/styles.css";
 
-    <PivotReport
+    const rows = [{ Region: "North", Sales: 120 }, { Region: "South", Sales: 340 }];
+    const save = (view) => localStorage.setItem("view", JSON.stringify(view));
+
+    export const Report = () => <PivotReport
         data={rows}
         defaultView={{ rows: ["Region"], values: [{ field: "Sales", agg: "sum" }] }}
         onViewChange={save}
-    />
+    />;
     ```
+
+    A whole app to copy, with Vite: [getting started with React](../getting-started/react.md#a-complete-app).
 
 === "Web component"
 
-    `/assets/pivotkit-element/dist/` is the package's `dist/` directory, copied from
-    `node_modules/pivotkit-element/dist/` after `npm install pivotkit-element`
-    ([details](../getting-started/web-component.md)).
+    `/assets/pivotkit-element/dist/` is the package's `dist/` directory. Run `npm install pivotkit-element`,
+    then copy it from `node_modules/pivotkit-element/dist/`. See the
+    [details](../getting-started/web-component.md).
 
     ```html
     <script type="module" src="/assets/pivotkit-element/dist/index.js"></script>
     <pivot-report default-view='{"rows":["Region"],"values":[{"field":"Sales","agg":"sum"}]}'></pivot-report>
     <script type="module">
         const report = document.querySelector("pivot-report");
-        report.data = rows;
-        report.addEventListener("pivot-view-change", (e) => save(e.detail.view));
+        report.data = [{ Region: "North", Sales: 120 }, { Region: "South", Sales: 340 }];
+        report.addEventListener("pivot-view-change", (e) => localStorage.setItem("view", JSON.stringify(e.detail.view)));
     </script>
     ```
+
+    A whole page to copy: [getting started with the web component](../getting-started/web-component.md#a-complete-page).
 
 === "Engine"
 
@@ -66,18 +92,49 @@ few lines, then follow the getting-started page of that package step by step.
     import { encode, computePivot, toGrid } from "pivotkit-core";
     import { toXlsx } from "pivotkit-core/export";
 
+    const rows = [{ Region: "North", Sales: 120 }, { Region: "South", Sales: 340 }];
     const data = encode(rows);
     const result = computePivot(data, { rows: ["Region"], values: [{ field: "Sales", agg: "sum" }] });
     const xlsx = toXlsx(toGrid(result));   // Uint8Array
     ```
 
-`rows` is an array of plain objects, one per record. Each key is a field the user can drag.
+=== "Command line"
+
+    ```bash
+    npx pivotkit-cli example                  # sales.csv and two views in this directory
+    npx pivotkit-cli render sales.pivotkit.json --data sales.csv -o sales.html
+    ```
+
+`rows` is an array of plain objects, one per record. Each key is a field the user can drag. The
+getting-started pages have complete projects to copy and run. The engine's project is an ES module:
+`"type": "module"` in `package.json`, or a `.mjs` file.
+
+## What a host switches on
+
+These features are off by default, so a host decides:
+
+| Prop | What it switches on | More |
+| --- | --- | --- |
+| `allowImport` | People load their own file into the report. | [Load your own data](../use/load-data.md) |
+| `exportData` | Export → Source data: every row as CSV or JSON. The drill-down's copy and download. | [Export](../use/export.md#the-table-or-the-rows-behind-it) |
+| `drillDownExport` | The drill-down's copy and download without Source data. | [The rows behind a number](../use/drill-down.md#copy-or-download-the-rows) |
+| `shareLink`, `persistView` | Links, and the tab's view. | [Sharing](../concepts/sharing.md) |
+| `templateStore` | Views in the browser. | [Templates and shared views](../concepts/templates.md) |
+
+These are on by default, and a prop switches them off: `drillDown`, the rows behind a value, and the
+tips (`tips`). Every file and copy passes `onExport` first. See
+[React props](../reference/react.md#props).
+
+People can see and export every row and column you pass. Filters and templates are no permissions.
+Send only what this viewer may see, filtered on your server. See
+[pivotkit is not access control](../security.md#pivotkit-is-not-access-control).
 
 ## Next steps
 
 1. Follow the getting-started page of your package in small steps:
-   [React](../getting-started/react.md), [web component](../getting-started/web-component.md) or
-   [engine only](../getting-started/engine.md).
+   [React](../getting-started/react.md), [web component](../getting-started/web-component.md),
+   [engine only](../getting-started/engine.md), [reports in code](../getting-started/report.md) or the
+   [command line](../getting-started/cli.md).
 2. Look up a task in the [recipes](recipes.md): keep the view, save views on a server, share links,
    field descriptions, chart options, theming.
 3. Read the [concepts](../concepts/views.md) behind the report: the view, templates, values, dates,

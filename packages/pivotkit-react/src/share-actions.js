@@ -9,6 +9,7 @@ import { toViewFile, viewFileName, viewFileText } from "pivotkit-core";
 import { copyText, safeFileName, saveBlob } from "./files.js";
 import { fill } from "./labels.js";
 import { linkNow, loadCheck, loadLink, readLinkParam, shareBase, viewFromObject, viewFromText, withLinkParam } from "./share.js";
+import { sheetOfSource } from "./sheet-views.js";
 import { VERSION } from "./version.js";
 
 /** The page's address, read when a link is made (a host may change it after the report rendered). */
@@ -22,10 +23,13 @@ const here = () => (typeof location !== "undefined" ? location.href : undefined)
  * @property {string | null} viewName  the loaded view's name
  * @property {string | undefined} sourceId
  * @property {string | undefined} sourceName
+ * @property {Record<string, string> | undefined} sourceParams  the source's params the files and links carry (a loaded workbook's sheet)
+ * @property {((made: { id?: string | null, sheet?: string | null }, name: string, file: object) => "switch" | "missing" | "none") | undefined} viaSheet
+ *   a view file made on another sheet of the workbook shown: reads that sheet, then loads `file` on it ("switch" when that started)
  * @property {string | null | undefined} schemaUrl  the `$schema` of the view files (the prop)
  * @property {import("pivotkit-core").Encoded} encoded
  * @property {boolean | string | undefined} shareLink  the prop: the base of the link
- * @property {string} param  the link's parameter in the fragment
+ * @property {string | undefined} linkKey  the report's key in the fragment (its storageKey): "pivot-<key>", else "pivot"
  * @property {{ current: HTMLElement | null }} root  the report's root (copies and downloads start from its document)
  * @property {string | undefined} fileName  the host's file name of exports
  * @property {((file: any) => unknown) | undefined} onExport
@@ -42,9 +46,11 @@ const here = () => (typeof location !== "undefined" ? location.href : undefined)
  * @param {any} labels  with the menus' texts
  */
 export function shareActions(ctx, labels) {
-    const { view, viewName, sourceId, sourceName, schemaUrl, encoded, announce, limits, param } = ctx;
+    const { view, viewName, sourceId, sourceName, sourceParams, schemaUrl, encoded, announce, limits, linkKey } = ctx;
+    // a workbook's sheet travels with the source (source.params.sheet)
+    const params = sourceParams ? { params: sourceParams } : {};
     /** The view as a view file (pivotkit-core's toViewFile): its name, the source, the fields it uses. */
-    const viewFile = () => viewFileText(toViewFile(view, { name: viewName ?? "", createdAt: new Date(), generator: { name: "pivotkit-react", version: VERSION }, source: { id: sourceId, name: sourceName }, data: encoded, ...(schemaUrl !== undefined ? { schemaUrl } : {}) }));
+    const viewFile = () => viewFileText(toViewFile(view, { name: viewName ?? "", createdAt: new Date(), generator: { name: "pivotkit-react", version: VERSION }, source: { id: sourceId, name: sourceName, ...params }, data: encoded, ...(schemaUrl !== undefined ? { schemaUrl } : {}) }));
     return {
         copyLink: async () => {
             const target = shareBase(ctx.shareLink, here());
@@ -53,12 +59,12 @@ export function shareActions(ctx, labels) {
             }
             let text;
             try {
-                text = (linkNow() ?? (await loadLink())).encodeViewLink(toViewFile(view, { name: viewName ?? undefined, source: { id: sourceId } }, { link: true }));
+                text = (linkNow() ?? (await loadLink())).encodeViewLink(toViewFile(view, { name: viewName ?? undefined, source: { id: sourceId, ...params } }, { link: true }));
             } catch (e) {
                 announce(e && /** @type {any} */ (e).code === "LIMIT_EXCEEDED" ? labels.toastLinkTooLong : fill(labels.error, { message: String(e) }), { tone: "error" });
                 return;
             }
-            const ok = await copyText(withLinkParam(target, param, text), ctx.root.current);
+            const ok = await copyText(withLinkParam(target, linkKey, text), ctx.root.current);
             announce(ok ? labels.toastLinkCopied : labels.toastCopyFailed, ok ? undefined : { tone: "error" });
         },
         copyJson: async () => {
@@ -86,7 +92,7 @@ export function shareActions(ctx, labels) {
             if (loaded.failed === "notJson") {
                 // a link (or its "#pivot=..." part) pasted instead of JSON
                 const t = text.trim();
-                const fromUrl = t.includes("#") ? readLinkParam(t.slice(t.indexOf("#")), param) ?? readLinkParam(t.slice(t.indexOf("#")), "pivot") : null;
+                const fromUrl = t.includes("#") ? readLinkParam(t.slice(t.indexOf("#")), linkKey) ?? readLinkParam(t.slice(t.indexOf("#")), undefined) : null;
                 const payload = fromUrl ?? (t.startsWith("1.") ? t : null);
                 if (!payload) {
                     return labels.viewFailed.notJson;
@@ -102,6 +108,11 @@ export function shareActions(ctx, labels) {
                 return labels.viewFailed[loaded.failed ?? "notView"] ?? labels.viewFailed.notView;
             }
             const ready = /** @type {import("./share.js").LoadedView} */ (loaded);
+            // made on another sheet of the workbook shown: that sheet first, then the view on it
+            const made = ready.file?.source;
+            if (made && ready.file?.view && ctx.viaSheet?.({ id: made.id, sheet: sheetOfSource(made) }, ready.file.name || viewName || "", toViewFile(ready.file.view, { name: ready.file.name, source: made })) === "switch") {
+                return null;
+            }
             const check = loadCheck(ready, labels, Array.isArray(ctx.sources) ? ctx.sources : []);
             if (!check) {
                 ctx.applyLoaded(ready);

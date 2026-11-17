@@ -32,11 +32,15 @@ const TEXT = [
     ["--pk-accent-text", "--pk-accent"], ["--pk-accent", "--pk-accent-soft"], ["--pk-accent", "--pk-surface"], ["--pk-danger", "--pk-surface"],
     ["--pk-surface", "--pk-text"], ["--pk-text", "--pk-note"], ["--pk-muted", "--pk-surface-raised"], ["--pk-accent", "--pk-note"], ["--pk-danger", "--pk-surface-raised"], ["--pk-danger", "--pk-danger-soft"], ["--pk-text", "--pk-danger-soft"], ["--pk-warn", "--pk-surface"], ["--pk-warn", "--pk-surface-3"],
     // the "Learn more" link of a description, the "i" while hovered, the x of a tip
-    ["--pk-accent", "--pk-surface-raised"], ["--pk-accent", "--pk-surface-3"], ["--pk-muted", "--pk-note"]
+    ["--pk-accent", "--pk-surface-raised"], ["--pk-accent", "--pk-surface-3"], ["--pk-muted", "--pk-note"],
+    // a subtotal's label and value, and a subtotal column's header (muted, as every header)
+    ["--pk-text", "--pk-total"], ["--pk-muted", "--pk-total"], ["--pk-muted", "--pk-total-strong"]
 ];
 const UI = [["--pk-focus", "--pk-surface"], ["--pk-focus", "--pk-surface-2"], ["--pk-drop-border", "--pk-surface-2"], ["--pk-drop-border", "--pk-surface"], ["--pk-type-number", "--pk-surface"], ["--pk-type-string", "--pk-surface"], ["--pk-type-date", "--pk-surface"], ["--pk-type-boolean", "--pk-surface"],
     // the edge of a menu's text fields and selects
-    ["--pk-input-border", "--pk-surface"], ["--pk-input-border", "--pk-surface-raised"], ["--pk-input-border", "--pk-surface-2"]];
+    ["--pk-input-border", "--pk-surface"], ["--pk-input-border", "--pk-surface-raised"], ["--pk-input-border", "--pk-surface-2"],
+    // the rule between a menu's groups: More's groups have no titles, the rule is all that tells them apart (#128)
+    ["--pk-rule", "--pk-surface-raised"], ["--pk-rule", "--pk-surface"], ["--pk-rule", "--pk-surface-2"]];
 
 for (const [name, theme] of [["light", light], ["dark", dark]]) {
     test(`${name} theme: text 4.5:1 and interface colours 3:1`, () => {
@@ -47,6 +51,22 @@ for (const [name, theme] of [["light", light], ["dark", dark]]) {
         for (const [fg, bg] of UI) {
             const ratio = contrast(theme[fg], theme[bg]);
             assert.ok(ratio >= 3, `${fg} on ${bg}: ${ratio.toFixed(2)}`);
+        }
+    });
+}
+
+// the rule that tells a menu's groups apart is drawn in a colour of 3:1 on the menu's surface (#128,
+// #205); the chart's Display settings are groups and levels too (#106), so they have no rule of their own
+for (const selector of [".pk-section:not(:first-child)"]) {
+    test(`${selector}: its rule 3:1 on the menu in both themes`, () => {
+        const start = css.indexOf(`${selector} {`);
+        assert.ok(start !== -1, `no block ${selector}`);
+        const block = css.slice(start, css.indexOf("}", start));
+        const token = block.match(/border-top:[^;]*var\((--pk-[\w-]+)\)/)?.[1];
+        assert.ok(token, `${selector} draws no rule from a token`);
+        for (const [name, theme] of [["light", light], ["dark", dark]]) {
+            const ratio = contrast(theme[token], theme["--pk-surface-raised"]);
+            assert.ok(ratio >= 3, `${name}: ${token} on --pk-surface-raised: ${ratio.toFixed(2)}`);
         }
     });
 }

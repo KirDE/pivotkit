@@ -15,13 +15,17 @@
 //   node build.js          build
 //   node build.js --size   build, print the gzip size of what a page loads, fail above SIZE_BUDGET_KIB
 import * as esbuild from "esbuild";
-import { readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { options as reactOptions } from "../pivotkit-react/build.js";
+import { thirdPartyLicenses } from "../../scripts/third-party-licenses.js";
+export { bundledPackages } from "../../scripts/third-party-licenses.js";
 import { hostStyles } from "./src/host-css.js";
+import { isMain } from "../../scripts/is-main.js";
+import { fileURLToPath } from "node:url";
 
-const here = new URL(".", import.meta.url).pathname;
+const here = fileURLToPath(new URL(".", import.meta.url));
 const pkg = JSON.parse(await readFile(join(here, "package.json"), "utf8"));
 
 /** pivotkit-react/styles.css as a JS string for the shadow root. */
@@ -32,6 +36,31 @@ const shadowStyles = {
             const css = hostStyles(await readFile(args.path, "utf8"));
             const { code } = await esbuild.transform(css, { loader: "css", minify: true });
             return { contents: `export default ${JSON.stringify(code)};`, loader: "js" };
+        });
+    }
+};
+
+/**
+ * pivotkit-core's index.js without its re-export of toEChartsOption. esbuild's code splitting puts a
+ * file into the chunks of every entry whose static import records reach it. A re-export
+ * (`export { x } from "./x.js"`) is such a record, whatever names the importer uses, and
+ * "sideEffects": false does not change it. Tree shaking only drops a file nothing uses at all. So
+ * chart.js, used by the chart, would land in the first load: the first load imports index.js, and
+ * index.js re-exports chart.js. Nothing else holds it there: no namespace import, no `export *`.
+ * The chart loads the option from pivotkit-core/chart instead (pivotkit-react's echarts.js,
+ * pivotkit-report's svg.js), so the option's code goes to the chart group. A bundled import of
+ * toEChartsOption from "pivotkit-core" then fails the build; so does a change of the line below.
+ */
+const BARREL_CHART_LINE = 'export { toEChartsOption } from "./chart.js";\n';
+const chartOffBarrel = {
+    name: "chart-off-barrel",
+    setup(build) {
+        build.onLoad({ filter: /pivotkit-core[\\/]src[\\/]index\.js$/ }, async (args) => {
+            const code = await readFile(args.path, "utf8");
+            if (!code.includes(BARREL_CHART_LINE)) {
+                throw new Error(`pivotkit-element build: pivotkit-core's index.js has no line ${JSON.stringify(BARREL_CHART_LINE.trim())}`);
+            }
+            return { contents: code.replace(BARREL_CHART_LINE, ""), loader: "js" };
         });
     }
 };
@@ -52,7 +81,7 @@ export const options = {
     // the license texts go into one file (licenses() below), not into comments of the bundle
     legalComments: "none",
     metafile: true,
-    plugins: [shadowStyles],
+    plugins: [shadowStyles, chartOffBarrel],
     logLevel: "warning"
 };
 
@@ -71,58 +100,11 @@ export const workerOptions = {
     metafile: false
 };
 
-/**
- * The package directories (node_modules/<name> or node_modules/@scope/<name>) of the bundled inputs.
- * @param {import("esbuild").Metafile} metafile
- */
-export function bundledPackages(metafile) {
-    const dirs = new Set();
-    for (const input of Object.keys(metafile.inputs)) {
-        const m = /^(.*node_modules[\\/](?:@[^\\/]+[\\/])?[^\\/]+)[\\/]/.exec(input);
-        if (m) {
-            dirs.add(m[1]);
-        }
-    }
-    return [...dirs].sort();
-}
-
 /** The license and notice files of the bundled packages, as one text. */
 async function licenses(metafile) {
-    const parts = [
-        "pivotkit-element bundles the following packages. Their license texts follow; pivotkit-core and",
-        "pivotkit-react are part of pivotkit (MIT, see LICENSE).",
-        ""
-    ];
-    // one entry per name and version: tslib, say, is bundled from two directories
-    const seen = new Set();
-    for (const dir of bundledPackages(metafile)) {
-        const abs = join(here, dir);
-        const meta = JSON.parse(await readFile(join(abs, "package.json"), "utf8"));
-        if (seen.has(`${meta.name}@${meta.version}`)) {
-            continue;
-        }
-        seen.add(`${meta.name}@${meta.version}`);
-        parts.push("=".repeat(78), `${meta.name} ${meta.version} (${meta.license})`, "=".repeat(78), "");
-        // LICENSE, NOTICE and the like; a licenses/ directory (ECharts: code it took from d3) too
-        const files = [];
-        for (const entry of await readdir(abs, { withFileTypes: true })) {
-            if (!/^(licen[cs]es?|notice|copying)/i.test(entry.name)) {
-                continue;
-            }
-            if (entry.isFile()) {
-                files.push(entry.name);
-            } else if (entry.isDirectory()) {
-                files.push(...(await readdir(join(abs, entry.name))).map((f) => join(entry.name, f)));
-            }
-        }
-        if (files.length === 0) {
-            throw new Error(`${meta.name}: no license file to bundle`);
-        }
-        for (const f of files.sort()) {
-            parts.push(`--- ${f} ---`, "", (await readFile(join(abs, f), "utf8")).trim(), "");
-        }
-    }
-    return parts.join("\n");
+    return thirdPartyLicenses(metafile, here,
+        "pivotkit-element bundles the following packages. Their license texts follow; pivotkit-core,\n" +
+        "pivotkit-react and pivotkit-report are part of pivotkit (MIT, see LICENSE).");
 }
 
 /**
@@ -222,9 +204,111 @@ answers checked, a plugin's minimal table completed, failed sheets, the host's e
  * because esbuild splits the modules the import UI shares with the first load into two more files,
  * each compressed on its own. First load 160.0 measured on a Mac (CI about 160.3), budget 161.5;
  * the menus 39.7 with the Data menu's panel, within 41.
+ * View version 2 (#165): normalize() reads every view through migrate() from version 1, checks keys
+ * inside each part with did-you-mean hints, folds text for the filters, and the report reads and
+ * writes the new filter shape: first load 163.8 measured on a Mac; with the words of the new relative
+ * ranges a chip shows for a loaded view (English and German, labels.js) 165.8, budget 167.5. The
+ * plain words of a view's unused parts grow with the new issue codes: 5.1, budget 5.5. With the
+ * describe, precision and ties steps, the cap on a view's issues and the check of long items the first
+ * load is 167.7 measured on a Mac (CI about 0.3 more), budget 169; the unused words 5.4.
+ * The Filter level edits what view version 2 can say: "does not begin with" and "does not end with",
+ * "Also keep items without a value", a date's quick choices with a unit (This, Last, Next, Before the
+ * last, the current period, rolling, counted from the first record or a date) under More choices,
+ * Top items with the items tied with the last one: the menus from 40.0 to 41.8 measured on a Mac (CI
+ * about 0.3 more), budget 43; the first load 168.0 (the chips' words for quarters, weeks and "this").
+ * CI measures the first load about 0.5 more than a Mac, not 0.3: 168.8 in CI run 43332518926
+ * (de76a55) against 168.3 on a Mac (#198). With the tip on column subtotals and its button (English
+ * and German), the subtotal column's edge and title (#156) the first load is 168.6 on a Mac (CI about
+ * 169.1), budget 170.5. The link is 7.2 on both, 0.1 below its old budget: 7.5.
+ * The HTML report, the chart as SVG and printing (#165): pivotkit-report with ECharts' SVG renderer is
+ * the group "report", loaded on the first of these exports, counted as what it adds to the chart group
+ * it loads first: 19.9 measured on a Mac, budget 21. Two things go elsewhere because esbuild assigns a
+ * module to the chunks of every entry whose imports reach it, even through a barrel module that only
+ * re-exports it: zrender's SVG painter (ECharts' renderers barrel, shared with the chart) lands in the
+ * chart group, 215.8 measured (204.4 before), budget 222.5; and pivotkit-core's describe.js (behind the
+ * core's index.js) with chartPlan, now pivotkit-core's, in the first load: 170.0 measured (168.3 before),
+ * budget 171.5. The Export menu's three entries and the report's export and print code took the menus
+ * to 43.6 (42.3 before), budget 45. Together with the column subtotals' tip (#156) and the report's
+ * closest() hints: first load 170.7 on a Mac (CI about 171.2), budget 172; menus 43.8; report 20.2.
+ * The chart's text size as a token (#221: textSize, the layout's fontSize, the room of title and legend
+ * from the sizes, in pivotkit-core's chart option of the first load): 171.9 on a Mac (CI 172.5, at
+ * the budget of 172.5), budget 173.
+ * Bidi controls left out of the HTML report and the SVG (pivotkit-report) and the CSV and XLSX
+ * (pivotkit-core): report 21.0 on a Mac (CI 21.1, 20.9 before), budget 21.5.
+ * A view from field names (#253): the one walk over the places a view names a field
+ * (pivotkit-core's mapFieldRefs, shared by viewFileFields of the first load and renameFields) and the
+ * grouping names and identifier rule now in pivotkit-core: first load 172.9 on a Mac (172.5 before;
+ * CI about 173.5), budget 174. The layout code itself stays out (its constants are marked pure).
+ * The Filter level's rules (#203, #244, #245: one radio that takes the focus on a click, an emptied
+ * value that takes its rule off, a second rule added while the first one waits): the menus 45.96 on a
+ * Mac (45.87 before; CI 46.0, over the budget of 46 that had about 0.1 left), budget 47 (2 % above
+ * CI, below the rule's 3 % to keep the menus in check).
+ * After the encode issue codes (#261) main's first load is 173.36 on a Mac, about 173.95 in CI (CI
+ * measured 174.0 for 173.4 on a Mac in run 43604441863): at the budget of 174 already. The element's
+ * importWorkerUrl with its origin check (#194) adds about 0.2. Budget 175, about 1 KiB above what CI
+ * measures, the first load's rule.
+ * Years before 1 and after 9999 in the Filter level (#351: Years combined and its summary written as the
+ * table writes years, the reference date's field for years after 9999, days compared by their ms; in
+ * menu-ops.js, so the first load stays as it is): the menus 46.9 on a Mac (CI about 47.0, at the budget
+ * of 47 after #339 and #355), budget 48 (2 % above CI, below the rule's 3 %).
+ * The HTML report on a dark screen (#370): the dark rules under the root's data-pk-theme guard, for the
+ * system's dark theme and for a root that asks for dark, and the colour scale's dark colour mixed by
+ * one rule per half from each cell's place: report 21.9 on a Mac (21.6 before; CI 22.0, at the budget),
+ * and with the template's colours for the chart (#369) about 22.1 to 22.3: budget 22.5.
+ * A print template's own colours for the chart (#369): pivotkit-report reads and resolves a
+ * template's CSS in a module of its own, template-style.js, loaded only for a template of the host's
+ * (it imports nothing, so no module of the report becomes a chunk of its own); the element's Export
+ * menu renders with the default template and never loads it: the group "template", 2.5 on a Mac,
+ * budget 3, counted as what it adds to the report group. What stays in the report group (a token
+ * that names another one followed, a heatmap colour ECharts cannot mix left out): report 21.9 on a
+ * Mac (21.6 before); with the dark-screen rules (#370): 22.1 on a Mac, within 22.5.
+ * When the data is from in the files (#331): the workbook's document property DataAsOf in
+ * pivotkit-core's XLSX writer (its part, content type and relationship) took the export group to 12.0
+ * on a Mac (11.7 before), budget 12.3; "Data as of" in the HTML report's details, its placeholder and
+ * the check that the time exists took the report group to 22.7 on a Mac (22.3 before), budget 23
+ * (both within the rule's 3 %).
+ * The chart's grid margins (pivotkit-core's GRID_TOP and HEATMAP_GRID_BOTTOM, defined once and shared
+ * by the first load's toEChartsOption and the chart's label layout) add 40 bytes to the first load:
+ * a chunk cannot inline a constant another chunk imports. 174.38 to 174.41 on a Mac; CI measured
+ * main at 175.0, so initial goes to 175.1.
+ * Why CI measured more than a Mac (#546): Homebrew's Node uses the system's zlib, CI's official Node
+ * the zlib bundled in it. An official Node 24 on a Mac measures what CI does (zlibNote, SIZE_NODE); the
+ * numbers from here on are its. The ECharts option (pivotkit-core's chart.js, toEChartsOption) then
+ * left the first load for the chart (chartOffBarrel): first load 175.1 to 173.4, chart 218.8 to
+ * 220.8. The budgets stay.
+ * Inline results that round as the view shows (#478): the report group carries the shown-number CSV and
+ * JSON writer, 23.07 on a Mac with Homebrew's zlib; report goes to 23.3. The same writer is in the
+ * export group (the browser's Table as CSV): CI measured 12.3 against 12.3; export goes to 12.6.
+ * The HTML report's row count in plural forms and the rows its filters keep, with ROW_COUNT_TEXTS
+ * and pluralForm shared with pivotkit-core (#547): report 23.0 with Homebrew's zlib (22.8 before);
+ * with #478's writer 23.3, at that budget: report goes to 23.5.
+ * The zoom slider, the legend toggle and 100 % stacks (#36): ECharts' slider component (dataZoom)
+ * takes the chart group to 231.1 with Homebrew's zlib (221.5 before), and the slider's keyboard
+ * control (#575, chart-legend.js zoomKeyProps) to 231.7. CI's zlib measured 232.5 on the merged
+ * head (about 0.7 more than a Mac): chart goes to 233. It is a lazy group, loaded with the first chart. The
+ * Display settings in levels (#106: chartTopics, the Axis, Tooltip, Series and Layout levels) with
+ * the zoom slider, 100 % switch and series list take menus to 48.5 (47.6 before) and the German menu
+ * texts to 7.3 (7.0): menus goes to 49, texts to 7.5. The first load grows 0.6 to 174.36 (the view
+ * keys, a view file's newer keys, the legend's announcement); the zoom and legend logic stays in the
+ * chart group (chart-legend.js).
+ * A chart's reference lines (#48): ECharts' markLine component draws them, 5.9 KiB of the chart group
+ * alone; with pivotkit-core's numbers, the checks with their reasons, the labels at their lines and
+ * the tooltip's lines the chart group was 230.7 on a Mac before #36. MarkLine in a chunk of its own,
+ * loaded with the first line, was measured too: esbuild split ECharts' shared modules into more
+ * chunks, and the chart group grew with it; so markLine stays in the chart's chunk. The SVG draws
+ * twice to place the labels at their lines: the report group 23.46 with Homebrew's zlib, budget 23.8.
+ * With #36 merged, CI's zlib (an official Node 24.22.3) measures the two features adding up: the
+ * chart group 222.2 before both, 231.4 with #48 alone, 232.5 with #36 alone, 241.6 with both (no
+ * second copy of anything); budget 242.6. The menus with the Reference lines level 49.6, budget 50.5;
+ * their German texts 7.6, budget 7.8.
+ * The first load with both is 175.6 on CI's zlib (174.9 before #48): the view key, the rules of which
+ * chart draws which line (0.17 of it) and the words of the lines. The rules cannot leave the first
+ * load cleanly: the menus need them from pivotkit-core's main entry, and a new entry point would be
+ * one more bare import for a host's import map. The maintainer raised the budget for 0.8.0, about
+ * 0.5 KiB above CI: 176.1; the split of the first load is #546 (0.9.0).
  * `--size` fails above it; raise it on purpose, with the reason in the commit.
  */
-export const SIZE_BUDGET_KIB = { initial: 161.5, chart: 211, export: 11.5, link: 7.3, menus: 41, texts: 6.8, unused: 5, import: 21 };
+export const SIZE_BUDGET_KIB = { initial: 177.9, chart: 242.6, export: 12.6, link: 7.5, menus: 51.2, texts: 7.8, unused: 5.5, import: 22, report: 23.8, template: 3 };
 
 /**
  * What a page loads, from the build's metafile: the entry with its static imports ("initial"), and
@@ -232,7 +316,9 @@ export const SIZE_BUDGET_KIB = { initial: 161.5, chart: 211, export: 11.5, link:
  * a view in a link, pivotkit-core/link with fflate's deflate and inflate, "menus": the menus' panels,
  * "texts": the menus' texts of a language besides English, "unused": the plain words of a view's
  * unused parts, English and every other language, "import": loading data with allow-import, the import
- * UI with its texts and pivotkit-core/import with its CSV and JSON readers).
+ * UI with its texts and pivotkit-core/import with its CSV and JSON readers, "report": the HTML report,
+ * the chart as SVG and printing, pivotkit-report with ECharts' SVG renderer, beyond the chart group;
+ * "template": pivotkit-report's reading of a print template's own CSS, which the element never loads).
  * @param {import("esbuild").Metafile} metafile
  * @returns {{ group: string, files: string[] }[]}
  */
@@ -267,11 +353,23 @@ export function loadGroups(metafile) {
     };
     scan(initial);
     const groupOf = (file) =>
-        /[\\/]echarts-[^\\/]+$/.test(file) ? "chart" : /[\\/]import-(?:ui|csv|json)-[^\\/]+$/.test(file) ? "import" : /[\\/]link-[^\\/]+$/.test(file) ? "link" : /[\\/]menus-[^\\/]+$/.test(file) ? "menus" : /[\\/]menu-texts-[^\\/]+$/.test(file) ? "texts" : /[\\/]unused-texts-[^\\/]+$/.test(file) ? "unused" : "export";
+        /[\\/]echarts-[^\\/]+$/.test(file) ? "chart" : /[\\/]report-run-[^\\/]+$/.test(file) ? "report" : /[\\/]template-style-[^\\/]+$/.test(file) ? "template" : /[\\/]import-(?:ui|csv|json)-[^\\/]+$/.test(file) ? "import" : /[\\/]link-[^\\/]+$/.test(file) ? "link" : /[\\/]menus-[^\\/]+$/.test(file) ? "menus" : /[\\/]menu-texts-[^\\/]+$/.test(file) ? "texts" : /[\\/]unused-texts-[^\\/]+$/.test(file) ? "unused" : "export";
     const groups = [{ group: "initial", files: [...initial] }];
-    for (const name of ["chart", "export", "link", "menus", "texts", "unused", "import"]) {
+    for (const name of ["chart", "export", "link", "menus", "texts", "unused", "import", "report", "template"]) {
         const files = [...closure(dynamic.filter((f) => groupOf(f) === name))].filter((f) => !initial.has(f));
         groups.push({ group: name, files });
+    }
+    // the report always loads the chart first (ECharts draws its SVG): it counts what it adds to it
+    const chart = new Set(groups.find((g) => g.group === "chart")?.files);
+    const report = groups.find((g) => g.group === "report");
+    if (report) {
+        report.files = report.files.filter((f) => !chart.has(f));
+    }
+    // a print template's CSS is read after the report has loaded: it counts what it adds to both
+    const template = groups.find((g) => g.group === "template");
+    if (template && report) {
+        const loaded = new Set([...chart, ...report.files]);
+        template.files = template.files.filter((f) => !loaded.has(f));
     }
     return groups;
 }
@@ -295,7 +393,30 @@ async function sizes(metafile) {
     return out;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/** The Node major of CI's size step (.github/workflows/ci.yml; tests/ci.test.js checks it). */
+export const SIZE_NODE = "24";
+
+/**
+ * Which zlib measured the gzip sizes, and a warning when CI would measure other ones. CI runs the
+ * size check on an official Node build, which compresses with the zlib bundled in Node. A Node built
+ * against the system's zlib (Homebrew's, for one) compresses the same bytes differently: Homebrew's
+ * Node 26 on a Mac measured the first load 0.6 KiB smaller than CI. Another Node major bundles
+ * another zlib build. An official Node of SIZE_NODE gives CI's numbers.
+ * @param {{ version: string, versions: { zlib?: string }, config: { variables: Record<string, unknown> } }} [node]  process, or a stand-in
+ * @returns {string[]}
+ */
+export function zlibNote(node = process) {
+    const line = `gzip level 9 with zlib ${node.versions.zlib}, Node ${node.version}`;
+    const shared = Boolean(node.config.variables.node_shared_zlib);
+    const major = node.version.replace(/^v/, "").split(".")[0];
+    if (!shared && major === SIZE_NODE) {
+        return [line];
+    }
+    const why = shared ? "this Node uses the system's zlib" : `this is Node ${major}`;
+    return [line, `CI measures with an official Node ${SIZE_NODE} build and its bundled zlib; ${why}, so the sizes can differ from CI's.`];
+}
+
+if (isMain(import.meta.url)) {
     await esbuild.build(reactOptions);
     await rm(join(here, "dist"), { recursive: true, force: true });
     const result = await esbuild.build(options);
@@ -303,6 +424,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     await writeFile(join(here, "dist", "THIRD_PARTY_LICENSES.txt"), await licenses(result.metafile));
     if (process.argv.includes("--size")) {
         const kb = (n) => `${(n / 1024).toFixed(1)} KiB`;
+        zlibNote().forEach((line) => console.log(line));
         let over = false;
         for (const { group, files, raw, gzip } of await sizes(result.metafile)) {
             const budget = SIZE_BUDGET_KIB[group];

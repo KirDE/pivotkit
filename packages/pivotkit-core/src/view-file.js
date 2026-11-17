@@ -1,7 +1,8 @@
 /*
  * The view file: a view with what a person and another pivotkit need to know about it, as one JSON
- * document ("pivotkit-view", format version 1). A file, the JSON a person copies and a link all carry
- * it; the schema is published at VIEW_FILE_SCHEMA (docs/schema/view-file-1.json).
+ * document ("pivotkit-view", format version 2; version 1 is read too). A file, the JSON a person
+ * copies and a link all carry it; the schema is published at VIEW_FILE_SCHEMA
+ * (docs/schema/view-file-2.json, built by scripts/schemas.js).
  *
  *   const file = toViewFile(view, { name: "Revenue by region", source: { id: "sales" }, data });
  *   const text = viewFileText(file);                  // canonical JSON, 2-space indent, trailing newline
@@ -11,23 +12,28 @@
  * Reading follows these rules: unknown keys are ignored (a later minor version may add some); a
  * document is an envelope when its `format` is "pivotkit-view", else it is a bare view (or a template
  * { name, view }); a newer `formatVersion` or a newer `view.version` is refused, never read as an older
- * one; the text is capped before it is parsed; every key is read as an own property; names and
+ * one (format version 2 carries views of version 2, which an older pivotkit-core refuses the same way); the text is capped before it is parsed; every key is read as an own property; names and
  * descriptions are plain text. The view in the result is still user input: normalize() it against the
  * data before it is shown.
  */
 
-import { VIEW_VERSION } from "./view.js";
+import { LIMITS, resolveLimits } from "./limits.js";
+import { VIEW_VERSION, emptyView } from "./view.js";
+import { PivotkitError } from "./errors.js";
 import { isPlainObject } from "./util.js";
 
 /** The value of `format` that marks an envelope. */
 export const VIEW_FILE_FORMAT = "pivotkit-view";
-/** The format version this package writes and reads; a newer one is refused. */
-export const VIEW_FILE_VERSION = 1;
+/** The format version this package writes; it reads it and every older one, and refuses a newer one. */
+export const VIEW_FILE_VERSION = 2;
+/** The format versions this package reads. */
+const READS = Object.freeze([1, 2]);
 /**
- * Where the JSON Schema of format version 1 is published; the same file ships in this package as
- * "pivotkit-core/schema/view-file-1.json". A file names it in `$schema` (toViewFile's `schemaUrl`).
+ * Where the JSON Schema of format version 2 is published; the same file ships in this package as
+ * "pivotkit-core/schema/view-file-2.json" (version 1's as view-file-1.json). A file names it in
+ * `$schema` (toViewFile's `schemaUrl`).
  */
-export const VIEW_FILE_SCHEMA = "https://pivotkit.eize.dev/schema/view-file-1.json";
+export const VIEW_FILE_SCHEMA = "https://pivotkit.eize.dev/schema/view-file-2.json";
 
 /**
  * The most a view file may hold: `text` characters before it is parsed, `name` characters of a name,
@@ -36,22 +42,25 @@ export const VIEW_FILE_SCHEMA = "https://pivotkit.eize.dev/schema/view-file-1.js
 export const VIEW_FILE_LIMITS = Object.freeze({ text: 1_000_000, name: 256, description: 2_000, fields: 1_000 });
 
 /** The types a field of source.fields can have (pivotkit-core's column types). */
-const FIELD_TYPES = Object.freeze(["string", "number", "date", "boolean", "null"]);
+export const FIELD_TYPES = Object.freeze(["string", "number", "date", "boolean", "null"]);
 
 /**
- * @typedef {{ id?: string, name?: string, fields?: Array<{ name: string, type: string }> }} ViewFileSource
+ * @typedef {{ id?: string, name?: string, fields?: Array<{ name: string, type: string }>, params?: Record<string, string> }} ViewFileSource  `params`: what the
+ *   host needs besides the id to find the data (a report's parameters), opaque names and values,
+ *   never an address or a query
  * @typedef {object} ViewFileMeta
  * @property {string} [name]  what the view shows ("Revenue by region"); default ""
  * @property {string} [description]  left out when empty
  * @property {string | Date} [createdAt]  when it was made; left out without it (a file that does not change on every export)
  * @property {{ name: string, version: string }} [generator]  the program that wrote it
- * @property {{ id?: string, name?: string }} [source]  the data the view was made for
+ * @property {{ id?: string, name?: string, params?: Record<string, string> }} [source]  the data the view was made for
  * @property {import("./encode.js").Encoded} [data]  the data: source.fields lists the fields the view uses with their types
  * @property {string | null} [schemaUrl]  the `$schema` written: VIEW_FILE_SCHEMA by default, a host's own
  *   copy of the schema, or null (or "") to leave `$schema` out. Reading never depends on it
  * @typedef {object} ViewFileRead
  * @property {Record<string, unknown> | null} view  the view as parsed, not normalized; null when nothing can be used
  * @property {boolean} envelope  the document was a view file, not a bare view
+ * @property {number | null} formatVersion  the envelope's format version (1 when it has none), null for a bare view
  * @property {string} name
  * @property {string} description
  * @property {string | null} createdAt
@@ -81,6 +90,62 @@ function plainText(value, max) {
 const own = (obj, key) => (isPlainObject(obj) && Object.hasOwn(obj, key) ? obj[key] : undefined);
 
 /**
+ * Every place a view names a field, in the order a reader meets them: rows, columns, values, filters
+ * (with the measure a top N or a value condition goes by), sort (with the measure it goes by), then
+ * the groupings' source fields. `visit(name, kind, set)` gets each name: kind "field" for a name that
+ * is no grouping's, "grouping" for a grouping's name, "source" for a grouping's source field; `set`
+ * writes another name there (only in the copy `mapFieldRefs` returns). The one list of these places:
+ * viewFileFields and renameFields both walk it.
+ * @param {unknown} view
+ * @param {(name: string, kind: "field" | "grouping" | "source", set: (name: string) => void) => void} visit
+ * @param {boolean} [copy]  walk a copy (JSON) that `set` writes into; without it, the view itself is
+ *   only read (a view that is no JSON, a cycle or a BigInt, is read without a throw)
+ * @returns {unknown} the copy with what `set` wrote, or the view
+ */
+function mapFieldRefs(view, visit, copy = false) {
+    if (!isPlainObject(view)) {
+        return view;
+    }
+    const out = copy ? JSON.parse(JSON.stringify(view)) : view;
+    const list = (key) => {
+        const v = own(out, key);
+        return Array.isArray(v) ? v : [];
+    };
+    const groupings = new Set(list("derived").map((d) => own(d, "name")).filter((n) => typeof n === "string").map((n) => n.toLowerCase()));
+    const kindOf = (name) => (groupings.has(name.toLowerCase()) ? "grouping" : "field");
+    const at = (obj, key) => {
+        const name = Array.isArray(obj) ? obj[key] : own(obj, key);
+        if (typeof name === "string" && name !== "") {
+            visit(name, kindOf(name), (next) => {
+                obj[key] = next;
+            });
+        }
+    };
+    for (const axis of ["rows", "cols"]) {
+        const names = list(axis);
+        names.forEach((_, i) => at(names, i));
+    }
+    list("values").forEach((v) => at(v, "field"));
+    for (const f of list("filters")) {
+        at(f, "field");
+        if (isPlainObject(own(f, "by"))) at(f.by, "field");
+    }
+    for (const s of list("sort")) {
+        at(s, "field");
+        if (isPlainObject(own(s, "value"))) at(s.value, "field");
+    }
+    for (const d of list("derived")) {
+        const name = own(d, "field");
+        if (typeof name === "string" && name !== "") {
+            visit(name, "source", (next) => {
+                d.field = next;
+            });
+        }
+    }
+    return out;
+}
+
+/**
  * The names of the data's fields a view uses, in the order they appear: rows, columns, values,
  * filters, sort (with the values a sort, a top N or a value condition goes by). A grouping (derived
  * field) counts as its source field. Names as the view writes them, each once (case-insensitive).
@@ -89,11 +154,8 @@ const own = (obj, key) => (isPlainObject(obj) && Object.hasOwn(obj, key) ? obj[k
  */
 export function viewFileFields(view) {
     const derived = new Map();
-    const list = (key) => {
-        const v = own(view, key);
-        return Array.isArray(v) ? v : [];
-    };
-    for (const d of list("derived")) {
+    const list = own(view, "derived");
+    for (const d of Array.isArray(list) ? list : []) {
         const name = own(d, "name");
         const field = own(d, "field");
         if (typeof name === "string" && typeof field === "string") {
@@ -102,8 +164,8 @@ export function viewFileFields(view) {
     }
     const out = [];
     const seen = new Set();
-    const add = (name) => {
-        if (typeof name !== "string" || name === "") {
+    mapFieldRefs(view, (name, kind) => {
+        if (kind === "source") {
             return;
         }
         const source = derived.get(name.toLowerCase()) ?? name;
@@ -111,20 +173,69 @@ export function viewFileFields(view) {
             seen.add(source.toLowerCase());
             out.push(source);
         }
-    };
-    const ref = (r) => add(own(r, "field"));
-    list("rows").forEach(add);
-    list("cols").forEach(add);
-    list("values").forEach(ref);
-    for (const f of list("filters")) {
-        add(own(f, "field"));
-        ref(own(f, "by"));
-    }
-    for (const s of list("sort")) {
-        add(own(s, "field"));
-        ref(own(s, "value"));
-    }
+    });
     return out;
+}
+
+/**
+ * A view with fields renamed: `map` names a field of the view (key, matched case-insensitively) and
+ * its new name (value), for data whose columns were renamed since the view was made. Every place the
+ * view names a data field is renamed (rows, columns, values, filters and their measures, sort and its
+ * measure, the groupings' source fields), all at once (a swap { A: "B", B: "A" } swaps); a grouping's
+ * own name is no data field and stays. `unused` lists the keys the view does not name. Own keys of
+ * `map` only. Two keys onto one new name, or a new name the view keeps as a field, would join two
+ * fields: INVALID_ARGUMENT.
+ * @param {unknown} view
+ * @param {Record<string, string>} map
+ * @returns {{ view: any, unused: string[] }}
+ */
+export function renameFields(view, map) {
+    if (!isPlainObject(map)) {
+        throw new PivotkitError("INVALID_ARGUMENT", "renameFields: map is an object { old name: new name }");
+    }
+    const to = new Map();
+    const targets = new Map();
+    for (const from of Object.keys(map)) {
+        const next = map[from];
+        if (typeof next !== "string" || next === "") {
+            throw new PivotkitError("INVALID_ARGUMENT", `renameFields: the new name of ${JSON.stringify(from.slice(0, 40))} is no text`);
+        }
+        const other = targets.get(next.toLowerCase());
+        if (other !== undefined && other.toLowerCase() !== from.toLowerCase()) {
+            throw new PivotkitError("INVALID_ARGUMENT", `renameFields: ${JSON.stringify(other.slice(0, 40))} and ${JSON.stringify(from.slice(0, 40))} cannot both become ${JSON.stringify(next.slice(0, 40))}`);
+        }
+        targets.set(next.toLowerCase(), from);
+        to.set(from.toLowerCase(), next);
+    }
+    // a field the view uses renamed to a field the view keeps would join two fields too
+    const used = new Set();
+    mapFieldRefs(view, (name, kind) => {
+        if (kind !== "grouping") used.add(name.toLowerCase());
+    });
+    for (const [target, from] of targets) {
+        if (used.has(from.toLowerCase()) && used.has(target) && !to.has(target)) {
+            throw new PivotkitError("INVALID_ARGUMENT", `renameFields: ${JSON.stringify(from.slice(0, 40))} cannot become ${JSON.stringify(map[from].slice(0, 40))}, a field the view keeps`);
+        }
+    }
+    const hit = new Set();
+    let out;
+    try {
+        out = mapFieldRefs(
+            view,
+            (name, kind, set) => {
+                const next = kind === "grouping" ? undefined : to.get(name.toLowerCase());
+                if (next !== undefined) {
+                    hit.add(name.toLowerCase());
+                    set(next);
+                }
+            },
+            true
+        );
+    } catch (e) {
+        if (e instanceof PivotkitError) throw e;
+        throw new PivotkitError("INVALID_ARGUMENT", "renameFields: the view is no JSON (a cycle or a value JSON does not hold)");
+    }
+    return { view: out, unused: Object.keys(map).filter((k) => !hit.has(k.toLowerCase())) };
 }
 
 /** The schema fields of an Encoded (or of anything with schema.fields), by lower-case name. */
@@ -134,11 +245,34 @@ function fieldsOf(data) {
 }
 
 /**
+ * The chart keys newer than the view files of pivotkit 0.7. A file leaves each one out while it holds
+ * its default, so a reader of 0.7 takes the file without an `unknownKey` warning unless the view sets
+ * one; reading a file puts them back. The keys 0.7 knows are written as they are.
+ */
+export const NEWER_CHART_KEYS = Object.freeze(["tooltip", "zoom", "stackPercent", "hidden", "referenceLines"]);
+
+/**
+ * A view with the newer chart keys at their defaults left out (`back` false), or put back where a file
+ * left them out (`back` true). The view given stays as it is.
+ */
+function newerChartKeys(view, back) {
+    const chart = view.chart;
+    if (!isPlainObject(chart)) {
+        return view;
+    }
+    const defaults = /** @type {Record<string, unknown>} */ (emptyView().chart);
+    const kept = Object.entries(chart).filter(([key, value]) => back || !NEWER_CHART_KEYS.includes(key) || JSON.stringify(value) !== JSON.stringify(defaults[key]));
+    const added = back ? NEWER_CHART_KEYS.filter((key) => !Object.hasOwn(chart, key)).map((key) => [key, defaults[key]]) : [];
+    return { ...view, chart: Object.fromEntries([...kept, ...added]) };
+}
+
+/**
  * A view as a view file (an object; viewFileText() writes it). Keys in their canonical order:
  * $schema (unless `meta.schemaUrl` is null), format, formatVersion, name, description (only when not empty), createdAt (only when
  * given), generator (when given), source, extensions, view. `options.link` gives the profile a link
- * carries: format, formatVersion, source.id, name (when not empty) and view; nothing that grows with
- * the data (fields) or changes on every export (createdAt).
+ * carries: format, formatVersion, source.id and source.params, name (when not empty) and view; nothing
+ * that grows with the data (fields) or changes on every export (createdAt). source.params are written
+ * with a source id only, as text, within LIMITS.srcParams and srcParamLength (the rest left out).
  * @param {object} view  the view (normalized: it is written as it is)
  * @param {ViewFileMeta} [meta]
  * @param {{ link?: boolean }} [options]
@@ -148,13 +282,16 @@ export function toViewFile(view, meta = {}, options = {}) {
     if (!isPlainObject(view)) {
         throw new TypeError("toViewFile(view): view must be an object");
     }
+    view = newerChartKeys(view, false);
     const name = plainText(meta.name, VIEW_FILE_LIMITS.name);
     const sourceId = plainText(meta.source?.id, VIEW_FILE_LIMITS.name);
+    const params = sourceId ? paramsOf(meta.source?.params, LIMITS, () => {}) : null;
+    const withParams = params && Object.keys(params).length ? { params } : {};
     if (options.link) {
         return {
             format: VIEW_FILE_FORMAT,
             formatVersion: VIEW_FILE_VERSION,
-            ...(sourceId ? { source: { id: sourceId } } : {}),
+            ...(sourceId ? { source: { id: sourceId, ...withParams } } : {}),
             ...(name ? { name } : {}),
             view
         };
@@ -180,7 +317,7 @@ export function toViewFile(view, meta = {}, options = {}) {
         ...(description ? { description } : {}),
         ...(created ? { createdAt: created } : {}),
         ...(generator ? { generator } : {}),
-        source: { ...(sourceId ? { id: sourceId } : {}), ...(sourceName ? { name: sourceName } : {}), ...(fields ? { fields } : {}) },
+        ...(sourceId || sourceName || fields ? { source: { ...(sourceId ? { id: sourceId } : {}), ...(sourceName ? { name: sourceName } : {}), ...(fields ? { fields } : {}), ...withParams } } : {}),
         extensions: {},
         view
     };
@@ -217,12 +354,13 @@ export function viewFileName(name) {
  * Never throws. With `options.data` it also says how the view fits that data (`compatible`): the
  * same source (by `options.sourceId`), and every field it uses there with the same type.
  * @param {unknown} input  the text, or the parsed JSON
- * @param {{ data?: import("./encode.js").Encoded, sourceId?: string }} [options]
+ * @param {{ data?: import("./encode.js").Encoded, sourceId?: string, limits?: Partial<import("./limits.js").Limits> }} [options]  `limits`:
+ *   srcParams and srcParamLength for source.params
  * @returns {ViewFileRead}
  */
 export function fromViewFile(input, options = {}) {
     /** @type {ViewFileRead} */
-    const read = { view: null, envelope: false, name: "", description: "", createdAt: null, generator: null, source: null, failed: null, issues: [] };
+    const read = { view: null, envelope: false, formatVersion: null, name: "", description: "", createdAt: null, generator: null, source: null, failed: null, issues: [] };
     const fail = (failed, message) => ({ ...read, failed, issues: [...read.issues, { path: "", message }] });
     let doc = input;
     if (typeof input === "string") {
@@ -245,17 +383,18 @@ export function fromViewFile(input, options = {}) {
     let view;
     if (own(doc, "format") === VIEW_FILE_FORMAT) {
         read.envelope = true;
-        // an integer; anything else that is not missing is refused, never read as version 1: a newer
-        // or unknown version (2, 2.5, "2") could mean what version 1 does not
+        // an integer this package reads; anything else that is not missing is refused, never read as
+        // an older version: a newer or unknown version (3, 2.5, "2") could mean what this one does not
         const version = own(doc, "formatVersion");
         if (version === undefined || version === null) {
-            issue("formatVersion", `missing; read as ${VIEW_FILE_VERSION}`);
-        } else if (version !== VIEW_FILE_VERSION) {
+            issue("formatVersion", "missing; read as 1");
+        } else if (!READS.includes(/** @type {number} */ (version))) {
             const n = typeof version === "number" ? version : typeof version === "string" && version.trim() !== "" ? Number(version) : NaN;
             return n > VIEW_FILE_VERSION
                 ? fail("newerFormat", `format version ${JSON.stringify(version)} is newer than ${VIEW_FILE_VERSION}`)
-                : fail("notView", `format version ${JSON.stringify(version)} is not ${VIEW_FILE_VERSION}`);
+                : fail("notView", `format version ${JSON.stringify(version)} is not one of ${READS.join(", ")}`);
         }
+        read.formatVersion = /** @type {number} */ (version ?? 1);
         view = own(doc, "view");
         read.name = plainText(own(doc, "name"), VIEW_FILE_LIMITS.name);
         read.description = plainText(own(doc, "description"), VIEW_FILE_LIMITS.description);
@@ -268,7 +407,7 @@ export function fromViewFile(input, options = {}) {
         if (isPlainObject(generator) && typeof own(generator, "name") === "string") {
             read.generator = { name: plainText(own(generator, "name"), VIEW_FILE_LIMITS.name), version: plainText(own(generator, "version"), VIEW_FILE_LIMITS.name) };
         }
-        read.source = readSource(own(doc, "source"), issue);
+        read.source = readSource(own(doc, "source"), issue, resolveLimits(options));
     } else {
         // a bare view, or a template { name, view }
         const inner = own(doc, "view");
@@ -286,15 +425,50 @@ export function fromViewFile(input, options = {}) {
     if (typeof viewVersion === "number" && viewVersion > VIEW_VERSION) {
         return fail("newerView", `view version ${viewVersion} is newer than ${VIEW_VERSION}`);
     }
-    read.view = /** @type {Record<string, unknown>} */ (view);
+    // a view file leaves the newer chart keys out at their defaults: its view gets them back; a bare view stays as given
+    read.view = /** @type {Record<string, unknown>} */ (read.envelope ? newerChartKeys(view, true) : view);
     if (options.data) {
         read.compatible = compatibility(read, options.data, options.sourceId);
     }
     return read;
 }
 
-/** The source of an envelope: id, name and fields as plain text, the rest left out with an issue. */
-function readSource(raw, issue) {
+/**
+ * source.params as written: a plain object of text by text name, at most `limits.srcParams` entries
+ * of at most `limits.srcParamLength` characters each, every key read as an own property; null when
+ * there are none. What does not fit is left out and reported.
+ * @param {unknown} raw
+ * @param {{ srcParams: number, srcParamLength: number }} limits
+ * @param {(path: string, message: string) => void} issue
+ * @returns {Record<string, string> | null}
+ */
+export function paramsOf(raw, limits, issue) {
+    if (raw === undefined || raw === null) {
+        return null;
+    }
+    if (!isPlainObject(raw)) {
+        issue("source.params", "not an object");
+        return null;
+    }
+    /** @type {Record<string, string>} */
+    const params = Object.create(null);
+    const keys = Object.keys(raw);
+    if (keys.length > limits.srcParams) {
+        issue("source.params", `more than ${limits.srcParams} parameters; the rest left out`);
+    }
+    for (const key of keys.slice(0, limits.srcParams)) {
+        const value = own(raw, key);
+        if (key === "" || key.length > limits.srcParamLength || typeof value !== "string" || value.length > limits.srcParamLength) {
+            issue(`source.params.${key.slice(0, 100)}`, `a parameter is a name and a text of at most ${limits.srcParamLength} characters`);
+        } else {
+            params[key] = value;
+        }
+    }
+    return { ...params };
+}
+
+/** The source of an envelope: id, name, fields and params as plain text, the rest left out with an issue. */
+function readSource(raw, issue, limits) {
     if (raw === undefined) {
         return null;
     }
@@ -311,6 +485,10 @@ function readSource(raw, issue) {
     }
     if (name) {
         source.name = name;
+    }
+    const params = paramsOf(own(raw, "params"), limits, issue);
+    if (params && Object.keys(params).length) {
+        source.params = params;
     }
     const fields = own(raw, "fields");
     if (fields !== undefined) {

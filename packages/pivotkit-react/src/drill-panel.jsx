@@ -12,6 +12,7 @@
 import React, { useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useModal } from "./dom.js";
 import { exportDrill } from "./drill-export.js";
+import { dataExportFor, drillExportOn } from "./export-scope.js";
 import { drillOf } from "./drill-table.js";
 import { Icon } from "./icons.jsx";
 import { fill, plural } from "./labels.js";
@@ -25,14 +26,23 @@ import { prepareExporters } from "./export-run.js";
 /**
  * @param {{ drill: import("./drill-table.js").DrillSource | null, onClose: () => void, labels: import("./labels.js").UiLabels, locale: string,
  *   exportContext?: { encoded: import("pivotkit-core").Encoded, onExport?: (file: import("./export-run.js").ExportFile) => unknown,
- *     announce: (text: string, extra?: { tone?: "error" }) => void, root: React.RefObject<HTMLElement | null> } }} props
+ *     announce: (text: string, extra?: { tone?: "error" }) => void, root: React.RefObject<HTMLElement | null>, exportData?: unknown, drillDownExport?: boolean } }} props
+ *   `exportContext`: the panel's exports: offered with the host's exportData, or with drillDownExport
+ *   while exportData is off (#263); exportData's `{ columns }` keeps them to those (#259)
  */
-export function DrillPanel({ drill: source, onClose, labels, locale, exportContext }) {
+export function DrillPanel({ drill: source, onClose, labels, locale, exportContext: context }) {
+    // the host's columns: only those in every export (#259); exportData off without drillDownExport,
+    // or no column left: the rows on screen, no Export menu (#263)
+    const scope = context ? dataExportFor(context.exportData, context.encoded) : undefined;
+    const columns = scope?.columns;
+    const exportContext = context && scope && drillExportOn(scope, { drillDownExport: context.drillDownExport }) ? context : undefined;
     const id = useId();
     // the rows as the table shows them, the title from the cell's labels (drill-table.js)
     const drill = useMemo(() => (source ? drillOf(source, labels) : null), [source, labels]);
     const panel = useRef(/** @type {HTMLDivElement | null} */ (null));
     const [big, setBig] = useState(false);
+    // whether the press of a click on the scrim started on it
+    const pressed = useRef(false);
     // a narrow report's panel fills it already: no Enlarge there
     const narrow = useContext(LayerContext).size === "narrow";
     // Escape: an enlarged panel goes back to its size first, the next one closes it
@@ -51,12 +61,13 @@ export function DrillPanel({ drill: source, onClose, labels, locale, exportConte
     const run = (kind, close) => () => {
         close();
         if (exportContext) {
-            void exportDrill(kind, { drill, labels, ...exportContext, root: exportContext.root.current });
+            void exportDrill(kind, { drill, labels, ...exportContext, columns, root: exportContext.root.current });
         }
     };
     return (
         <>
-            <div className="pk-scrim pk-drill-scrim" onClick={onClose} aria-hidden="true" />
+            {/* closes on a press that starts on it: the click a phone sends after the tap that opened the panel lands here too */}
+            <div className="pk-scrim pk-drill-scrim" onPointerDown={(e) => (pressed.current = e.target === e.currentTarget)} onClick={() => pressed.current && onClose()} aria-hidden="true" />
             <div
                 className={`pk-drill${big && !narrow ? " pk-drill-big" : ""}`}
                 role="dialog"

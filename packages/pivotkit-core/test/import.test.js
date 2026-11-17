@@ -7,6 +7,9 @@ import { readFileSync } from "node:fs";
 import { BUILT_IN_READERS, PLUGIN_API_VERSION, csvReader, jsonReader, loadReader, readFile, readerFor, retype, validatePlugin } from "pivotkit-core/import";
 import { LIMITS, PivotkitError, computePivot, encode, toGrid } from "pivotkit-core";
 
+import { fileName } from "../src/import-table.js";
+import { cpuClock } from "../../../tests/cpu-time.js";
+
 const fixture = (name) => readFileSync(new URL(`./import-fixtures/${name}`, import.meta.url));
 const fileOf = (name, bytes = fixture(name)) => new File([bytes], name);
 const text = (name, content) => new File([new TextEncoder().encode(content)], name);
@@ -163,6 +166,25 @@ test("rows with more values than names get columns named Column N", async () => 
     assert.ok(t.notes.some((n) => n.code === "COLUMNS_ADDED" && n.params.rows === 1));
 });
 
+test("unnamed lists the columns the file gives no name: a blank header cell and a row longer than the header, not a renamed repeat", async () => {
+    const t = await readFile(text("x.csv", "A;;B;B\n1;2;3;4\n5;6;7;8;9\n"));
+    assert.deepEqual(t.columns, ["A", "Column 2", "B", "B (2)", "Column 5"]);
+    assert.deepEqual(t.unnamed, ["Column 2", "Column 5"]);
+    assert.deepEqual(t.longRows, [1], "the second row is longer than the header");
+    const y = await readFile(text("y.csv", "A;B\n1;2\n"));
+    assert.deepEqual([y.unnamed, y.longRows], [[], []]);
+    // a row longer only by an empty last cell, where the other rows are not, is long: its values may be shifted
+    assert.deepEqual((await readFile(text("z.csv", "A,B,C\n1,2,3\nb,12,3,\n"))).longRows, [1]);
+    // every row ending with a separator the header lacks is a trailing separator, no shift
+    assert.deepEqual((await readFile(text("t.csv", "A,B,C\n1,2,3,\n4,5,6,\n7,8,9,\n"))).longRows, []);
+    // a header that ends with one too: a uniform file keeps its rows
+    assert.deepEqual((await readFile(text("v.csv", "A,B,C,\n1,2,3,\n7,8,9,\n"))).longRows, []);
+    // where rows differ in width, every row wider than the named header counts (which one shifted cannot be told)
+    assert.deepEqual((await readFile(text("u.csv", "A,B,C,\n1,2,3,\nb,12,3,x,\n7,8,9,\n"))).longRows, [0, 1, 2]);
+    // a value beyond the named header in a file of one width is a shift
+    assert.deepEqual((await readFile(text("w.csv", "A,B,C\n1,2,3,\nSm,ith,9,x\n"))).longRows, [0, 1]);
+});
+
 test("types from text: dates before numbers, leading zeros and long numbers stay text, the notation per column", async () => {
     const t = await readFile(text("t.csv", [
         "Day;Zip;Long;De;En;Int;Flag;Mixed",
@@ -243,7 +265,7 @@ test("limits: the file size before reading, rows, columns and cells while readin
     await rejects(readFile(big), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "fileBytes" && e.details.file === "huge.csv");
     assert.equal(read, false, "the bytes were not read");
     const rows = "A\n" + "1\n".repeat(11);
-    await rejects(readFile(text("rows.csv", rows), { limits: { rows: 10 } }), (e) => e.details.limit === "rows" && e.message === '"rows.csv" has more than 10 rows (limits.rows): load a smaller extract of it, or a host can raise limits.rows');
+    await rejects(readFile(text("rows.csv", rows), { limits: { rows: 10 } }), (e) => e.details.limit === "rows" && e.message === '"rows.csv" has more than 10 rows (limits.rows): load a smaller extract of it, or a host can raise this limit');
     await rejects(readFile(text("cols.csv", "A,B,C\n1,2,3\n"), { limits: { columns: 2 } }), (e) => e.details.limit === "columns");
     await rejects(readFile(text("cells.csv", "A,B\n1,2\n3,4\n5,6\n"), { limits: { importCells: 5 } }), (e) => e.details.limit === "importCells");
     await rejects(readFile(text("j.json", JSON.stringify(Array.from({ length: 11 }, (_, i) => ({ i })))), { limits: { rows: 10 } }), (e) => e.details.limit === "rows");
@@ -293,6 +315,67 @@ test("plugins: the contract is checked, another API version is refused with both
     assert.equal(await viaDefault.read(), "ok");
 });
 
+/** A plugin whose read() returns `table` (a function gives a fresh one per read). */
+const pluginOf = (table, name = "mini") => ({ apiVersion: 1, kind: "reader", name, label: "Mini", accept: [".mini"], load: async () => ({ read: async () => (typeof table === "function" ? table() : structuredClone(table)) }) });
+const MINIMAL = { columns: ["a", "b"], types: ["string", "string"], data: [["1", "2"], ["x", "y"]], notes: [{ code: "SHEET" }] };
+const readMini = (table, options = {}) => readFile(text("x.mini", "x"), { plugins: [pluginOf(table)], ...options });
+const refused = (pattern) => (e) => e.code === "INVALID_ARGUMENT" && /plugin "mini"/.test(e.message) && pattern.test(e.message);
+
+test("a plugin's hand-built table (columns, types, data, notes) gets the rest from readFile, so retype works", async () => {
+    const read = await readMini(MINIMAL);
+    assert.equal(read.rowCount, 2);
+    assert.deepEqual(read.raw, MINIMAL.data);
+    assert.deepEqual(read.detected, ["string", "string"]);
+    // the hints createTable takes: "." and the locale's order of day and month (month first for en-US and without a locale)
+    assert.deepEqual(read.hints, { decimal: ".", dateOrder: "mdy" });
+    assert.deepEqual((await readMini(MINIMAL, { locale: "de-DE" })).hints, { decimal: ".", dateOrder: "dmy" });
+    // a hint left out is derived
+    assert.deepEqual((await readMini({ ...MINIMAL, hints: { decimal: "," } }, { locale: "de-DE" })).hints, { decimal: ",", dateOrder: "dmy" });
+    assert.deepEqual((await readMini({ ...MINIMAL, hints: { decimal: ",", dateOrder: "mdy", textNumbers: false } })).hints, { decimal: ",", dateOrder: "mdy", textNumbers: false });
+    assert.deepEqual(read.notes, [{ code: "SHEET", params: {}, message: "SHEET" }]);
+    assert.deepEqual(retype(read, ["number", "string"]).data[0], [1, 2]);
+    // what a plugin gives and is right stays as given
+    const full = { ...MINIMAL, raw: [["1", "2"], ["x", "y"]], detected: ["number", "string"], rowCount: 2 };
+    const kept = await readMini(full);
+    assert.deepEqual([kept.raw, kept.detected, kept.rowCount], [full.raw, full.detected, 2]);
+});
+
+test("a plugin's table with a field given but wrong is refused, naming the plugin and the field", async () => {
+    for (const [change, pattern] of [
+        [{ rowCount: 999 }, /rowCount/],
+        [{ rowCount: 2 ** 53 - 1 }, /rowCount/],
+        [{ rowCount: -1 }, /rowCount/],
+        [{ rowCount: 1.5 }, /rowCount/],
+        [{ detected: ["money", "string"] }, /detected/],
+        [{ detected: ["string"] }, /detected/],
+        [{ raw: "1,2" }, /raw/],
+        [{ raw: [["1", "2"]] }, /raw/],
+        [{ raw: [["1"], ["x", "y"]] }, /raw/],
+        [{ notes: [{ code: "SHEET" }, { nope: 1 }] }, /notes\[1\]/],
+        [{ notes: [null] }, /notes\[0\]/],
+        [{ hints: "dmy" }, /hints/],
+        [{ hints: ["dmy"] }, /hints must be an object/],
+        [{ hints: { decimal: "x" } }, /hints\.decimal/],
+        [{ hints: { dateOrder: "ymd" } }, /hints\.dateOrder/]
+    ]) {
+        await assert.rejects(readMini({ ...MINIMAL, ...change }), refused(pattern), JSON.stringify(change));
+    }
+    // a getter that throws is the plugin's error too
+    const throwing = () => ({ ...MINIMAL, get data() { throw new Error("boom"); } });
+    await assert.rejects(readMini(throwing), refused(/boom/));
+});
+
+test("a plugin's table counts against the limits a reader keeps", async () => {
+    const over = (limit) => (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === limit && e.details.file === "x.mini";
+    await assert.rejects(readMini(MINIMAL, { limits: { rows: 1 } }), over("rows"));
+    await assert.rejects(readMini(MINIMAL, { limits: { columns: 1 } }), over("columns"));
+    await assert.rejects(readMini(MINIMAL, { limits: { importCells: 3 } }), over("importCells"));
+    await assert.rejects(readMini({ ...MINIMAL, data: [["1", "2"], ["x", "long text"]] }, { limits: { textLength: 5 } }), over("textLength"));
+    await assert.rejects(readMini({ ...MINIMAL, raw: [["1", "2"], ["x", "long text"]] }, { limits: { textLength: 5 } }), over("textLength"));
+    // a table the size of the limits passes
+    assert.equal((await readMini(MINIMAL, { limits: { rows: 2, columns: 2, importCells: 4, textLength: 1 } })).rowCount, 2);
+});
+
 test("encode: columnar input gives the same pivot as row objects (real data)", async () => {
     const t = await readFile(fileOf("kerg2-btw25.csv"));
     const rows = Array.from({ length: t.rowCount }, (_, r) => Object.fromEntries(t.columns.map((c, k) => [c, t.data[k][r]])));
@@ -331,9 +414,9 @@ test("encode: columnar input is checked, typed and selected like rows", () => {
 
 test("a wide row late in a long file is refused before a column of every row is allocated", async () => {
     const lines = "A\n" + "1\n".repeat(300_000) + Array.from({ length: 1_000 }, (_, i) => i).join(",") + "\n";
-    const started = performance.now();
+    const cpu = cpuClock();
     await rejects(readFile(text("late.csv", lines)), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "importCells" && e.details.file === "late.csv");
-    assert.ok(performance.now() - started < 5_000, `${performance.now() - started} ms`);
+    assert.ok(cpu() < 5_000, `${Math.round(cpu())} ms of CPU`);
     // a row of more fields than limits.columns stops while it is split
     await rejects(readFile(text("commas.csv", "A\n" + ",".repeat(5_000) + "x\n")), (e) => e.details.limit === "columns");
 });
@@ -350,4 +433,15 @@ test("a JSON key in a note is cleaned and cut", async () => {
     const p = t.notes.find((n) => n.code === "JSON_PROPERTY").params.property;
     assert.ok(!p.includes("\u{202E}"));
     assert.equal(p.length, 256);
+});
+
+test("file names capped at 256 units keep complete Unicode characters", () => {
+    for (const prefix of [254, 255, 256]) {
+        const name = "a".repeat(prefix) + "😀.csv";
+        const expected = prefix === 254 ? "a".repeat(254) + "😀" : "a".repeat(Math.min(prefix, 256));
+        assert.equal(fileName({ name }), expected);
+        assert.equal(fileName(null, { name }), expected);
+        assert.equal(new TextDecoder().decode(new TextEncoder().encode(expected)), expected);
+    }
+    assert.equal(fileName({ name: "" }), "file");
 });

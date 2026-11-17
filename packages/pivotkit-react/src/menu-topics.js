@@ -10,9 +10,13 @@
 
 import { CATALOG, aggregatorsFor, fieldLabel, formatter, isFormat } from "pivotkit-core";
 import { fill, plural } from "./labels.js";
+import { dateRangeText, dateDisplayLocale } from "./date-context.js";
+import { calendarDays, groupHint, groupStats } from "./group-context.js";
 import { groupingName, refLabel, relativeText, sortText, valueLabel } from "./names.js";
-import { ZONES, dateSpan, filterZoneFields, filtersOf, groupField, groupingOf, moveField, numericResult, reorder, sameRef, setSort, sortEntry, sortOf, sourceOf } from "./view-ops.js";
-import { TOTALS, filterState, measureChoices, ruleKind, setQuickRange, setRule, setTopFilter, totalNoEffect, updateValue, withMeasure } from "./menu-ops.js";
+import { ZONES, dateSpan, filterZoneFields, filtersOf, groupField, groupingOf, hiddenAfter, moveField, numericResult, reorder, sameRef, setSort, sortEntry, sortOf, sourceOf } from "./view-ops.js";
+import { valueAddsUp } from "pivotkit-core";
+import { CHART_TYPES, SLICE_TYPES } from "./chart-types.js";
+import { TOTALS, filterState, keepsBlanks, measureChoices, quickChoice, ruleKind, setQuickRange, setRule, setTopFilter, totalNoEffect, updateValue, withMeasure } from "./menu-ops.js";
 
 /**
  * One choice of a topic: a menu item. `change` gives the next view and the history's note, or `run`
@@ -20,7 +24,8 @@ import { TOTALS, filterState, measureChoices, ruleKind, setQuickRange, setRule, 
  * away). `checkbox`: a switch (`checked` on or off) instead of one of several; `disabled` with the
  * `reason`; `info`: the id of its explanation (labels.settingInfo). `open`: the id of a topic whose
  * level it opens (after `run`; Back puts the focus on `backTo`, else on the choice), instead of applying; `actions`: an entry's own actions next to it
- * (choices themselves, drawn as icon buttons with `label`); `current`: the entry shown now.
+ * (choices themselves, drawn as icon buttons with `label`); `current`: the entry shown now. A switch
+ * (`checkbox`) keeps its level open after it, so people flip several in a row.
  * @typedef {{ id: string, text: string, change?: () => { view: any, note: any } | null, run?: () => void, checked?: boolean,
  *   hint?: string, icon?: string, closes?: boolean, checkbox?: boolean, disabled?: boolean, reason?: string, info?: string,
  *   keywords?: string, open?: string, backTo?: string, actions?: Array<Choice & { label: string }>, current?: boolean, testId?: string, label?: string }} Choice
@@ -35,9 +40,9 @@ import { TOTALS, filterState, measureChoices, ruleKind, setQuickRange, setRule, 
  * opens, with no row of its own (`levelTitle` its title); `note`: a line under its choices.
  * @typedef {{ id: string, title: string, kind: "segmented" | "inline" | "menu" | "panel",
  *   groups?: Array<{ title?: string, choices: Choice[] }>, state?: string | null, changed?: boolean,
- *   icon?: string, titled?: boolean, info?: string, hidden?: boolean, levelTitle?: string, note?: string | null, noteId?: string,
- *   keywords?: string, searchExtra?: Array<{ id: string, text: string, focus?: string, choice?: Choice }>,
- *   searchFor?: (query: string) => Array<{ id: string, text: string, focus?: string, choice: Choice }> }} Topic
+ *   icon?: string, titled?: boolean, info?: string, hidden?: boolean, levelTitle?: string, note?: string | null, noteId?: string, intro?: string,
+ *   keywords?: string, searchExtra?: Array<{ id: string, text: string, focus?: string, choice?: Choice, keywords?: string }>,
+ *   searchFor?: (query: string) => Array<{ id: string, text: string, focus?: string, choice: Choice, keywords?: string }> }} Topic
  * `keywords`: more words the search finds the topic's entries by (a choice's own `keywords` put it
  * first among the hits for them); `searchExtra`: more entries of a panel topic (a part of its level,
  * or a quick choice of it); `searchFor`: entries made from what is typed ("last 3 years", "from 2022").
@@ -133,15 +138,19 @@ export function axisTopics({ view, zone, index, field, types, labels, locale, st
         filterTopic({ view, field, labels, locale, state, encoded })
     ];
     if (date) {
+        const stats = groupStats(encoded, source);
+        const span = stats?.span;
+        const dateLocale = dateDisplayLocale(view.formatting?.locale || locale);
         const regroup = (unit) => () => {
             const sourceName = fieldLabel(source, labels.core);
             const grouped = unit ? groupingName(sourceName, unit, labels) : null;
             return { view: groupField(view, field, unit, { name: grouped ?? undefined }).view, note: { step: "group", field: sourceName } };
         };
         // the field is replaced by its grouping (another chip): the menu closes
-        const unit = (u) => ({ id: `group-${u}`, text: labels.units[u] ?? u, hint: labels.unitHints[u] || undefined, checked: grouping?.by === u, closes: true, change: regroup(u) });
+        const unit = (u) => ({ id: `group-${u}`, text: labels.units[u] ?? u, hint: groupHint(encoded, source, u, dateLocale, labels, stats), checked: grouping?.by === u, closes: true, change: regroup(u) });
         topics.push({
             id: "group",
+            intro: span ? fill(plural(labels.groupDataRange, calendarDays(span), {lang: labels.lang, locale: dateLocale}), { range: dateRangeText(span, dateLocale) }) : undefined,
             title: labels.groupTopic,
             kind: "menu",
             icon: "date",
@@ -203,13 +212,16 @@ export function filterTopic({ view, field, labels, locale, state, encoded }) {
                   return [];
               }
               const units = n > CATALOG.relativeMaxCount ? [] : fk.months ? ["year", "month"] : ["year"];
-              // the range counts back from what the field's range does now (the latest record, or today)
+              // the range takes the place of the quick choice, counts back from what the field's range does
+              // now (the latest record, or today) and keeps the blanks as the field's rules do
               const anchor = filtersOf(view, field, ["relative"])[0]?.anchor;
+              const previous = quickChoice(view, field, fk).filters[0] ?? null;
+              const blanks = keepsBlanks(view, field) ? "include" : "exclude";
               // the same words as the chip and the Filter level: "Last 3 years (2024–2025; 2026 has no data)"
               const span = dateSpan(encoded, sourceOf(view, field));
               const ranges = units.map((unit) => {
                   const text = capital(relativeText({ unit, count: n, anchor }, labels, locale, timeZone, undefined, span));
-                  return { id: `quick-${unit}-${n}`, text, choice: { id: `quick-${unit}-${n}`, text, change: () => ({ view: setQuickRange(view, field, { unit, count: n, anchor }), note }) } };
+                  return { id: `quick-${unit}-${n}`, text, choice: { id: `quick-${unit}-${n}`, text, change: () => ({ view: setQuickRange(view, field, { unit, count: n, anchor, blanks }, previous), note }) } };
               });
               // a year of a grouping by year, written as its chip will say it ("from 2022"); a date
               // field compares days, which the rule editor picks
@@ -218,7 +230,7 @@ export function filterTopic({ view, field, labels, locale, state, encoded }) {
                   return ranges;
               }
               const compares = [">=", "<=", "<", ">"].map((op) => {
-                  const entry = { field, type: "compare", op, value: n };
+                  const entry = { field, type: "compare", op, value: n, not: false, blanks: "exclude" };
                   // the words of the chip, with the year as typed ("from 2022", not a date)
                   const text = capital(fill(labels.compareShort[op], { value: String(n) }));
                   return { id: `compare-${op}-${n}`, text, choice: { id: `compare-${op}-${n}`, text, change: () => ({ view: setRule(view, field, null, entry), note }) } };
@@ -237,7 +249,8 @@ export function filterTopic({ view, field, labels, locale, state, encoded }) {
         // the rules are found by their names, and open the level on them
         searchExtra: [
             { id: "open-filter-rules", text: labels.rulesTitle, focus: "conditions" },
-            { id: "open-filter-text", text: labels.addRuleName, focus: "conditions" },
+            // the rule on the name by its operators too ("does not begin with")
+            { id: "open-filter-text", text: labels.addRuleName, focus: "conditions", keywords: Object.values(labels.labelOps).join(" ") },
             { id: "open-filter-value", text: labels.addRuleTotal, focus: "conditions" }
         ],
         searchFor
@@ -398,7 +411,7 @@ export function valueTopics({ view, index, types, labels, locale, defaultsOf, ea
 
 /**
  * The topics of the Options menu: the totals (each a switch; one that would change nothing in this
- * view is off, with the reason), Expand all and Collapse all (each only when it changes something,
+ * view is disabled and unticked, with the reason), Expand all and Collapse all (each only when it changes something,
  * else with the reason), and help: Show tips, Show explanations, Show dismissed tips again, and the
  * keyboard shortcuts (a level). What each does is the report's (`act`).
  * @param {{ view: any, labels: any, folding: { canExpand: boolean, canCollapse: boolean, why: { expand?: string | null, collapse?: string | null } },
@@ -429,7 +442,8 @@ export function optionTopics({ view, labels, folding, tips, explanations, act })
                 {
                     choices: TOTALS.map((key) => {
                         const why = totalNoEffect(view, key);
-                        return { id: `total-${key}`, text: labels[key], checkbox: true, checked: view.totals[key], disabled: why !== null, reason: why ? labels[why] : undefined, info: key, run: () => act.total(key, !view.totals[key]) };
+                        // a switch that changes nothing shows no tick: the table has no such total
+                        return { id: `total-${key}`, text: labels[key], checkbox: true, checked: why === null && view.totals[key], disabled: why !== null, reason: why ? labels[why] : undefined, info: key, run: () => act.total(key, !view.totals[key]) };
                     })
                 }
             ]
@@ -451,6 +465,129 @@ export function optionTopics({ view, labels, folding, tips, explanations, act })
         { id: "help", title: labels.help, kind: "inline", titled: true, groups: [{ choices: help }] },
         { id: "shortcuts", title: labels.shortcutsTitle, kind: "panel", icon: "info" }
     ];
+}
+
+/** The value labels a chart type offers: a share in percent is a pie's and a donut's. */
+const VALUE_LABELS = Object.freeze({ slices: ["auto", "off", "value", "percent", "both"], other: ["auto", "off", "value"] });
+
+/**
+ * The topics of the chart type menu's Display settings (#106), each a row with what is set that opens
+ * its level: Value labels, Legend, Title (a form), Axis (axis and group labels, the zoom slider),
+ * Tooltip, Reference lines (a form), Series (one switch per series or slice) and Layout (100 % stacks,
+ * smooth lines, a pie's label position). A topic the chart has nothing for is left out. Every choice applies `act.display(patch)`
+ * (pivotkit-core's chart settings); the type stays. Reference lines come after Tooltip: a level with
+ * a form (toolbar-panels.jsx), its row saying which lines are on.
+ * @param {{ view: any, drawn: string, labels: any, names: string[], act: { display: (patch: object) => void },
+ *   lines?: { rules: { average: boolean, trend: boolean, target: boolean, notes?: string[] }, targetText: string } }} input
+ *   `drawn`: the picker entry drawn (chart-types.js); `names`: the legend's entries (series, a pie's slices);
+ *   `lines`: which reference lines the chart can draw (pivotkit-core's referenceLineChecks, or its
+ *   view's rules with the note "table"), and the target as the locale writes it
+ * @returns {Topic[]}
+ */
+export function chartTopics({ view, drawn, labels, names, act, lines = { rules: { average: true, trend: true, target: true, notes: [] }, targetText: "" } }) {
+    const chart = view.chart;
+    const pie = SLICE_TYPES.includes(drawn);
+    const axis = CHART_TYPES[drawn]?.axis ?? false;
+    /** One choice of several: radio, its patch applied at once. @returns {Choice} */
+    const pickOf = (/** @type {string} */ key, /** @type {string} */ value, /** @type {string} */ text, /** @type {string} */ id, /** @type {string | undefined} */ info = undefined) => ({ id, text, checked: (chart[key] ?? null) === value, info, run: () => act.display({ [key]: value }) });
+    /** A switch. @returns {Choice} */
+    const flip = (/** @type {string} */ key, /** @type {string} */ text, /** @type {string} */ id, /** @type {string | undefined} */ info = undefined) => ({ id, text, checkbox: true, checked: Boolean(chart[key]), info, run: () => act.display({ [key]: !chart[key] }) });
+    // a pie's "percent" on another type draws the value: it shows as "Value" there
+    const valueLabels = !pie && (chart.valueLabels === "percent" || chart.valueLabels === "both") ? "value" : chart.valueLabels;
+    /** @type {Topic[]} */
+    const topics = [
+        {
+            id: "valueLabels",
+            title: labels.valueLabels,
+            kind: "menu",
+            state: labels.valueLabelNames[valueLabels],
+            changed: valueLabels !== "auto",
+            groups: [{ choices: (pie ? VALUE_LABELS.slices : VALUE_LABELS.other).map((v) => ({ ...pickOf("valueLabels", v, labels.valueLabelNames[v], `labels-${v}`), checked: valueLabels === v })) }]
+        },
+        { id: "legend", title: labels.legend, kind: "menu", state: labels.legendNames[chart.legend], changed: chart.legend !== "auto", groups: [{ choices: ["auto", "bottom", "right", "off"].map((v) => pickOf("legend", v, labels.legendNames[v], `legend-${v}`)) }] },
+        { id: "title", title: labels.chartTitle, kind: "panel", state: chart.title || labels.chartTitleNone, changed: Boolean(chart.title) }
+    ];
+    if (axis) {
+        const groups = view.rows.length >= 2;
+        const off = [groups && chart.groupLabels !== "auto" ? `${labels.groupLabels.toLowerCase()} ${labels.groupLabelNames[chart.groupLabels].toLowerCase()}` : null, chart.zoom !== "auto" ? `${labels.zoom.toLowerCase()} ${labels.zoomNames[chart.zoom].toLowerCase()}` : null].filter(Boolean);
+        topics.push({
+            id: "axis",
+            title: labels.chartAxis,
+            kind: "menu",
+            state: [labels.axisLabelNames[chart.axisLabels], ...off].join(", "),
+            changed: chart.axisLabels !== "auto" || off.length > 0,
+            groups: [
+                { title: labels.axisLabels, choices: ["auto", "all", "nth"].map((v) => pickOf("axisLabels", v, labels.axisLabelNames[v], `axis-${v}`)) },
+                ...(groups ? [{ title: labels.groupLabels, choices: ["auto", "on", "off"].map((v) => pickOf("groupLabels", v, labels.groupLabelNames[v], `groups-${v}`, v === "auto" ? "groupLabels" : undefined)) }] : []),
+                { title: labels.zoom, choices: ["auto", "on", "off"].map((v) => pickOf("zoom", v, labels.zoomNames[v], `zoom-${v}`, v === "auto" ? "zoom" : undefined)) }
+            ]
+        });
+        topics.push({
+            id: "tooltip",
+            title: labels.tooltip,
+            kind: "menu",
+            info: "tooltip",
+            state: labels.tooltipNames[chart.tooltip ?? "auto"],
+            changed: (chart.tooltip ?? "auto") !== "auto",
+            groups: [{ choices: ["auto", "axis"].map((v) => pickOf("tooltip", v, labels.tooltipNames[v], `tooltip-${v}`)) }]
+        });
+    }
+    if (axis) {
+        // Reference lines: a level of switches (Average, Trend), the target's row that opens its form
+        // (the hidden topic "linesTarget", toolbar-panels.jsx), and why a line is off as a reason
+        const now = chart.referenceLines ?? { average: false, trend: false, target: null };
+        const words = labels.core.referenceLines;
+        const { rules, targetText } = lines;
+        const notes = Array.isArray(rules.notes) ? rules.notes : [];
+        const say = (/** @type {string[]} */ keys) => {
+            const note = notes.find((n) => keys.includes(n));
+            return note && Object.hasOwn(labels.linesNotes, note) ? labels.linesNotes[note] : undefined;
+        };
+        const total = ["noTotal", "percentStack", "negative"];
+        const set = (/** @type {object} */ patch) => act.display({ referenceLines: { ...now, ...patch } });
+        /** @type {Choice[]} */
+        const choices = [
+            { id: "line-average", text: words.average, checkbox: true, checked: now.average, disabled: !rules.average, reason: rules.average ? undefined : say(total), run: () => set({ average: !now.average }) },
+            { id: "line-trend", text: words.trend, checkbox: true, checked: now.trend, disabled: !rules.trend, reason: rules.trend ? undefined : say([...total, "noTime"]), run: () => set({ trend: !now.trend }) },
+            { id: "line-target", text: words.target, hint: now.target !== null ? targetText : labels.targetNone, open: "linesTarget", disabled: !rules.target, reason: rules.target ? undefined : say(["noTotal", "percentStack", "mixedUnits"]) },
+            // a target the chart cannot draw stays removable
+            ...(!rules.target && now.target !== null ? [{ id: "target-remove", text: labels.targetRemove, run: () => set({ target: null }) }] : [])
+        ];
+        const on = [now.average ? words.average : null, now.trend ? words.trend : null, now.target !== null ? words.target : null].filter(Boolean);
+        // a note under the choices: with the table shown, or a trend over the categories' order
+        const note = notes.includes("table") ? labels.linesNotes.table : notes.includes("byIndex") && rules.trend ? labels.linesNotes.byIndex : null;
+        topics.push({ id: "lines", title: labels.referenceLines, kind: "menu", state: on.length ? on.join(", ") : labels.linesOff, changed: on.length > 0, groups: [{ choices }], note, noteId: "lines-note" });
+        topics.push({ id: "linesTarget", title: words.target, kind: "panel", hidden: true, levelTitle: `${labels.referenceLines} › ${words.target}` });
+    }
+    if (names.length > 1) {
+        const hidden = (chart.hidden ?? []).filter((/** @type {string} */ n) => names.includes(n)).length;
+        const now = chart.hidden ?? [];
+        topics.push({
+            id: "series",
+            title: labels.shownSeries,
+            kind: "menu",
+            state: fill(labels.seriesShownOf, { shown: String(names.length - hidden), count: String(names.length) }),
+            changed: hidden > 0,
+            // every series or slice, the level scrolls; a switch keeps the level open for the next one
+            groups: [{ choices: names.map((name, i) => ({ id: `series-${i}`, text: name, checkbox: true, checked: !now.includes(name), run: () => act.display({ hidden: hiddenAfter(now, name, now.includes(name)) }) })) }]
+        });
+    }
+    /** @type {Choice[]} */
+    const layout = [];
+    if ((drawn === "stacked" || drawn === "area") && view.values.length > 0 && view.values.every(valueAddsUp)) {
+        layout.push(flip("stackPercent", labels.stackPercent, "chart-stack-percent", "stackPercent"));
+    }
+    if (drawn === "line" || drawn === "area") {
+        layout.push(flip("smooth", labels.smoothLines, "chart-smooth"));
+    }
+    if (pie) {
+        layout.push(...["outside", "inside"].map((v) => ({ ...pickOf("labelPosition", v, labels.labelPositionNames[v], `label-position-${v}`, v === "outside" ? "labelPosition" : undefined), checked: (chart.labelPosition ?? "outside") === v, disabled: chart.valueLabels === "off" })));
+    }
+    if (layout.length) {
+        const on = layout.filter((c) => c.checked && (c.checkbox || c.id === "label-position-inside")).map((c) => c.text);
+        topics.push({ id: "layout", title: labels.chartLayout, kind: "menu", state: on.join(", ") || null, changed: on.length > 0, groups: [{ choices: layout }] });
+    }
+    return topics;
 }
 
 /**
@@ -480,7 +617,7 @@ export const afterDelete = (list, place) => list[place + 1] ?? list[place - 1];
 /**
  * One entry of a menu's search: a choice of a topic (with the path to it), or a topic's level
  * (`focus`: the part of it to show and focus).
- * @typedef {{ id: string, text: string, path: string, topic: Topic, choice?: Choice, focus?: string }} SearchEntry
+ * @typedef {{ id: string, text: string, path: string, topic: Topic, choice?: Choice, focus?: string, keywords?: string }} SearchEntry
  */
 
 /**
@@ -497,7 +634,7 @@ export function searchEntries(topics, query = "") {
             return [];
         }
         const typed = query && topic.searchFor ? topic.searchFor(query) : [];
-        const extra = [...typed, ...(topic.searchExtra ?? [])].map((x) => ({ id: x.id, text: x.text, path: topic.title, topic, choice: x.choice, focus: x.focus }));
+        const extra = [...typed, ...(topic.searchExtra ?? [])].map((x) => ({ id: x.id, text: x.text, path: topic.title, topic, choice: x.choice, focus: x.focus, keywords: x.keywords }));
         return topic.kind === "panel"
             ? [{ id: `open-${topic.id}`, text: topic.title, path: "", topic }, ...extra]
             : (topic.groups ?? []).flatMap((g) => g.choices.map((choice) => ({ id: choice.id, text: choice.text, path: [topic.title, g.title].filter(Boolean).join(" › "), topic, choice })));
@@ -522,7 +659,7 @@ export function searchHits(entries, query, locale) {
         return [];
     }
     const found = entries.filter((e) => {
-        const text = lower(`${e.text} ${e.path} ${e.topic.keywords ?? ""} ${e.choice?.keywords ?? ""}`);
+        const text = lower(`${e.text} ${e.path} ${e.topic.keywords ?? ""} ${e.choice?.keywords ?? e.keywords ?? ""}`);
         return words.every((w) => text.includes(w));
     });
     // a stable sort: the entries with the first word among their own keywords ("percent": the shares

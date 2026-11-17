@@ -8,6 +8,7 @@
  */
 
 import { Zip, ZipDeflate, ZipPassThrough, strToU8 } from "fflate";
+import { isMain } from "../../../scripts/is-main.js";
 
 const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
@@ -195,10 +196,49 @@ export function* ticketRows(count, seed = 44) {
     }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
     const { writeFileSync } = await import("node:fs");
     const [out, rows = "94000", used = "900000"] = process.argv.slice(2);
     const bytes = makeXlsx({ sheets: [{ name: "Tickets", rows: () => ticketRows(Number(rows)), usedRangeTo: Number(used), emptyCells: 20 }] });
     writeFileSync(out, bytes);
     console.log(`${out}: ${bytes.length.toLocaleString("en-US")} bytes`);
 }
+
+/**
+ * The workbooks of the tests of a view made on another sheet than the first (issue #252), shared by
+ * the CLI's tests and the browser's: "quarters" has three sheets with other columns each (so each
+ * sheet is other data), "months" three sheets with the same columns and other values (so only the
+ * sheet tells them apart).
+ */
+export const SHEET_BOOKS = Object.freeze({
+    // a note first (as people put a "Readme" sheet before the data), then the orders of two years
+    sales: () => {
+        const orders = (year, n) => [
+            ["Order date", "Region", "Category", "Units", "Revenue"],
+            ...Array.from({ length: n }, (_, i) => [{ date: new Date(Date.UTC(year, i % 12, 1 + ((i * 7) % 27))) }, ["North", "South", "East", "West"][i % 4], ["Hardware", "Software", "Services"][i % 3], (i % 5) + 1, 100 + i * 10])
+        ];
+        return makeXlsx({
+            sheets: [
+                { name: "Readme", rows: [["Note"], ["Sales test data."], ["The sheets 2025 and 2026 hold the orders of each year."], ["This sheet holds no data."]] },
+                { name: "2025", rows: orders(2025, 24) },
+                { name: "2026", rows: orders(2026, 20) }
+            ]
+        });
+    },
+    quarters: () =>
+        makeXlsx({
+            sheets: [
+                { name: "Q1", rows: [["Region", "Units"], ["North", 1], ["South", 2]] },
+                { name: "Q2", rows: [["Team", "Hours"], ["Network", 3], ["Server", 4]] },
+                { name: "Q3", rows: [["Product", "Revenue"], ["Alpha", 30], ["Beta", 70], ["Alpha", 5]] }
+            ]
+        }),
+    months: () =>
+        makeXlsx({
+            sheets: [
+                { name: "Jan", rows: [["Region", "Units"], ["North", 1], ["South", 2]] },
+                { name: "Feb", rows: [["Region", "Units"], ["North", 10], ["South", 20]] },
+                { name: "Mar", rows: [["Region", "Units"], ["North", 100], ["East", 300]] }
+            ]
+        })
+});

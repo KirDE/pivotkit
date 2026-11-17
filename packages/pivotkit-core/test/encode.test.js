@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PivotkitError, encode } from "../src/index.js";
 import { toWallMs, wallClock } from "../src/time.js";
+import { cpuClock } from "../../../tests/cpu-time.js";
 
 const utc = wallClock("UTC");
 
@@ -95,9 +96,9 @@ test("numeric text stays text unless inferNumbers is on; the detected type says 
 test("numeric text is recognised in linear time, and very long text is no number", () => {
     // the pattern used to backtrack quadratically on digits followed by something else
     const digits = "1".repeat(100_000);
-    const t0 = performance.now();
+    const cpu = cpuClock();
     const d = encode([{ v: `${digits}x` }, { v: "2" }]);
-    assert.ok(performance.now() - t0 < 200, `${Math.round(performance.now() - t0)} ms`);
+    assert.ok(cpu() < 200, `${Math.round(cpu())} ms of CPU`);
     assert.equal(d.schema.fields[0].detected, "string");
     // longer than 100 characters: text, even when it is all digits
     assert.equal(encode([{ v: "1".repeat(101) }], { inferNumbers: true }).column("v").type, "string");
@@ -140,4 +141,16 @@ test("column names that differ only in case are one column, and that is reported
         'row 2 has "TEAM" next to another spelling of it; the later value is used'
     ]);
     assert.deepEqual(encode([{ a: 1 }]).issues, []);
+});
+
+test("a case collision has a code: one column, a value of a row left out, a columnar column left out", () => {
+    const rows = encode([{ A: 1, a: 2 }]);
+    assert.deepEqual([...rows.column("a").values], [2]);
+    assert.deepEqual(rows.issues.map((i) => [i.code, i.params]), [
+        ["columnCase", { column: "A", spelling: "a" }],
+        ["columnCaseValue", { column: "A", spelling: "a", row: 0 }]
+    ]);
+    const columnar = encode({ columns: ["A", "a"], data: [[1], [2]] });
+    assert.deepEqual([...columnar.column("a").values], [1]);
+    assert.deepEqual(columnar.issues.map((i) => [i.code, i.params]), [["columnCaseLeftOut", { column: "A", spelling: "a" }]]);
 });

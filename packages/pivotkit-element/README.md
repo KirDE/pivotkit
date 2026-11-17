@@ -2,12 +2,13 @@
 
 The pivot report builder of [pivotkit](https://pivotkit.eize.dev/) as one web component,
 `<pivot-report>`, for pages without React: Angular apps, PHP and other server-rendered pages, plain
-HTML. It brings its own React ([which version](https://pivotkit.eize.dev/browser-support/#react)), [pivotkit-react](https://www.npmjs.com/package/pivotkit-react),
-[pivotkit-core](https://www.npmjs.com/package/pivotkit-core) and @dnd-kit, renders into an open shadow
-root and loads ECharts on the first chart. Everything the React component does works the same: field
-list, drag and drop, table and chart, filters, drill-down, undo, saved and shared views, export.
+HTML. Everything the React component does works the same: field list, drag and drop, table and
+chart, filters, drill-down, undo, saved and shared views, export.
 
 ![A line chart of monthly revenue per category](https://pivotkit.eize.dev/assets/screenshots/chart-light.png)
+
+Date fields show their data range and grouping hints; cyclic groupings explain which years they combine.
+See [dates and grouping](https://pivotkit.eize.dev/use/values/).
 
 ## Install
 
@@ -15,11 +16,12 @@ list, drag and drop, table and chart, filters, drill-down, undo, saved and share
 npm install pivotkit-element
 ```
 
-With a bundler, `import "pivotkit-element";` once defines `<pivot-report>`. Without one, serve the
-package's whole `dist/` directory: its chunks are loaded by relative URL from `dist/index.js`, so
-`index.js` alone is not enough. The package has no runtime dependency; the licenses of what it
-bundles are in `dist/THIRD_PARTY_LICENSES.txt`. Browsers: Chrome 111, Firefox 113, Safari 16.4 or
-later.
+- With a bundler, `import "pivotkit-element";` once. That defines `<pivot-report>`.
+- Without a bundler, serve the package's whole `dist/` directory. `dist/index.js` loads its chunks by
+  relative URL, so `index.js` alone is not enough.
+- The package has no runtime dependency. The licenses of what it bundles are in
+  `dist/THIRD_PARTY_LICENSES.txt`.
+- Browsers: Chrome 111, Firefox 113, Safari 16.4 or later.
 
 ## Example
 
@@ -43,11 +45,20 @@ report.templates = [{ name: "By region", view: { rows: ["Region"] } }];
 report.addEventListener("pivot-view-change", (e) => localStorage.setItem("view", JSON.stringify(e.detail.view)));
 ```
 
+## How it works
+
+- Brings its own React ([which version](https://pivotkit.eize.dev/browser-support/#react)),
+  [pivotkit-react](https://www.npmjs.com/package/pivotkit-react),
+  [pivotkit-core](https://www.npmjs.com/package/pivotkit-core) and @dnd-kit.
+- Renders into an open shadow root.
+- Loads ECharts on the first chart.
+
 ## Where in the docs
 
 | Topic | Page |
 | --- | --- |
 | Getting started: install, first report, saving views on a server | [Getting started with the web component](https://pivotkit.eize.dev/getting-started/web-component/) |
+| Loading files and the source data | [Load your own data](https://pivotkit.eize.dev/use/load-data/), [the table or the rows](https://pivotkit.eize.dev/use/export/#the-table-or-the-rows-behind-it) |
 | PHP and server-rendered pages | [PHP and other server-rendered pages](https://pivotkit.eize.dev/getting-started/web-component/#php-and-other-server-rendered-pages) |
 | Angular | [Angular](https://pivotkit.eize.dev/getting-started/web-component/#angular), [Angular and zone.js](https://pivotkit.eize.dev/reference/element/#angular-and-zonejs) |
 | A page with React of its own | [React on the page](https://pivotkit.eize.dev/reference/element/#react-on-the-page) |
@@ -70,5 +81,5 @@ report.addEventListener("pivot-view-change", (e) => localStorage.setItem("view",
 
 ## License
 
-[MIT](https://github.com/eizedev/pivotkit/blob/main/LICENSE); the bundled packages under their own
-licenses, see `dist/THIRD_PARTY_LICENSES.txt`.
+[MIT](https://github.com/eizedev/pivotkit/blob/main/LICENSE). The bundled packages keep their own
+licenses, listed in `dist/THIRD_PARTY_LICENSES.txt`.

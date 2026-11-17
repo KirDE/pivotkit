@@ -31,7 +31,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { emptyView, normalize } from "pivotkit-core";
-import { createState, record, redo as redoStep, reset as resetStep, settle, undo as undoStep } from "./view-history.js";
+import { answered, createState, record, redo as redoStep, reset as resetStep, settle, told, undo as undoStep } from "./view-history.js";
 import { withHostOrders } from "./view-ops.js";
 
 /**
@@ -72,12 +72,13 @@ export function useViewHistory({ encoded, view, defaultView, onViewChange, limit
     const [state, setState] = useState(() => initialState ?? createState(schema, start));
 
     const viewKey = controlled ? JSON.stringify(view) : null;
-    // the host's view (controlled) when the report last told it one: while the host still passes that
-    // one, it has not passed the report's view back yet (a history to start on is told on mount). Gone
-    // once the host passes another view, so the same view passed again later is the host's own.
-    const [toldOver, setToldOver] = useState(() => (initialState ? viewKey : null));
-    if (toldOver !== null && toldOver !== viewKey) {
-        setToldOver(null);
+    // Keep every outgoing view (at most HISTORY_LIMIT) until the host acknowledges it. Intermediate echoes belong to
+    // this sequence, not to a new outside edit. Rendering still uses the host's view (#142).
+    const [echo, setEcho] = useState(() => ({ over: viewKey, pending: initialState ? [initialState.present] : [] }));
+    let pending = echo.pending;
+    if (viewKey !== echo.over) {
+        pending = viewKey === null ? [] : answered(pending, json(JSON.parse(viewKey)));
+        setEcho({ over: viewKey, pending });
     }
     const shown = useMemo(() => {
         if (viewKey !== null) {
@@ -87,15 +88,18 @@ export function useViewHistory({ encoded, view, defaultView, onViewChange, limit
     }, [viewKey, json, state, schema]);
     const current = useMemo(() => /** @type {import("pivotkit-core").View} */ (JSON.parse(shown)), [shown]);
     // the history a step works on (pure: a new schema or an outside change, settled)
-    const live = useMemo(() => settle(state, { schema, start, shown, outside: outsideNote }), [state, schema, start, shown, outsideNote]);
+    const waiting = viewKey !== null && pending.length > 0 && state.schema === schema;
+    const live = useMemo(() => waiting ? state : settle(state, { schema, start, shown, outside: outsideNote }), [waiting, state, schema, start, shown, outsideNote]);
 
     const apply = useCallback(
         (next) => {
             setState(next);
-            setToldOver(viewKey);
+            if (viewKey !== null) {
+                setEcho((previous) => ({ over: viewKey, pending: told(previous.over === viewKey ? previous.pending : pending, next.present) }));
+            }
             onViewChange?.(JSON.parse(next.present));
         },
-        [onViewChange, viewKey]
+        [onViewChange, viewKey, pending]
     );
     /** Records a change; false when the view stays (a new tag alone is kept, without a step). */
     const commit = useCallback(
@@ -145,9 +149,7 @@ export function useViewHistory({ encoded, view, defaultView, onViewChange, limit
      * The history as it is now (settled), to keep while other data is shown or for a new mount; while
      * the host has not passed back the view it was told, the history as the report made it.
      */
-    const waiting = viewKey !== null && viewKey === toldOver && state.schema === schema;
-    const made = waiting ? state : live;
-    const snapshot = useCallback(() => made, [made]);
+    const snapshot = useCallback(() => live, [live]);
 
     /** The views before this one, oldest first (a value's earlier colours, for its Highlight). */
     const earlier = useCallback(() => live.past.map((p) => JSON.parse(p.view)), [live.past]);

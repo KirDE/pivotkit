@@ -1,21 +1,21 @@
 /*
- * The filter popover of a field that is not placed yet (the field list's "Filter…"): its values with row
+ * The filter popover of the field list's "Add to Filters": its values with row
  * counts (pivotkit-core's fieldItems), a search, select all and none, "only this value", and a
  * condition on the label by the field's type (conditionKind: text, a number's label; none for dates). Changes are a draft until Apply, so one filter is one undo step; the × of the
- * condition's text removes the condition at once. A field that is not placed yet (the field list's
- * "Filter…") is filtered on a draft that puts it into Filters: Apply places it with the selection,
- * Cancel leaves the report as it was.
+ * condition's text removes the condition at once. A field that is not in Filters yet is filtered on a
+ * draft that puts it there (off Rows or Columns): Apply places it with the selection, Cancel leaves
+ * the report as it was.
  */
 
 import React, { useMemo, useState } from "react";
-import { CATALOG, fieldItems, fieldLabel } from "pivotkit-core";
+import { LIMITS, fieldItems, fieldLabel } from "pivotkit-core";
 import { ClearInput } from "./clear-input.jsx";
 import { useFormName } from "./dom.js";
 import { Icon } from "./icons.jsx";
 import { fill } from "./labels.js";
 import { Popover } from "./popover.jsx";
-import { filtersOf, selectedItems } from "./view-ops.js";
-import { conditionKind, setItemFilter, setLabelFilter } from "./menu-ops.js";
+import { RULE_OPS, filtersOf, ruleOp, searchItems, selectedItems } from "./view-ops.js";
+import { conditionKind, setItemFilter, setLabelFilter, textOn } from "./menu-ops.js";
 
 /** Values listed at once; the search finds the others. */
 export const FILTER_LIST_MAX = 300;
@@ -38,8 +38,7 @@ export function ValueList({ items, selected, onChange, labels, locale, autoFocus
     const [query, setQuery] = useState("");
     // one name for the list's checkboxes, as a form's list of choices has
     const name = useFormName();
-    const q = query.trim().toLocaleLowerCase();
-    const matching = q ? items.filter((i) => i.label.toLocaleLowerCase().includes(q)) : items;
+    const matching = searchItems(items, query);
     const inList = tail ? matching.filter((i) => !tail.isOut(i)) : matching;
     const out = tail ? matching.filter((i) => tail.isOut(i)) : [];
     const shown = inList.slice(0, FILTER_LIST_MAX);
@@ -101,7 +100,7 @@ export function ValueList({ items, selected, onChange, labels, locale, autoFocus
                     {inList.length > shown.length ? (
                         <li className="pk-hint pk-values-more">{fill(labels.valuesShown, { shown: shown.length, total: inList.length.toLocaleString(locale) })}</li>
                     ) : null}
-                    {out.length && tail ? tail.render(out, (i) => row(i, true), q !== "") : null}
+                    {out.length && tail ? tail.render(out, (i) => row(i, true), matching !== items /* searchItems gives the list itself without a search */) : null}
                 </ul>
                 {children}
             </div>
@@ -116,8 +115,8 @@ function FilterBody({ view: current, base, field, encoded, locale, labels, commi
     const info = useMemo(() => fieldItems(encoded, field, { view, locale, labels: labels.core }), [encoded, field, view, locale, labels]);
     const all = useMemo(() => (info ? info.items.map((i) => i.value) : []), [info]);
     const [selected, setSelected] = useState(() => new Set(selectedItems(view, field, all).map(keyOf)));
-    const label = filtersOf(view, field, ["label"])[0];
-    const [op, setOp] = useState(label?.op ?? "");
+    const label = filtersOf(view, field, ["text"])[0];
+    const [op, setOp] = useState(label ? ruleOp(label) : "");
     const [text, setText] = useState(label?.value ?? "");
     if (!info) {
         return null;
@@ -125,7 +124,7 @@ function FilterBody({ view: current, base, field, encoded, locale, labels, commi
     const name = fieldLabel(field, labels.core);
     const apply = () => {
         let next = setItemFilter(view, field, all.filter((v) => selected.has(keyOf(v))), all);
-        next = setLabelFilter(next, field, op ? { op, value: text } : null);
+        next = setLabelFilter(next, field, op ? { op, value: text, on: textOn(encoded, field) } : null);
         close();
         commit(next, { step: "filter", field: name });
     };
@@ -149,7 +148,7 @@ function FilterBody({ view: current, base, field, encoded, locale, labels, commi
                 <legend>{kind === "number" ? labels.conditionNumber : labels.condition}</legend>
                 <select name={`${formName}-op`} value={op} onChange={(e) => setOp(e.target.value)} aria-label={kind === "number" ? labels.conditionNumber : labels.condition}>
                     <option value="">{labels.conditionNone}</option>
-                    {CATALOG.labelOps.map((o) => (
+                    {RULE_OPS.text.map((o) => (
                         <option key={o} value={o}>
                             {labels.labelOps[o] ?? o}
                         </option>
@@ -162,14 +161,14 @@ function FilterBody({ view: current, base, field, encoded, locale, labels, commi
                         onChange={setText}
                         // the condition goes at once (one undo step); the values chosen stay a draft
                         onClear={() => {
-                            if (!base && filtersOf(view, field, ["label"]).length) {
+                            if (!base && filtersOf(view, field, ["text"]).length) {
                                 commit(setLabelFilter(view, field, null), { step: "filter", field: name });
                             }
                         }}
                         clearLabel={labels.clearText}
                         aria-label={labels.conditionValue}
                         placeholder={labels.conditionValue}
-                        maxLength={1000}
+                        maxLength={LIMITS.textValue}
                         data-testid="filter-condition-text"
                     />
                 ) : null}
@@ -191,7 +190,7 @@ function FilterBody({ view: current, base, field, encoded, locale, labels, commi
 /**
  * @param {{ target: { field: string, anchor: HTMLElement, base?: object } | null, onClose: () => void, view: object,
  *   encoded: import("pivotkit-core").Encoded, locale: string, labels: import("./labels.js").UiLabels, commit: (v: object, note?: any) => void }} props
- *   `target.base`: the draft view of a field that is not placed yet (it goes into Filters on Apply)
+ *   `target.base`: the draft view of a field that is not in Filters yet (it goes there on Apply)
  */
 export function FilterPopover({ target, onClose, view, encoded, locale, labels, commit }) {
     const anchor = useMemo(() => ({ current: target ? target.anchor : null }), [target]);

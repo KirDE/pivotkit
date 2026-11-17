@@ -124,7 +124,8 @@ test.describe("building a report", () => {
         await chipMenu(page, "Created by month", "group");
         await page.getByTestId("group-year").click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Created by year"]);
-        expect((await tableRows(page)).map((r) => r[0])).toEqual(["2025", "2026", "Grand Total"]);
+        // without a value no grand total row: it would have no number (#156)
+        expect((await tableRows(page)).map((r) => r[0])).toEqual(["2025", "2026"]);
         await chipMenu(page, "Created by year", "group");
         await page.getByTestId("group-none").click();
         await expect.poll(() => chips(page, "rows")).toEqual(["Created"]);
@@ -141,7 +142,8 @@ test.describe("filter, table and chart", () => {
         expect(count).toBeGreaterThan(0);
         // applied at once
         await west.locator("input").uncheck();
-        await expect(page.getByTestId("row-count")).toHaveText(`${(4000 - count).toLocaleString("en-US")} rows`);
+        // the rows the filter keeps of the data's (#108)
+        await expect(page.getByTestId("row-count")).toHaveText(`${(4000 - count).toLocaleString("en-US")} of 4,000 rows`);
         expect((await tableRows(page)).some((r) => r[0] === "West")).toBe(false);
         await expect(page.locator('[data-zone="rows"] .pk-chip[data-chip="Region"] .pk-chip-badge').first()).toBeVisible();
     });
@@ -176,9 +178,10 @@ test.describe("filter, table and chart", () => {
     });
 
     test("table and chart, chart types, and the PNG export", async ({ page }) => {
-        // a window wide enough for the chart type's button (narrower, it is in "More", after Views)
+        // a window wide enough for the chart type's button (narrower, or with the Data button, it is in
+        // "More", after Views): the report without the Data button (import=off)
         await page.setViewportSize({ width: 1440, height: 900 });
-        await page.goto("?data=tickets");
+        await page.goto("?data=tickets&import=off");
         await page.getByTestId("show-chart").click();
         await expect(page.locator('[data-testid="pivot-chart"] canvas')).toBeVisible();
         // no type chosen yet: the data decides (bars for teams); the button says so, its name says what it is
@@ -443,9 +446,15 @@ test.describe("a result taller than its area scrolls inside it", () => {
             await expect(last).toHaveText(/^Start with /);
             expect(await wheelTo(page, last)).toBe(true);
             // and the title at the top is reachable again: the wheel back up (Firefox scrolls it
-            // smoothly, over a few frames) reaches the top, where the title is in view
-            await page.mouse.wheel(0, -2000);
-            await expect.poll(() => page.locator(".pk-result").evaluate((el) => el.scrollTop)).toBe(0);
+            // smoothly, over a few frames, and at most about a screen per turn: the start help with
+            // the Data button's "Or load your own data" takes two turns at 480 px) reaches the top,
+            // where the title is in view
+            const top = () => page.locator(".pk-result").evaluate((el) => el.scrollTop);
+            for (let turn = 0; turn < 4 && (await top()) > 0; turn++) {
+                await page.mouse.wheel(0, -2000);
+                await expect.poll(top, { timeout: 2000 }).toBeLessThan(1).catch(() => undefined);
+            }
+            expect(await top()).toBe(0);
             expect(await wheelTo(page, empty.locator("h2"))).toBe(true);
         });
     }

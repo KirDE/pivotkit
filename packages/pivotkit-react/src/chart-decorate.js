@@ -1,122 +1,183 @@
 /*
- * The report's marks on pivotkit-core's ECharts option: the theme's colours (the --pk-* tokens),
- * rounded bars, tooltips built as DOM nodes (chart-tooltip.js, so a strict Content-Security-Policy
- * allows them) and the axis labels laid out for the chart's size (chart-layout.js). Only a drawn chart
- * needs it: it loads with ECharts (echarts.js).
+ * The report's marks on pivotkit-core's ECharts option: pivotkit-core's decorateOption (the theme's
+ * colours from the --pk-* tokens, rounded bars, the axis labels laid out for the chart's size; the
+ * same look as an SVG or a printed report of pivotkit-report) with the tooltip built as DOM nodes
+ * (chart-tooltip.js, so a strict Content-Security-Policy allows it), and the tokens the chart reads as
+ * px resolved (chartStyle; an HTML report and an SVG take them from here too, export-run.js). Only a
+ * drawn chart needs it: it loads with ECharts (echarts.js).
  */
 
-import { tooltipFormatter } from "./chart-tooltip.js";
-import { BOTTOM_LEGEND_ROOM, CATEGORY_LABEL_WIDTH, RIGHT_LEGEND_MIN_WIDTH, categoryLabelLayout, columnLabelLayout, groupLabelsFit, heatmapCellLabels, pieLabelRoom, ringLabelsFit, rowLabelInterval } from "./chart-layout.js";
+import { DEFAULT_THEME } from "pivotkit-core";
+import { decorateOption } from "pivotkit-core/chart";
+import { mergeChartOptions } from "./chart-options.js";
+import { tooltipFormatter, tooltipReferences, valueAddsUp } from "./chart-tooltip.js";
 
-/** A copy of an object without the given keys. */
-const without = (obj, keys) => Object.fromEntries(Object.entries(obj).filter(([k]) => !keys.includes(k)));
+/** The tooltip's room: a line of text is this many times the text size high. */
+const TOOLTIP_LINE = 1.5;
+/** The tooltip's padding, top and bottom together, in px (ECharts' default 10 px each side, and some air). */
+const TOOLTIP_PADDING = 24;
+/** Lines besides the series: the title, the total and the "+N more" line. */
+const TOOLTIP_OTHER_LINES = 3;
 
 /**
- * Mark styles on top of the core's option: rounded bar ends, 2 px lines, tooltips in the theme, built
- * as DOM nodes (chart-tooltip.js) so a strict Content-Security-Policy allows them.
  * @param {any} option
- * @param {CSSStyleDeclaration} style  the report's computed style (the --pk-* tokens)
+ * @param {{ getPropertyValue(name: string): string }} style  the report's tokens (chartStyle)
  * @param {number} [height]  the chart's height in px, for the room around a pie
  * @param {Document} [doc]  the chart's document, for the tooltip's nodes
  * @param {number} [width]  the chart's width in px, for the column names of a heatmap and the category axis
- * @param {{ categoryNames?: string[], axisLabels?: string }} [extra]  the categories' whole names (the
- *   tooltip's title when the axis writes them shorter) and the view's chart.axisLabels
+ * @param {{ categoryNames?: string[], axisLabels?: string, zoom?: string, zoomAt?: { start: number, end: number }, timeline?: boolean, touch?: boolean, pixelOf?: (value: number) => number, parseColor?: (color: string) => unknown, tooltip?: { mode?: string, hover?: { current: { seriesIndex: number, dataIndex: number } | null }, totalLabel?: string, moreLabel?: string, moreInTotalLabel?: string, values?: Array<{ agg?: string, showAs?: { type: string, axis?: string } | null } | undefined>, lines?: ReturnType<typeof import("pivotkit-core/chart").referenceLines> } }} [extra]
+ *   the categories' whole names (the tooltip's title when the axis writes them shorter), the view's
+ *   chart.axisLabels and chart.zoom (the slider, pivotkit-core's chart-zoom.js); tooltip: the view's chart.tooltip, the chart's hover state (chart.jsx writes the
+ *   element under the pointer into `current`, the formatter reads it), the name of a stack's total,
+ *   the lines that say how many series were cut, each series' value (whether it adds up) and the
+ *   chart's reference lines (pivotkit-core's referenceLines), named at the category;
+ *   parseColor: ECharts' colour parser, for a heatmap's colours (screenColor)
  * @returns {any}  the option; `axisEvery` (not ECharts') is n when the category axis writes every n-th label
  */
 export function decorate(option, style, height = 480, doc = undefined, width = 800, extra = {}) {
-    const first = (a) => (Array.isArray(a) ? a[0] : a);
-    const v = (name) => style.getPropertyValue(name).trim();
-    // a legend on the right of a narrow chart goes to the bottom (RIGHT_LEGEND_MIN_WIDTH): the room the
-    // core keeps for it on the right is given back, the room of a bottom legend taken
-    const rightLegend = option.legend?.orient === "vertical" && typeof option.legend.right === "number";
-    const legendDown = rightLegend && width < RIGHT_LEGEND_MIN_WIDTH;
-    if (legendDown) {
-        option = {
-            ...option,
-            legend: { ...without(option.legend, ["orient", "right", "top"]), bottom: 0 },
-            series: (option.series || []).map((s) => (s.type === "pie" ? { ...without(s, ["right"]), bottom: (typeof s.bottom === "number" ? s.bottom : 0) + BOTTOM_LEGEND_ROOM } : s)),
-            ...(option.grid ? { grid: { ...without(option.grid, ["right"]), bottom: BOTTOM_LEGEND_ROOM + 8 } } : {})
-        };
-    }
-    // without the stylesheet the tokens are empty and ECharts keeps its own colours
-    const surface = v("--pk-surface") || undefined;
-    const tooltip = {
-        ...option.tooltip,
-        backgroundColor: v("--pk-surface-raised") || surface,
-        borderColor: v("--pk-border") || undefined,
-        textStyle: { color: v("--pk-text") || undefined, fontFamily: style.getPropertyValue("font-family") || undefined },
-        extraCssText: `box-shadow: ${v("--pk-shadow") || "none"}; border-radius: 8px;`,
-        ...(doc ? { formatter: tooltipFormatter(doc, { valueFormatter: option.tooltip?.valueFormatter, xNames: first(option.xAxis)?.data, yNames: first(option.yAxis)?.data, categoryNames: extra.categoryNames }) } : {})
+    const { tooltip = {}, parseColor, ...rest } = extra;
+    // each series' type and stack, by index: the tooltip's totals and the gap between stacked bars
+    const series = (option.series || []).map((/** @type {any} */ s, /** @type {number} */ i) => ({ type: s.type, stack: s.stack, additive: tooltip.values ? valueAddsUp(tooltip.values[i]) : undefined }));
+    const hover = tooltip.hover;
+    // the lines that fit the chart's height, with the title, the total and the tooltip's padding
+    const line = Math.round((typeof option.textStyle?.fontSize === "number" ? option.textStyle.fontSize : DEFAULT_THEME.textSize) * TOOLTIP_LINE);
+    const maxLines = Math.max(2, Math.floor((height - TOOLTIP_PADDING) / line) - TOOLTIP_OTHER_LINES);
+    // the reference lines at the category; a line of no series in --pk-chart-reference, as it is drawn
+    const reference = style.getPropertyValue("--pk-chart-reference").trim() || style.getPropertyValue("--pk-muted").trim() || null;
+    const references = tooltip.lines?.length ? tooltipReferences(tooltip.lines, (option.series || []).map((/** @type {any} */ s) => String(s.name ?? "")), reference) : [];
+    const options = { series, mode: tooltip.mode, totalLabel: tooltip.totalLabel, moreLabel: tooltip.moreLabel, moreInTotalLabel: tooltip.moreInTotalLabel, maxLines, references, hoverOf: () => hover?.current ?? null };
+    const readColor = doc && parseColor ? screenColor(doc, parseColor) : undefined;
+    const drawn = decorateOption(option, style, { height, width, ...rest, readColor, tooltipFormatter: doc ? (context) => tooltipFormatter(doc, { ...context, ...options }) : undefined });
+    // on the screen the tooltip stays inside the chart
+    return doc ? { ...drawn, tooltip: { ...drawn.tooltip, confine: true } } : drawn;
+}
+
+/**
+ * Draws the view's option on the chart: the report's marks (decorate), the host's chartOptions over
+ * them (`hostOptions`, checked, mergeChartOptions), and then the labels of lying reference lines
+ * placed at their lines' real heights: after the first draw ECharts knows where each value is
+ * (convertToPixel), so the marks are laid out again with it (pivotkit-core's decorateOption,
+ * pixelOf) and only the series are set again.
+ * @param {any} instance  the chart's ECharts instance
+ * @param {any} option  pivotkit-core's toEChartsOption
+ * @param {{ getPropertyValue(name: string): string }} style
+ * @param {Document} doc
+ * @param {Parameters<typeof decorate>[5]} extra
+ * @param {Record<string, unknown> | null | undefined} hostOptions
+ * @returns {any}  the report's option as first drawn, before the host's: its `axisEvery` and `dataZoom`
+ */
+export function drawOption(instance, option, style, doc, extra, hostOptions) {
+    /** @type {any} */
+    let own = null;
+    const marked = (/** @type {((v: number) => number) | undefined} */ pixelOf) => {
+        const drawn = decorate(option, style, instance.getHeight(), doc, instance.getWidth(), { ...extra, pixelOf });
+        own ??= drawn;
+        const { axisEvery, ...rest } = drawn;
+        void axisEvery;
+        return hostOptions ? mergeChartOptions(rest, hostOptions) : rest;
     };
-    const series = (option.series || []).map((s) => {
-        if (s.type === "bar") {
-            const horizontal = first(option.yAxis)?.type === "category";
-            const r = horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0];
-            return { ...s, barMaxWidth: 48, itemStyle: { borderRadius: s.stack ? 0 : r, borderColor: s.stack ? surface : undefined, borderWidth: s.stack ? 1 : 0 }, emphasis: { focus: "series" } };
-        }
-        if (s.type === "line") {
-            return { ...s, lineStyle: { width: 2 }, symbolSize: 7, smooth: Boolean(s.smooth), areaStyle: s.areaStyle ? { opacity: 0.18 } : undefined, emphasis: { focus: "series" } };
-        }
-        if (s.type === "pie") {
-            // the pie's box: below the legend (the core's top), with room for the labels above and below
-            const room = pieLabelRoom(height);
-            const top = (typeof s.top === "number" ? s.top : 0) + room;
-            const bottom = (typeof s.bottom === "number" ? s.bottom : 0) + room;
-            // numbers inside a ring too thin for them (a low or narrow chart) would spill over its edges
-            // onto the background: they are written outside, on a line to their slice, instead
-            let label = s.label;
-            let line = s.labelLine;
-            if (label?.position === "inside" && label.show !== false && Array.isArray(s.radius)) {
-                const box = { width: width - (typeof s.right === "number" ? s.right : 0), height: height - top - bottom };
-                const total = (s.data || []).reduce((sum, d) => sum + (typeof d.value === "number" ? d.value : 0), 0);
-                const texts = typeof label.formatter === "function" ? (s.data || []).map((d) => label.formatter({ name: d.name, value: d.value, percent: total ? (d.value / total) * 100 : 0 })) : [];
-                if (!ringLabelsFit(s.radius, box, texts)) {
-                    label = without(label, ["position"]);
-                    line = { show: true };
-                }
-            }
-            return { ...s, top, bottom, labelLine: line, itemStyle: { borderColor: surface, borderWidth: 2, borderRadius: 4 }, label: { ...label, color: label?.position === "inside" ? undefined : v("--pk-text") || undefined } };
-        }
-        if (s.type === "heatmap") {
-            // numbers only in cells large enough for them (heatmapCellLabels); the tooltip has every one
-            const texts = typeof s.label?.formatter === "function" ? s.data.map((/** @type {any} */ d) => s.label.formatter({ value: d })) : [];
-            const fits = heatmapCellLabels(option.xAxis?.data?.length ?? 1, option.yAxis?.data?.length ?? 1, width, height, texts);
-            return { ...s, itemStyle: { borderColor: surface, borderWidth: 2, borderRadius: 3 }, label: { ...s.label, show: Boolean(s.label?.show) && fits, color: v("--pk-text") || undefined } };
-        }
-        return s;
-    });
-    const legend = option.legend ? { ...option.legend, icon: "roundRect", itemWidth: 12, itemHeight: 12, textStyle: { ...option.legend.textStyle, color: v("--pk-text") || undefined } } : undefined;
-    const grid = option.grid ? { left: 12, right: 24, bottom: option.visualMap ? 64 : 12, containLabel: true, ...option.grid } : undefined;
-    // a heatmap names every column: slanted where they would overlap (columnLabelLayout)
-    const heatmap = series.some((s) => s.type === "heatmap") && option.xAxis?.axisLabel;
-    const xAxis = heatmap ? { ...option.xAxis, axisLabel: { ...option.xAxis.axisLabel, ...columnLabelLayout(option.xAxis.data ?? [], width) } } : option.xAxis;
-    // and its rows: every name where a line fits each row, else every n-th (rowLabelInterval)
-    const yAxis = heatmap && option.yAxis ? { ...option.yAxis, axisLabel: { ...option.yAxis.axisLabel, interval: rowLabelInterval(option.yAxis.data?.length ?? 0, height) } } : option.yAxis;
-    // a long title ends in "…" within the chart's width (the PNG is drawn from the same option)
-    const title = option.title ? { title: { ...option.title, textStyle: { ...option.title.textStyle, width: Math.max(40, width - 32), overflow: "truncate" } } } : {};
-    // bars, lines and areas: the category axis writes every label that fits (categoryLabelLayout), the
-    // group labels sit below (or left of) those labels
-    let axes = { xAxis, yAxis };
-    let axisEvery = 1;
-    const along = !heatmap && series.some((s) => s.type === "bar" || s.type === "line") ? (first(option.yAxis)?.type === "category" ? "yAxis" : first(option.xAxis)?.type === "category" ? "xAxis" : null) : null;
-    if (along) {
-        let list = Array.isArray(axes[along]) ? axes[along] : [axes[along]];
-        // "auto" group labels need room: below it the axis writes the whole names instead
-        const group = list[1]?.groups ? list[1] : null;
-        if (group && group.groupsAuto && !groupLabelsFit(list[0].data?.length ?? 0, group.groupSize ?? 1, { width, height, horizontal: along === "yAxis" })) {
-            list = [{ ...list[0], data: extra.categoryNames ?? list[0].data }];
-        }
-        const names = list[0].data ?? [];
-        const layout = categoryLabelLayout(names, { width, height, horizontal: along === "yAxis", mode: extra.axisLabels });
-        axisEvery = layout.every;
-        const longest = Math.min(CATEGORY_LABEL_WIDTH, Math.max(0, ...names.map((t) => String(t).length)) * 12 * 0.55);
-        const offset = along === "yAxis" ? Math.round(longest) + 16 : layout.rotate ? Math.round(longest * 0.71) + 14 : 24;
-        const main = { ...list[0], axisLabel: { ...list[0].axisLabel, rotate: layout.rotate, interval: layout.interval, width: layout.width, overflow: layout.overflow } };
-        // a group's name is cut to the room of its smallest group, so two names never run into each other
-        const slot = (along === "yAxis" ? Math.max(0, height - 60) : Math.max(0, width - 80)) / Math.max(1, names.length);
-        const groupWidth = along === "yAxis" ? CATEGORY_LABEL_WIDTH : Math.max(24, Math.round(slot * (list[1]?.groupSize ?? 1)) - 8);
-        const rest = list.slice(1).map((a) => (a.groups ? { ...a, offset, axisTick: { ...a.axisTick, length: offset }, axisLabel: { ...a.axisLabel, width: groupWidth, overflow: "truncate" } } : a));
-        axes = { ...axes, [along]: rest.length ? [main, ...rest] : main };
+    const first = marked(undefined);
+    instance.setOption(first, { notMerge: true });
+    const lying = !Array.isArray(first.yAxis) && first.yAxis?.type === "value";
+    if (lying && (first.series ?? []).some((/** @type {any} */ s) => s.markLine)) {
+        instance.setOption({ series: marked((value) => instance.convertToPixel({ yAxisIndex: 0 }, value)).series });
     }
-    return { ...option, ...title, tooltip, series, ...(axes.xAxis ? { xAxis: axes.xAxis } : {}), ...(axes.yAxis ? { yAxis: axes.yAxis } : {}), ...(legend ? { legend } : {}), ...(grid ? { grid } : {}), animationDuration: style.getPropertyValue("--pk-duration").trim() === "0ms" ? 0 : 400, axisEvery };
+    return own;
+}
+
+/**
+ * A heatmap colour as ECharts can mix it (pivotkit-core's decorateOption, readColor): a colour ECharts'
+ * parser reads stays as it is; any other the browser draws (oklch(), rgb() with spaces) is read back
+ * from one pixel of a canvas as #rrggbb, so the screen shows the host's colour; null for a text that
+ * is no colour, or one the canvas does not take. The pixel is sRGB without alpha: a P3 colour is
+ * clipped and a transparent one drawn opaque.
+ * @param {Document} doc
+ * @param {(color: string) => unknown} parse  ECharts' colour parser
+ * @returns {(color: string) => string | null}
+ */
+export function screenColor(doc, parse) {
+    /** @type {CanvasRenderingContext2D | null | undefined} */
+    let ctx;
+    return (text) => {
+        if (parse(text.trim())) {
+            return text;
+        }
+        if (typeof CSS === "undefined" || !CSS.supports("color", text)) {
+            return null;
+        }
+        if (ctx === undefined) {
+            const canvas = doc.createElement("canvas");
+            canvas.width = 1;
+            canvas.height = 1;
+            ctx = canvas.getContext("2d", { willReadFrequently: true });
+        }
+        if (!ctx) {
+            return null;
+        }
+        // a value the canvas does not take (an unresolved var(), light-dark()) leaves fillStyle as it
+        // was: a transparent sentinel tells it, so it never reads back as some other colour
+        ctx.fillStyle = "transparent";
+        const sentinel = String(ctx.fillStyle);
+        ctx.fillStyle = text;
+        if (String(ctx.fillStyle) === sentinel) {
+            return null;
+        }
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillRect(0, 0, 1, 1);
+        return `#${[...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+    };
+}
+
+/**
+ * The tokens the chart reads as lengths in px (chartThemeFrom, decorateOption): the title's and the
+ * other text's size, the marks' corners, the zoom slider's thickness (a control's, a finger's). A computed custom property keeps the calc(), max() and em it
+ * was written with, so the report resolves them first.
+ */
+export const LENGTH_TOKENS = Object.freeze(["--pk-chart-title-size", "--pk-chart-text-size", "--pk-radius-chart", "--pk-target", "--pk-target-touch"]);
+
+/**
+ * Tokens that are lengths, in px as the report resolves them (em of its font): a probe inside the root
+ * takes each one as its margin. A token not set, or not a length CSS takes (a keyword: its margin would
+ * be 0), is left out, so the chart keeps its default.
+ * @param {HTMLElement} root  the report's root
+ * @param {readonly string[]} [names]
+ * @returns {Record<string, string>}  "16px" per token
+ */
+export function tokenLengths(root, names = LENGTH_TOKENS) {
+    const view = root.ownerDocument.defaultView;
+    const style = view?.getComputedStyle(root);
+    const lengthy = (/** @type {string} */ value) => Boolean(value) && (typeof CSS === "undefined" || CSS.supports("margin-left", value));
+    const set = style ? names.filter((name) => lengthy(style.getPropertyValue(name).trim())) : [];
+    if (!view || !set.length) {
+        return {};
+    }
+    const probe = root.ownerDocument.createElement("span");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.setProperty("position", "absolute");
+    probe.style.setProperty("visibility", "hidden");
+    root.append(probe);
+    try {
+        return Object.fromEntries(
+            set
+                .map((name) => {
+                    probe.style.setProperty("margin-left", `var(${name})`);
+                    return [name, view.getComputedStyle(probe).marginLeft];
+                })
+                .filter(([, value]) => /px$/.test(value))
+        );
+    } finally {
+        probe.remove();
+    }
+}
+
+/**
+ * The report's computed style with its length tokens in px: what chartThemeFrom and pivotkit-core's
+ * decorateOption read.
+ * @param {HTMLElement} root
+ * @returns {{ getPropertyValue(name: string): string }}
+ */
+export function chartStyle(root) {
+    const style = getComputedStyle(root);
+    const lengths = tokenLengths(root);
+    return { getPropertyValue: (name) => lengths[name] ?? style.getPropertyValue(name) };
 }

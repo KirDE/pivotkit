@@ -13,7 +13,7 @@
 
 import { PivotkitError } from "./errors.js";
 import { resolveLimits } from "./limits.js";
-import { parseIso } from "./time.js";
+import { isDateMs, parseIso } from "./time.js";
 
 /** The column types a loaded table can have (`encode`'s, without "null"). */
 export const IMPORT_TYPES = Object.freeze(["string", "number", "date", "boolean"]);
@@ -66,6 +66,8 @@ export const IMPORT_NOTE_CODES = Object.freeze([
  * @property {number} rowCount
  * @property {ImportNote[]} notes
  * @property {ImportHints} hints
+ * @property {string[]} [unnamed]  the columns the file gives no name (a blank header cell, a row longer than the header) as they are named here ("Column 7"); a plugin's own table may leave it out
+ * @property {number[]} [longRows]  the rows (0-based, in `data`) with more cells than the named header (its empty cells at the end left out), whose cells may be shifted (a separator inside a value); none where the file is uniform (every row as wide, wider than the named header, every cell beyond it empty: a separator that ends every line); a plugin's own table may leave it out
  *
  * @typedef {object} ImportProgress
  * @property {"read" | "unpack" | "parse" | "type"} phase
@@ -110,19 +112,22 @@ export function fileError(reason, file, message, params = {}) {
 }
 
 /**
- * A LIMIT_EXCEEDED error that names the file, the limit and what to change.
+ * A LIMIT_EXCEEDED error that names the file, the limit and what to change. The key in brackets is
+ * the one of `limits`; a UI that reads files with other limits of its own (pivotkit-react's
+ * `importLimits`) says the same words, so the hint names no key.
  * @param {string} limit
  * @param {number} value
  * @param {number} max
  * @param {string} file
- * @param {string} what  "rows", "columns", ...
+ * @param {string} what  what was counted, in English ("rows", "columns", "shared strings and
+ *   formats"): in the message and in `details.what`, so a UI can tell two counts of one limit apart
  */
 export function limitError(limit, value, max, file, what) {
     const n = (x) => x.toLocaleString("en-US");
     return new PivotkitError(
         "LIMIT_EXCEEDED",
-        `"${file}" has more than ${n(max)} ${what} (limits.${limit}): load a smaller extract of it, or a host can raise limits.${limit}`,
-        { limit, value, max, file }
+        `"${file}" has more than ${n(max)} ${what} (limits.${limit}): load a smaller extract of it, or a host can raise this limit`,
+        { limit, value, max, file, what }
     );
 }
 
@@ -138,7 +143,9 @@ export function checkFileLimit(limit, value, max, file, what) {
 /** The file's name for messages. */
 export function fileName(file, options) {
     const own = file && typeof file === "object" && typeof (/** @type {any} */ (file).name) === "string" ? /** @type {any} */ (file).name : "";
-    return cleanText(String(options?.name ?? own ?? "")).slice(0, 256) || "file";
+    const name = cleanText(String(options?.name ?? own ?? "")).slice(0, 256);
+    // A UTF-16 cap must not leave half of an astral character at the end.
+    return (/\p{Surrogate}$/u.test(name) ? name.slice(0, -1) : name) || "file";
 }
 
 /**
@@ -350,7 +357,7 @@ const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
 /** ISO wall-clock text of a Date whose UTC fields are the wall clock (as a spreadsheet's dates are read). */
 export function dateToIso(d) {
     let ms = d.getTime();
-    if (!Number.isFinite(ms) || Math.abs(ms) > 8.64e15) {
+    if (!isDateMs(ms)) {
         return null;
     }
     // a spreadsheet's serial date is a fraction of a day: 08:49:40 can come back as 08:49:39.999
@@ -583,6 +590,22 @@ function cleanString(s, max, counts) {
 }
 
 /**
+ * The hints a table reads its text with: the given ones where they are valid, else "." and the
+ * locale's order of day and month (month first for en-US and without a locale).
+ * @param {Partial<ImportHints> | undefined} given
+ * @param {string} [locale]
+ * @returns {ImportHints}
+ */
+export function tableHints(given, locale) {
+    return {
+        decimal: given?.decimal === "," || given?.decimal === "." ? given.decimal : ".",
+        dateOrder: given?.dateOrder === "dmy" || given?.dateOrder === "mdy" ? given.dateOrder : !locale || /^en-US$/i.test(locale) ? "mdy" : "dmy",
+        ...(given?.serialDates ? { serialDates: true } : {}),
+        ...(given?.textNumbers === false ? { textNumbers: false } : {})
+    };
+}
+
+/**
  * Builds a table row by row. A reader calls `header()` when its format names the columns (JSON),
  * else the header is found in the first rows: the first row with at least half as many values as the
  * fullest of the first 50 rows; the rows above it are a title block and are skipped.
@@ -595,16 +618,15 @@ function cleanString(s, max, counts) {
  */
 export function createTable(options) {
     const { file, limits } = options;
-    /** @type {ImportHints} */
-    const hints = {
-        decimal: options.hints?.decimal ?? ".",
-        dateOrder: options.hints?.dateOrder ?? (!options.locale || /^en-US$/i.test(options.locale) ? "mdy" : "dmy"),
-        ...(options.hints?.serialDates ? { serialDates: true } : {}),
-        ...(options.hints?.textNumbers === false ? { textNumbers: false } : {})
-    };
+    const hints = tableHints(options.hints, options.locale);
     /** @type {ImportNote[]} */
     const notes = [];
     const counts = { removed: 0, cut: 0, empty: 0, extraRows: 0 };
+    /** @type {number[]} the rows with more cells than the named header (longRowsOf decides) */
+    const wideRows = [];
+    /** what longRowsOf needs to tell a separator that ends every line: the rows' least and most width, and whether a cell beyond the named header has a value */
+    const shape = { min: Infinity, max: 0, beyond: false };
+    let namedWidth = 0;
     /** @type {unknown[][]} */
     const columns = [];
     /** @type {unknown[] | null} */
@@ -634,6 +656,10 @@ export function createTable(options) {
         if (filled > headerWidth) {
             counts.extraRows++;
         }
+        shape.min = Math.min(shape.min, cells.length);
+        shape.max = Math.max(shape.max, cells.length);
+        if (filled > namedWidth) shape.beyond = true;
+        if (cells.length > namedWidth) wideRows.push(rowCount);
         if (filled > columns.length) {
             // a wide row late in a long file: the limits before a column of rowCount values is allocated
             checkFileLimit("columns", filled, limits.columns, file, "columns");
@@ -654,6 +680,9 @@ export function createTable(options) {
             return c === null ? null : c instanceof Date ? dateToIso(c) : String(c);
         });
         headerWidth = header.length;
+        // the header's named width: its empty cells at the end are a separator that ends the line
+        namedWidth = header.length;
+        while (namedWidth > 0 && (header[namedWidth - 1] === null || header[namedWidth - 1] === "")) namedWidth--;
         checkFileLimit("columns", headerWidth, limits.columns, file, "columns");
         for (let c = 0; c < headerWidth; c++) columns.push([]);
     };
@@ -709,9 +738,23 @@ export function createTable(options) {
          */
         finish(types) {
             if (sample !== null) flushSample();
-            return finishTable({ header: header ?? [], columns, rowCount, notes, counts, hints, limits, types });
+            return finishTable({ header: header ?? [], columns, rowCount, notes, counts, hints, limits, types, longRows: longRowsOf(wideRows, shape, namedWidth) });
         }
     };
+}
+
+/**
+ * The rows whose cells may be shifted: those with more cells than the named header. None where the
+ * file is uniform: every row as wide, wider than the named header, and every cell beyond it empty in
+ * every row (an export that ends every line with a separator). Any mix counts every wider row.
+ * @param {number[]} wideRows
+ * @param {{ min: number, max: number, beyond: boolean }} shape
+ * @param {number} namedWidth
+ * @returns {number[]}
+ */
+function longRowsOf(wideRows, shape, namedWidth) {
+    const uniform = shape.min === shape.max && shape.min > namedWidth && !shape.beyond;
+    return uniform ? [] : wideRows;
 }
 
 /** Column names: cleaned, "Column N" for an empty one, "Name (2)" for a repeated one (case-insensitive). */
@@ -745,7 +788,7 @@ function nameColumns(header, count, notes) {
     return names;
 }
 
-function finishTable({ header, columns, rowCount, notes, counts, hints, limits, types }) {
+function finishTable({ header, columns, rowCount, notes, counts, hints, limits, types, longRows = [] }) {
     // columns without a name and without a value go
     const keep = [];
     for (let c = 0; c < columns.length; c++) {
@@ -758,6 +801,7 @@ function finishTable({ header, columns, rowCount, notes, counts, hints, limits, 
     }
     const keptHeader = keep.map((c) => (c < header.length ? header[c] : null));
     const names = nameColumns(keptHeader, keep.length, notes);
+    const unnamed = names.filter((_, i) => keptHeader[i] === null || keptHeader[i] === "");
     const raw = keep.map((c) => columns[c]);
     const added = keep.filter((c) => c >= header.length).length;
     if (counts.extraRows > 0 && added > 0) notes.push(note("COLUMNS_ADDED", { rows: counts.extraRows, count: added }));
@@ -773,7 +817,9 @@ function finishTable({ header, columns, rowCount, notes, counts, hints, limits, 
         detected: [],
         rowCount,
         notes,
-        hints
+        hints,
+        unnamed,
+        longRows
     };
     const inferred = raw.map((values) => inferColumn(values, hints));
     table.detected = inferred.map((x) => x.type);

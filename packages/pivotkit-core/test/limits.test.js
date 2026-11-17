@@ -1,8 +1,13 @@
 import { test } from "node:test";
+import { randomBytes } from "node:crypto";
 import assert from "node:assert/strict";
-import { LIMITS, PivotkitError, computePivot, encode, toEChartsOption, toGrid, toSeries } from "../src/index.js";
+import { ISSUE_CAP, LIMITS, OUTSIDE_LIMITS, PivotkitError, validate, computePivot, encode, normalize, outsideLimits, toEChartsOption, toGrid, toSeries } from "../src/index.js";
+import { encodeViewLink } from "../src/link.js";
+import { limitText } from "../src/internal.js";
 import { toCsv, toXlsx } from "../src/export.js";
 import { derivedColumn } from "../src/derive.js";
+import { ITEM_LENGTH } from "../src/limits.js";
+import { cpuClock } from "../../../tests/cpu-time.js";
 
 const isError = (code, limit) => (e) => e instanceof PivotkitError && e.code === code && (limit === undefined || e.details.limit === limit);
 
@@ -11,15 +16,24 @@ function square(n) {
     return encode(Array.from({ length: n }, (_, i) => ({ A: `a${i}`, W: `w${i}`, v: i })));
 }
 
+test("limitText: one wording of a limit for every package, numbers in en-US whatever the runtime's locale", () => {
+    assert.equal(limitText(1001, 1000, "rows", "limits.rows"), "1,001 rows exceed the limit of 1,000 (limits.rows)");
+    assert.equal(limitText(2_500_000, 2_000_000, "grid cells", "limits.cells"), "2,500,000 grid cells exceed the limit of 2,000,000 (limits.cells)");
+    // the view link says it alike
+    // names that do not compress: the deflated link runs over LINK_LIMITS.text
+    const long = { rows: Array.from({ length: 1000 }, () => randomBytes(32).toString("base64")) };
+    assert.throws(() => encodeViewLink(long), (e) => e instanceof PivotkitError && /^[\d,]+ characters of the (view|link) exceed the limit of [\d,]+ \(LINK_LIMITS\)$/.test(e.message));
+});
+
 test("a 5k x 5k pivot is refused before the dense grid is allocated", () => {
     const result = computePivot(square(5000), { rows: ["A"], cols: ["W"], values: [{ agg: "count" }] });
     const before = process.memoryUsage().heapUsed;
-    const t0 = performance.now();
+    const cpu = cpuClock();
     assert.throws(() => toGrid(result), isError("LIMIT_EXCEEDED", "cells"));
     assert.throws(() => toSeries(result), isError("LIMIT_EXCEEDED", "cells"));
     assert.throws(() => toEChartsOption(result), isError("LIMIT_EXCEEDED", "cells"));
     // nothing of the 25 million cells was built
-    assert.ok(performance.now() - t0 < 1000);
+    assert.ok(cpu() < 1000);
     assert.ok(process.memoryUsage().heapUsed - before < 200e6);
 });
 
@@ -48,10 +62,10 @@ test("a hostile view of many high-cardinality fields is refused quickly, with bo
     const view = { rows: fields.slice(0, 8), cols: fields.slice(8), values: [{ agg: "count" }] };
     globalThis.gc?.();
     const before = process.memoryUsage().heapUsed;
-    const t0 = performance.now();
+    const cpu = cpuClock();
     // without the limits this builds 800,000 nodes and 4 million cells (gigabytes) and returns
     assert.throws(() => computePivot(data, view), isError("LIMIT_EXCEEDED", "groups"));
-    assert.ok(performance.now() - t0 < 3000, `${Math.round(performance.now() - t0)} ms`);
+    assert.ok(cpu() < 3000, `${Math.round(cpu())} ms of CPU`);
     // up to the 500,000 nodes the limit allows (about 200 MB of trees) plus what the build leaves to
     // the garbage collector, which runs when it likes (about 260 MB in Node 26, 350 MB measured in CI
     // with coverage before the trees shared one child map)
@@ -107,9 +121,9 @@ test("many low-cardinality fields with many medians are refused before any work"
     const fields = Array.from({ length: 16 }, (_, j) => `f${j}`);
     const view = { rows: fields.slice(0, 8), cols: fields.slice(8), values: Array.from({ length: 16 }, (_, j) => ({ field: `v${j}`, agg: "median" })) };
     const before = process.memoryUsage().heapUsed;
-    const t0 = performance.now();
+    const cpu = cpuClock();
     assert.throws(() => computePivot(data, view), isError("LIMIT_EXCEEDED", "work"));
-    assert.ok(performance.now() - t0 < 500, `${Math.round(performance.now() - t0)} ms`);
+    assert.ok(cpu() < 500, `${Math.round(cpu())} ms of CPU`);
     assert.ok(process.memoryUsage().heapUsed - before < 50e6, `${Math.round((process.memoryUsage().heapUsed - before) / 1e6)} MB`);
 });
 
@@ -130,7 +144,7 @@ test("the default limits fit a browser tab", () => {
 
 test("invalid limits are a programmer error", () => {
     const result = computePivot(square(2), { rows: ["A"] });
-    for (const limits of [{ cells: 0 }, { cells: 1.5 }, { cells: "10" }, { nope: 1 }, "x"]) {
+    for (const limits of [{ cells: 0 }, { cells: 1.5 }, { cells: "10" }, { nope: 1 }, "x", [], [5]]) {
         assert.throws(() => toGrid(result, { limits }), isError("INVALID_OPTION"), JSON.stringify(limits));
     }
 });
@@ -193,4 +207,67 @@ test("the cache of derived columns and sort orders is bounded", () => {
     // an evicted column is rebuilt with the same content
     const again = computePivot(small, { rows: ["b"], derived: [{ name: "b", field: "v", by: "bin", size: 1 }], values: [{ agg: "count" }] });
     assert.equal(again.rowRoot.children.length, 1000);
+});
+
+test("a view from outside gets the tighter preset: the host's lower value stays lower, its other limits stay", () => {
+    assert.deepEqual(OUTSIDE_LIMITS, { filters: 50, json: 1_000_000 });
+    assert.deepEqual(outsideLimits(), { filters: 50, json: 1_000_000 });
+    assert.deepEqual(outsideLimits({ filters: 10, rows: 5 }), { filters: 10, json: 1_000_000, rows: 5 });
+    assert.deepEqual(outsideLimits({ filters: 500, json: 2_000 }), { filters: 50, json: 2_000 });
+    // a view as large as a link or a view file may be is the most a view from outside is
+    const long = { chart: { title: "x".repeat(1_000_001) } };
+    assert.deepEqual(normalize(long, null, { limits: outsideLimits() }).issues.map((i) => i.code), ["tooLarge"]);
+    assert.equal(normalize(long, null).issues.some((i) => i.code === "tooLarge"), false);
+    const sales = encode([{ Region: "North" }]);
+    const view = { filters: Array.from({ length: 60 }, () => ({ field: "Region", type: "include", items: ["North"] })) };
+    const { view: kept, issues } = normalize(view, sales, { limits: outsideLimits() });
+    assert.equal(kept.filters.length, 50);
+    assert.deepEqual(issues.map((i) => [i.code, i.params]), [["tooMany", { max: 50 }]]);
+    assert.equal(normalize(view, sales).view.filters.length, 60);
+});
+
+test("the text a text filter compares with is capped by limits.textValue", () => {
+    const sales = encode([{ Region: "North" }]);
+    const filter = (value) => ({ filters: [{ field: "Region", type: "label", op: "contains", value }] });
+    assert.equal(normalize(filter("x".repeat(LIMITS.textValue)), sales).issues.length, 0);
+    assert.deepEqual(normalize(filter("x".repeat(LIMITS.textValue + 1)), sales).issues.map((i) => [i.code, i.params]), [["filterText", { max: LIMITS.textValue }]]);
+    assert.equal(normalize(filter("xx"), sales, { limits: { textValue: 1 } }).issues[0].code, "filterText");
+});
+
+test("the issues of one view are capped per code and in all, the rest counted in one last issue", () => {
+    const sales = encode([{ Region: "North" }]);
+    // one unknown key per entry: a small view that would give an issue per key
+    const keys = Object.fromEntries(Array.from({ length: 5_000 }, (_, i) => [`k${i}`, 1]));
+    const { issues } = normalize(keys, sales);
+    assert.equal(issues.length, ISSUE_CAP.perCode + 1);
+    assert.deepEqual(issues.at(-1), {
+        path: "", message: `${5_000 - ISSUE_CAP.perCode} more issues left out`, code: "tooManyIssues", severity: "warning",
+        params: { value: String(5_000 - ISSUE_CAP.perCode), max: ISSUE_CAP.perCode }
+    });
+    // many codes: at most ISSUE_CAP.total in all, the errors still make the view invalid
+    const bad = [
+        { field: "Nope", type: "in", items: [] }, { field: "Region", type: "include" }, { field: "Region", type: "in" },
+        { field: "Region", type: "text", op: "has", value: "N" }, { field: "Region", type: "text", op: "contains" },
+        { field: "Region", type: "in", items: [], not: 1 }, { field: "Region", type: "in", items: [], blanks: "some" },
+        { field: "Region", type: "top", count: -1 }, { field: "Region", type: "value", op: "=" },
+        { field: "Region", type: "compare", op: ">", value: 1 }, { field: "Region", type: "in", items: [], extra: 1 }
+    ];
+    const many = { version: 2, filters: Array.from({ length: 1_200 }, (_, i) => bad[i % bad.length]) };
+    const result = validate(many, sales, { limits: { filters: 2_000 } });
+    assert.equal(result.errors.length + result.warnings.length, ISSUE_CAP.total + 1);
+    assert.equal(result.valid, false);
+    assert.equal(result.warnings.at(-1).code, "tooManyIssues");
+});
+
+test("an item longer than ITEM_LENGTH is an issue, never cut to a shorter item", () => {
+    const sales = encode([{ Region: "North" }]);
+    const long = "x".repeat(ITEM_LENGTH + 1);
+    const { view, issues } = normalize({ version: 2, filters: [{ field: "Region", type: "in", items: ["North", long], blanks: "exclude" }], sort: [{ field: "Region", by: "custom", items: [long] }] }, sales);
+    assert.deepEqual(view.filters[0].items, ["North"]);
+    assert.deepEqual(view.sort, [{ field: "Region", by: "custom", order: "asc", items: [] }]);
+    assert.deepEqual(issues.map((i) => [i.path, i.code, i.params]), [
+        ["filters[0].items", "itemTooLong", { max: ITEM_LENGTH }],
+        ["sort[0].items", "itemTooLong", { max: ITEM_LENGTH }]
+    ]);
+    assert.equal(normalize({ filters: [{ field: "Region", type: "include", items: ["x".repeat(ITEM_LENGTH)] }] }, sales).issues.length, 0);
 });

@@ -1,0 +1,7 @@
+{
+  "sources": {
+    "sales": { "file": "/data/sales.csv", "title": "Sales" }
+  },
+  "output": { "dir": "/var/lib/pivotkit/out" },
+  "http": { "allowHosts": ["pivotkit"] }
+}

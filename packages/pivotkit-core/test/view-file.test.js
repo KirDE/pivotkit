@@ -39,13 +39,17 @@ test("a view file has its keys in the canonical order and lists the fields the v
         ]
     });
     assert.deepEqual(file.extensions, {});
-    assert.equal(file.view, view);
+    // the view, without the chart keys newer than 0.7 at their defaults (NEWER_CHART_KEYS); reading puts them back
+    assert.deepEqual(file.view, { ...view, chart: Object.fromEntries(Object.entries(view.chart).filter(([key]) => !["tooltip", "zoom", "stackPercent", "hidden", "referenceLines"].includes(key))) });
+    assert.deepEqual(fromViewFile(file).view, view);
 });
 
 test("without a description, a time or data the keys are left out, and the text is the same bytes every time", () => {
     const file = toViewFile(view, { name: "Units" });
-    assert.deepEqual(Object.keys(file), ["$schema", "format", "formatVersion", "name", "source", "extensions", "view"]);
-    assert.deepEqual(file.source, {});
+    // a source with no id, name or fields is left out, not written as {}
+    assert.deepEqual(Object.keys(file), ["$schema", "format", "formatVersion", "name", "extensions", "view"]);
+    assert.equal(toViewFile(view, { name: "Units", source: null }).source, undefined);
+    assert.equal(toViewFile(view, { source: { id: " ", name: "" } }).source, undefined);
     const text = viewFileText(file);
     assert.equal(text, viewFileText(toViewFile(view, { name: "Units" })));
     assert.ok(text.endsWith("}\n"));
@@ -110,11 +114,11 @@ test("a newer format version or view version is refused, never read as an older 
     const newerView = fromViewFile({ format: VIEW_FILE_FORMAT, formatVersion: 1, view: { ...view, version: VIEW_VERSION + 1 } });
     assert.equal(newerView.failed, "newerView");
     assert.equal(fromViewFile({ ...view, version: VIEW_VERSION + 1 }).failed, "newerView");
-    // a format version that is not the integer 1 is never read as 1
-    for (const v of [2.5, "2", 1.5, "1.5"]) {
+    // a format version that is not an integer this package reads (1, 2) is never read as one of them
+    for (const v of [2.5, "3", 3, "2.5"]) {
         assert.equal(fromViewFile({ format: VIEW_FILE_FORMAT, formatVersion: v, view }).failed, "newerFormat", JSON.stringify(v));
     }
-    for (const v of [0, -1, "1", "one", true, {}]) {
+    for (const v of [0, -1, "1", "2", 1.5, "one", true, {}]) {
         assert.equal(fromViewFile({ format: VIEW_FILE_FORMAT, formatVersion: v, view }).failed, "notView", JSON.stringify(v));
     }
 });

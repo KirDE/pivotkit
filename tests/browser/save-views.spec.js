@@ -199,7 +199,7 @@ test("an empty report has nothing to export: every entry is off and says why", a
     await page.goto("?data=tickets&start=empty");
     await expect(page.getByTestId("empty-state")).toBeVisible();
     await toolbar(page, "export");
-    for (const id of ["export-xlsx", "export-csv", "export-png", "export-copy-table", "export-copy-json"]) {
+    for (const id of ["export-xlsx", "export-csv", "export-html", "export-png", "export-svg", "export-print", "export-copy-table", "export-copy-json"]) {
         await expect(page.getByTestId(id)).toBeDisabled();
         await expect(page.getByTestId(id)).toContainText("Add a field first.");
     }
@@ -405,6 +405,8 @@ test("web component: Publish and Save over a shared view hand over the view in t
         const el = document.getElementById("views");
         const regions = [...new Set(el.data.map((r) => r.Region))].reverse();
         el.fieldDefaults = { Region: { order: regions } };
+        el.sourceId = "sales";
+        el.sourceName = "Sales";
         // a user's view of the host without a sort of its own: Publish sends it as the report shows it
         el.templates = [...el.templates, { name: "Plain", view: { rows: ["Region"], values: [{ field: "Units", agg: "sum" }] }, scope: "user" }];
     });
@@ -424,6 +426,27 @@ test("web component: Publish and Save over a shared view hand over the view in t
     expect(regionSort(published.detail.view)).toEqual(expect.objectContaining({ by: "custom" }));
     expect(regionSort(saved.detail.view)).toEqual(regionSort(published.detail.view));
     expect(saved.detail.view).toEqual(published.detail.view);
+    // a host's view names no data of its own: both carry the data shown, as pivot-template-save does
+    expect(published.detail.source).toEqual({ id: "sales", name: "Sales" });
+    expect(saved.detail.source).toEqual({ id: "sales", name: "Sales" });
+});
+
+test("web component: Publish of a host's view file made for other data hands over the data the file names", async ({ page }) => {
+    await page.goto("pages/element-views.html");
+    const report = page.locator("#views");
+    await report.locator('[data-testid="pivot-table"]').waitFor();
+    await page.evaluate(() => {
+        const el = document.getElementById("views");
+        el.sourceId = "sales";
+        el.sourceName = "Sales";
+        el.templates = [...el.templates, { file: { format: "pivotkit-view", formatVersion: 2, name: "Of other data", source: { id: "archive" }, view: { rows: ["Region"] } }, scope: "user" }];
+    });
+    await elementViews(report);
+    await report.getByTestId("publish-view-Of other data").click();
+    await report.getByTestId("confirm-publish").click();
+    await expect.poll(() => page.evaluate(() => window.__events.filter((e) => e.type === "pivot-template-publish").length)).toBe(1);
+    const [published] = (await page.evaluate(() => window.__events)).filter((e) => e.type === "pivot-template-publish");
+    expect(published.detail.source).toEqual({ id: "archive" });
 });
 
 test("the view's name is a button of the toolbar: Tab reaches it, Enter opens Views", async ({ page, browserName }) => {

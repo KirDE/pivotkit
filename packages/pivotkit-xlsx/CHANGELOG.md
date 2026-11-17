@@ -6,6 +6,74 @@ All notable changes to `pivotkit-xlsx` are documented in this file. The format i
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-16
+
+### Changed
+
+- Depends on `pivotkit-core` `^0.7.0` (was `^0.6.1`): a host updates both together, or it gets
+  two copies of pivotkit-core.
+
+## [0.3.1] - 2026-11-14
+
+### Fixed
+
+- Workbooks with namespace-prefixed elements are checked like unprefixed ones
+  ([GHSA-c6vh-q36c-92r3](https://github.com/eizedev/pivotkit/security/advisories/GHSA-c6vh-q36c-92r3)).
+- A workbook of a few hundred kilobytes with millions of shared strings or cell formats made
+  read-excel-file keep an entry for each, bounded only by `limits.unpackedBytes`: 100 MiB of
+  one-letter shared strings took 2.4 s and about 570 MB, 100 MiB of `<xf/>` about 2.2 GB. Only the
+  shared strings up to the highest one a cell of the sheet names are now handed to the parser, and
+  the strings and formats kept count together against `limits.importCells` (plus 1,000 rows for a
+  title block; with a namespace prefix too), refused with `LIMIT_EXCEEDED` while they are unpacked;
+  the first case now takes 0.3 s and about 120 MB
+  ([#237](https://github.com/eizedev/pivotkit/issues/237)).
+- A comment, CDATA section or processing instruction inside a row with `</row>` in it no longer ends
+  the row early: the filter skips it as the parser does. Such a CDATA section made a readable sheet
+  fail with `DAMAGED` ([#238](https://github.com/eizedev/pivotkit/issues/238)).
+- A quoted `>` or `/>` in an attribute of a row tag no longer ends the tag in the sheet filter, which
+  then left the row out as empty; the row is read and checked as any other
+  ([#324](https://github.com/eizedev/pivotkit/issues/324)).
+- A workbook whose relationships name the sheet itself as its shared strings or styles is refused as
+  `DAMAGED` ([#237](https://github.com/eizedev/pivotkit/issues/237)).
+
+## [0.3.0] - 2026-11-14
+
+### Changed
+
+- Depends on `pivotkit-core` `^0.6.0` (was `^0.5.0`): a host updates both together, or it gets
+  two copies of pivotkit-core.
+
+## [0.2.0] - 2026-11-13
+
+### Changed
+
+- Depends on `pivotkit-core` `^0.5.0` (was `^0.4.0`): a host updates both together, or it gets
+  two copies of pivotkit-core.
+- npm keywords `pivot-grid` and `pivottable`, as the repository's topics.
+- npm keyword `pivot-table` ([#172](https://github.com/eizedev/pivotkit/issues/172)).
+- A workbook over `limits.archiveEntries` or `limits.unpackedBytes` throws `LIMIT_EXCEEDED` with
+  `details` `{ limit, value, max, file }`, as every other limit does, not `INVALID_FILE` with the
+  reason `LIMIT` ([#208](https://github.com/eizedev/pivotkit/issues/208)).
+- Markup between a sheet's rows that is no row (a comment) and what follows its `</sheetData>`
+  (merged cells, conditional formats, print settings) are no longer handed to read-excel-file, which
+  reads nothing there; shared strings and styles stream into the archive it gets instead of being
+  unpacked whole first.
+
+### Fixed
+
+- A workbook a few dozen kilobytes small whose XML is padded with whitespace (tens of megabytes
+  unpacked, under every default limit) took about a minute and a gigabyte of memory and then failed
+  with `DAMAGED` ("Maximum call stack size exceeded"): read-excel-file parses a sheet in pieces and
+  reads an unfinished text or tag again from its start with every piece. Runs of whitespace in text
+  and between attributes are now cut to 128 KiB before it parses a part, and a text, comment, CDATA
+  section or processing instruction of more than 1 MiB, or a tag of more than 256 KiB, is refused as
+  `DAMAGED` at once (an Excel cell holds at most 32,767 characters). Such a workbook of 50 MiB unpacked is read in about half a
+  second with about 200 MB of memory.
+- The position of a cell or row (`r`) is read in single quotes, with whitespace around `=` and after
+  a line break too, so such a value far out is refused before parsing like any other; a row of many
+  unclosed `<c ` tags is scanned in linear time, no longer quadratic; a row inside a comment, CDATA
+  section or processing instruction between rows is no longer read as data.
+
 ## [0.1.0] - 2026-11-11
 
 First release.
@@ -24,5 +92,9 @@ First release.
   worker is started and a strict Content-Security-Policy works. `dist/` holds a bundle for pages
   without a bundler, with `THIRD_PARTY_LICENSES.txt`.
 
-[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-xlsx@0.1.0...HEAD
+[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-xlsx@0.4.0...HEAD
+[0.4.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-xlsx@0.3.1...pivotkit-xlsx@0.4.0
+[0.3.1]: https://github.com/eizedev/pivotkit/compare/pivotkit-xlsx@0.3.0...pivotkit-xlsx@0.3.1
+[0.3.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-xlsx@0.2.0...pivotkit-xlsx@0.3.0
+[0.2.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-xlsx@0.1.0...pivotkit-xlsx@0.2.0
 [0.1.0]: https://github.com/eizedev/pivotkit/releases/tag/pivotkit-xlsx@0.1.0

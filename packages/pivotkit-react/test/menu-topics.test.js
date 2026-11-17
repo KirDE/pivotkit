@@ -81,7 +81,7 @@ test("a date's Group level: one column with hints, under the two group headings,
     const view = norm({ rows: ["Date"], values: [units] });
     const group = byId(axis(view, "Date"), "group");
     assert.equal(group.kind, "menu");
-    assert.deepEqual(group.groups.map((g) => g.title), ["Along the time line", "Same period every year", undefined]);
+    assert.deepEqual(group.groups.map((g) => g.title), ["One item per period", "Same period, years combined", undefined]);
     assert.deepEqual([group.state, group.changed], ["None", false]);
     const month = choice(group, "group-month");
     assert.deepEqual([month.text, month.hint, month.closes], ["Month of year", "Jan of every year", true]);
@@ -140,7 +140,11 @@ test("Options: totals as switches (off with the reason where they change nothing
     const topics = optionTopics({ view, labels: MENU.en, folding: { canExpand: false, canCollapse: true, why: { expand: "expandNothing" } }, tips: { controls: true, on: true, canReset: false }, explanations: { on: false }, act });
     assert.deepEqual(topics.map((t) => [t.id, t.kind]), [["totals", "inline"], ["rows", "inline"], ["help", "inline"], ["shortcuts", "panel"]]);
     const col = choice(byId(topics, "totals"), "total-grandTotalColumn");
-    assert.deepEqual([col.checkbox, col.disabled, col.reason, col.info], [true, true, "Needs a field in Columns.", "grandTotalColumn"]);
+    // on in the view, but disabled: no tick, since the table has no such column (#156)
+    assert.equal(view.totals.grandTotalColumn, true);
+    assert.deepEqual([col.checkbox, col.checked, col.disabled, col.reason, col.info], [true, false, true, "Needs a field in Columns.", "grandTotalColumn"]);
+    const row = choice(byId(topics, "totals"), "total-grandTotalRow");
+    assert.deepEqual([row.checked, row.disabled], [true, false]);
     choice(byId(topics, "totals"), "total-grandTotalRow").run();
     choice(byId(topics, "help"), "show-explanations").run();
     assert.deepEqual(calls, [["total", "grandTotalRow", false], ["explain", true]]);

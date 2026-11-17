@@ -8,7 +8,7 @@
  * with the labels' words; the format "text" keeps an identifier as it is ("40072").
  */
 
-import { csvText } from "./csv.js";
+import { csvText, exportText } from "./csv.js";
 import { checkLimit, expect } from "./errors.js";
 import { isEncoded } from "./encode.js";
 import { formatterFor, isFormat, shownDecimals } from "./format.js";
@@ -166,4 +166,167 @@ export function rowsToCsvBytes(data, indices, options) {
 export function rowsToXlsx(data, indices, options) {
     options = optionsOf(options, "rowsToXlsx");
     return toXlsx(rowsGrid(data, indices, options, "rowsToXlsx"), { sheetName: options.sheetName });
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The data itself: every row, the values as they are
+
+/**
+ * @typedef {object} DataOptions
+ * @property {string[]} [columns]  the fields to write, in this order (matched case-insensitively);
+ *   default every column of the data
+ * @property {Partial<import("./limits.js").Limits>} [limits]  `cells` counts rows x columns
+ */
+
+/**
+ * A wall-clock date as ISO text without an offset, as the import reads it back: the day alone in a
+ * column without clock times, else the day and the time, with milliseconds when the value has them.
+ * @param {number} ms  wall-clock milliseconds
+ * @param {boolean} dateOnly
+ */
+function isoWall(ms, dateOnly) {
+    // a year beyond 9999 is written with its sign ("+10000-01-01"): split at the time, not at a place
+    const [day, time] = new Date(ms).toISOString().split("T");
+    if (dateOnly) {
+        return day;
+    }
+    return `${day}T${ms % 1000 === 0 ? time.slice(0, 8) : time.slice(0, 12)}`;
+}
+
+/**
+ * The columns and the value of each cell as a file of the data holds it: a number as JavaScript
+ * writes it (every digit), a date as ISO text, true/false, text as it is, null for a blank. Derived
+ * fields are no columns of the data (a view computes them), so they are never written.
+ * @param {import("./encode.js").Encoded} data
+ * @param {DataOptions} options
+ * @param {string} fn
+ */
+function dataColumns(data, options, fn) {
+    expect(isEncoded(data), `${fn}(data): data must come from encode()`);
+    let columns = data.columns.filter((c) => !c.derived);
+    if (options.columns !== undefined) {
+        expect(Array.isArray(options.columns), `${fn}: options.columns must be an array of field names`);
+        // a name that matches no column is left out, one named twice is written once
+        const wanted = new Set(options.columns.map((name) => String(name).toLowerCase()));
+        columns = [...wanted].map((key) => columns.find((c) => c.key === key)).filter((c) => c !== undefined);
+    }
+    checkLimit("cells", (data.length + 1) * columns.length, resolveLimits(options).cells, "rows x columns of the data export");
+    const valueOf = columns.map((column) => (column.type === "date" ? (v) => isoWall(/** @type {number} */ (v), Boolean(column.dateOnly)) : (v) => v));
+    /** @param {number} i  @param {number} c */
+    const cell = (i, c) => {
+        const code = columns[c].codes[i];
+        return code < 0 ? null : valueOf[c](columns[c].dict[code]);
+    };
+    return { columns, cell };
+}
+
+/**
+ * The data as CSV text, to read again (the command line's --data, a spreadsheet, a script): a header
+ * with the fields' own names (a view names them so), then every row with its values as they are, not
+ * formatted: "," between values and "." as the decimal mark whatever the locale, numbers with every
+ * digit, dates as ISO text without an offset (wall clock), true/false, a blank empty. Text keeps the
+ * formula guard and loses bidi controls, as every CSV this package writes.
+ * @param {import("./encode.js").Encoded} data  from encode()
+ * @param {DataOptions} [options]
+ * @returns {string}
+ */
+export function dataToCsv(data, options) {
+    options = optionsOf(options, "dataToCsv");
+    return [...dataCsv(data, options, "dataToCsv")].join("");
+}
+
+/**
+ * The CSV of dataToCsv as UTF-8 bytes, with a byte order mark unless `bom` is false.
+ * @param {import("./encode.js").Encoded} data
+ * @param {DataOptions & { bom?: boolean }} [options]
+ * @returns {Uint8Array}
+ */
+export function dataToCsvBytes(data, options) {
+    const parts = csvParts(data, optionsOf(options, "dataToCsvBytes"), "dataToCsvBytes");
+    const bytes = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let at = 0;
+    for (const p of parts) {
+        bytes.set(p, at);
+        at += p.length;
+    }
+    return bytes;
+}
+
+/**
+ * The bytes of dataToCsvBytes in pieces of whole lines, for a Blob (`new Blob(parts)`): the text is
+ * never held whole, so a large file takes about its own size while it is made, not a few times it.
+ * @param {import("./encode.js").Encoded} data
+ * @param {DataOptions & { bom?: boolean }} [options]
+ * @returns {Uint8Array[]}
+ */
+export function dataToCsvParts(data, options) {
+    return csvParts(data, optionsOf(options, "dataToCsvParts"), "dataToCsvParts");
+}
+
+/** Lines per piece of the CSV: a few MB of text at most for ordinary rows. */
+const CSV_PIECE_LINES = 10_000;
+
+function csvParts(data, options, fn) {
+    const encoder = new TextEncoder();
+    const parts = [];
+    let first = true;
+    for (const piece of dataCsv(data, options, fn)) {
+        parts.push(encoder.encode(first && options.bom !== false ? `\uFEFF${piece}` : piece));
+        first = false;
+    }
+    return parts;
+}
+
+/**
+ * The CSV of the data in pieces of whole lines (CSV_PIECE_LINES each), each ending with "\r\n".
+ * @returns {Generator<string>}
+ */
+function* dataCsv(data, options, fn) {
+    const { columns, cell } = dataColumns(data, options, fn);
+    const text = (v) => {
+        const safe = exportText(String(v));
+        return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+    };
+    let lines = [columns.map((c) => text(c.name)).join(",")];
+    // a blank is empty, except as the only value of a line: an empty line is skipped by every reader
+    const blank = columns.length === 1 ? '""' : "";
+    for (let i = 0; i < data.length; i++) {
+        const line = new Array(columns.length);
+        for (let c = 0; c < columns.length; c++) {
+            const v = cell(i, c);
+            line[c] = v === null ? blank : typeof v === "string" ? text(v) : String(v);
+        }
+        lines.push(line.join(","));
+        if (lines.length === CSV_PIECE_LINES) {
+            yield lines.join("\r\n") + "\r\n";
+            lines = [];
+        }
+    }
+    if (lines.length) {
+        yield lines.join("\r\n") + "\r\n";
+    }
+}
+
+/**
+ * The data as JSON text: an array with one object per row, each field under its own name, the values
+ * typed (numbers, true/false, text as it is, dates as ISO text without an offset, null for a blank).
+ * One row per line, so a large file stays readable in an editor and in a diff.
+ * @param {import("./encode.js").Encoded} data  from encode()
+ * @param {DataOptions} [options]
+ * @returns {string}
+ */
+export function dataToJson(data, options) {
+    options = optionsOf(options, "dataToJson");
+    const { columns, cell } = dataColumns(data, options, "dataToJson");
+    const lines = [];
+    for (let i = 0; i < data.length; i++) {
+        // no prototype: a field named "__proto__" is a key like any other
+        /** @type {Record<string, unknown>} */
+        const row = Object.create(null);
+        for (let c = 0; c < columns.length; c++) {
+            row[columns[c].name] = cell(i, c);
+        }
+        lines.push(JSON.stringify(row));
+    }
+    return lines.length ? `[\n${lines.join(",\n")}\n]\n` : "[]\n";
 }

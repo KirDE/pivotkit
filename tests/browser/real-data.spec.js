@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { readSheet } from "read-excel-file/node";
+import { encodeViewLink } from "pivotkit-core/link";
 import { chipMenu, chips, expect, openLevel, tableRows, test } from "./fixtures.js";
 import { unpack } from "../../examples/playground/data/sources.js";
 
@@ -113,9 +114,10 @@ test.describe("countries", () => {
     });
 
     test("population per income group: chart and its table", async ({ page }) => {
-        // a window wide enough for the chart type's button (narrower, it is in "More", after Views)
+        // a window wide enough for the chart type's button (narrower, or with the Data button, it is in
+        // "More", after Views): the report without the Data button (import=off)
         await page.setViewportSize({ width: 1440, height: 900 });
-        await open(page, "data=countries&preset=3");
+        await open(page, "data=countries&preset=3&import=off");
         await expect(page.locator('[data-testid="pivot-chart"] canvas')).toBeVisible();
         await expect(page.getByTestId("chart-type")).toContainText("Stacked bars");
         await page.getByTestId("show-table").click();
@@ -242,8 +244,15 @@ test.describe("software end of life", () => {
     test("the products with the most supported release cycles, top 10", async ({ page }) => {
         await open(page, "data=endoflife&preset=1");
         const ranked = Object.entries(Object.groupBy(eol.filter((x) => x.Maintained), (x) => x.Product)).sort((a, b) => b[1].length - a[1].length);
-        const rows = await tableRows(page);
-        expect(rows.map((r) => r[0])).toEqual([...ranked.slice(0, 10).map(([p]) => p), "Grand Total"]);
+        // the end-of-life data loads as a chunk of its own after the report: the table is polled until
+        // it shows the ten products (#224)
+        let rows = [];
+        await expect
+            .poll(async () => {
+                rows = await tableRows(page);
+                return rows.map((r) => r[0]);
+            }, { message: "the top 10 products and the grand total in the table" })
+            .toEqual([...ranked.slice(0, 10).map(([p]) => p), "Grand Total"]);
         const oldest = ranked[0][1].map((x) => x.Released).sort()[0];
         expect(rows[0].slice(1)).toEqual([int(ranked[0][1].length), usDate(oldest)]);
         await expect(page.getByTestId("tip-top")).toContainText("Product shows the top 10 only");
@@ -416,9 +425,10 @@ test.describe("learning tasks", () => {
     });
 
     test("end of life: category as a heatmap; the median instead of the average", async ({ page }) => {
-        // a window wide enough for the chart type's button (narrower, it is in "More", after Views)
+        // a window wide enough for the chart type's button (narrower, or with the Data button, it is in
+        // "More", after Views): the report without the Data button (import=off)
         await page.setViewportSize({ width: 1440, height: 900 });
-        await open(page, "data=endoflife&preset=0");
+        await open(page, "data=endoflife&preset=0&import=off");
         await page.getByTestId("field-menu-Category").click();
         await page.getByRole("menuitem", { name: "Add to Columns" }).click();
         await page.getByTestId("chart-type").click();
@@ -643,4 +653,38 @@ test.describe("what the real data showed (#21 to #26)", () => {
         expect(full.toFixed(3)).toBe((Number(cell.replace("%", "").replace(",", ".")) / 100).toFixed(3));
         expect(String(full).length).toBeGreaterThan(8);
     });
+});
+
+test("Top choices explicitly keep focus when mouse clicks do not focus radios (#119)", async ({ page }) => {
+    await page.goto("?data=countries&preset=0");
+    await chipMenu(page, "Country", "top");
+    const off = page.getByTestId("top-off");
+    // Match WebKit on macOS: the click changes a radio but does not focus it by default.
+    await page.evaluate(() => document.addEventListener("mousedown", (event) => {
+        if (event.target instanceof HTMLInputElement && event.target.type === "radio") event.preventDefault();
+    }));
+    await off.check();
+    await expect(off).toBeChecked();
+    await expect(off).toBeFocused();
+    await page.getByTestId("top-5").check();
+    await expect(page.getByTestId("top-5")).toBeFocused();
+});
+
+test("the date quick choices keep focus when mouse clicks do not focus radios (#203)", async ({ page }) => {
+    const MONTH = "Date by month";
+    const view = { derived: [{ name: MONTH, field: "Date", by: "yearMonth" }], rows: [MONTH], values: [{ field: "Mean °C", agg: "average" }] };
+    await page.goto(`?data=weather&empty&lang=en#pivot-playground=${encodeViewLink(view)}`);
+    await chipMenu(page, MONTH, "filter");
+    const menu = page.locator(".pk-chip-menu");
+    // as WebKit on macOS: the click picks a radio but does not focus it by default
+    await page.evaluate(() => document.addEventListener("mousedown", (event) => {
+        if (event.target instanceof HTMLInputElement && event.target.type === "radio") event.preventDefault();
+    }));
+    const last = menu.getByTestId("quick-last");
+    await last.check();
+    await expect(last).toBeChecked();
+    await expect(last).toBeFocused();
+    await menu.getByTestId("quick-all").check();
+    await expect(menu.getByTestId("quick-all")).toBeChecked();
+    await expect(menu.getByTestId("quick-all")).toBeFocused();
 });

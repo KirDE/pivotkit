@@ -4,22 +4,31 @@
 //   npm run build:playground && node scripts/docs-screenshots.js
 //   SHOTS=quick-rows,chart node scripts/docs-screenshots.js   # only these shots
 //
+// The print templates' shots (REPORT_SHOTS) are HTML reports pivotkit-report renders, opened as pages.
 // Every shot is one entry in SHOTS: the playground's URL parameters, a view for the fragment, the
 // window size, whether to wait for the chart and what to open before the picture is taken. Each shot is taken in both themes,
 // `<name>-light.png` and `<name>-dark.png`, which the pages show with `#only-light` and `#only-dark`.
 // The generated data has a fixed seed and the real data is a committed snapshot, so the numbers are
 // the same on every run.
+//
+// One picture is not taken here: xlsx-result-light.png and xlsx-result-dark.png (one image twice,
+// since a workbook has no dark theme). Take it again by hand when the export's look changes:
+//   1. pivotkit render weather.pivotkit.json --data weather.csv -o weather.xlsx
+//   2. Open it in Microsoft Excel for Mac at 100 % on a Retina screen. Set Excel's region to one that
+//      writes a decimal point (en_US): Excel formats numbers by its region (AppleLocale).
+//   3. Capture Excel's window only (screencapture -o -l <window id>) and crop it to cells A1:N16.
 import { chromium } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { toViewFile } from "pivotkit-core";
 import { encodeViewLink as encodeLink } from "pivotkit-core/link";
+import { fileURLToPath } from "node:url";
 
 /** A view as the playground's links carry it: the link profile of a view file. */
 const encodeViewLink = (view) => encodeLink(toViewFile(view, {}, { link: true }));
 
 const root = new URL("../", import.meta.url);
-const out = new URL("docs/assets/screenshots/", root).pathname;
+const out = fileURLToPath(new URL("docs/assets/screenshots/", root));
 const port = Number(process.env.PLAYGROUND_PORT ?? 4174);
 const base = `http://127.0.0.1:${port}/`;
 
@@ -37,6 +46,35 @@ const GROUPED = encodeViewLink({
     sort: [{ field: "Region", by: "value", order: "desc" }, { field: "Country", by: "value", order: "desc" }],
     display: "chart",
     chart: { type: "bar", title: "The three largest countries of each region (2024)" }
+});
+
+/** Monthly revenue as a line with its reference lines: the average, the trend and a target. */
+const LINES = encodeViewLink({
+    rows: ["Month (Year and month)"],
+    derived: [{ name: "Month (Year and month)", field: "Month", by: "yearMonth" }],
+    values: [{ field: "Revenue", agg: "sum", format: "currency:EUR" }],
+    display: "chart",
+    chart: { type: "line", title: "Monthly revenue", referenceLines: { average: true, trend: true, target: 500000 } }
+});
+
+/** Revenue per region, stacked by category: the tooltip of one segment names it with the stack's total. */
+const STACKED = encodeViewLink({
+    rows: ["Region"],
+    cols: ["Category"],
+    values: [{ field: "Revenue", agg: "sum", format: "currency:EUR" }],
+    sort: [{ field: "Region", by: "value", order: "desc" }],
+    display: "chart",
+    chart: { type: "bar", stacked: true }
+});
+
+/** The 40 largest countries by population on a phone: the axis cannot name them all, a zoom slider shows a part. */
+const ZOOMED = encodeViewLink({
+    rows: ["Country"],
+    values: [{ field: "Population", agg: "sum", format: "compact" }],
+    filters: [{ field: "Year", type: "include", items: [2024] }, { field: "Country", type: "top", count: 40, by: { field: "Population", agg: "sum" } }],
+    sort: [{ field: "Country", by: "value", order: "desc" }],
+    display: "chart",
+    chart: { type: "bar" }
 });
 
 /** Regions with more than 2 million revenue, by the second value of two: the chip says so, the menu has the form open. */
@@ -57,6 +95,11 @@ const DATES = encodeViewLink({ ...MONTHLY, filters: [{ field: "Date by month", t
 const CYCLIC = { derived: [{ name: "Date by month of year", field: "Date", by: "month" }], rows: ["Date by month of year"], cols: ["City"], values: [{ field: "Mean °C", agg: "average" }] };
 const YEARS = encodeViewLink({ ...CYCLIC, filters: [{ field: "Date by month of year", type: "compare", op: "between", value: "2024-01-01", value2: "2025-12-31" }] });
 const RULES = encodeViewLink({ ...CYCLIC, filters: [{ field: "Date by month of year", type: "value", op: ">", value: 25, by: { field: "Mean °C", agg: "average" } }] });
+/** End-of-life dates by month, the next 2 years: the quick choices with More choices open (Next is one of them). */
+const EOL_MONTHLY = { derived: [{ name: "EOL date by month", field: "EOL date", by: "yearMonth" }], rows: ["EOL date by month"], values: [{ agg: "count" }] };
+const MORE = encodeViewLink({ version: 2, ...EOL_MONTHLY, filters: [{ field: "EOL date by month", type: "relative", direction: "next", unit: "year", count: 2, blanks: "exclude" }] });
+/** The Nobel laureates by country: a rule on the name that keeps the laureates without a country. */
+const BLANKS = encodeViewLink({ version: 2, rows: ["Country"], values: [{ agg: "count" }], filters: [{ field: "Country", type: "text", op: "beginsWith", value: "united", not: true, blanks: "include" }] });
 /** A date in Filters: the whole report counts the release cycles of the last 12 months. */
 const ZONE = encodeViewLink({ rows: ["Category"], values: [{ field: "Cycle", agg: "count", label: "Release cycles" }], filters: [{ field: "Released", type: "relative", unit: "month", count: 12 }] });
 
@@ -75,6 +118,15 @@ const UNUSED = encodeViewLink({
     filters: [{ field: "Region", type: "top", count: 10, by: { field: "Time", agg: "count" } }],
     sort: [{ field: "Region", by: "value", order: "desc" }],
     chart: { legend: "left" }
+});
+
+/** Column subtotals switched on with two fields in Columns: the line before each, and the tip that explains them. */
+const COLUMN_SUBTOTALS = encodeViewLink({
+    rows: ["Team"],
+    cols: ["Priority", "Channel"],
+    values: [{ field: "Ticket", agg: "count" }],
+    filters: [{ field: "Priority", type: "in", items: ["P1 Critical", "P2 High"] }],
+    totals: { colSubtotals: true }
 });
 
 /** The quick start's steps, clicked from the empty report: Region to Rows, Revenue to Values, Category to Columns. */
@@ -166,6 +218,8 @@ const SHOTS = [
     },
     // the hero of the start page: real data (the weather of 14 cities)
     { name: "report", query: "data=weather", size: WIDE },
+    { name: "date-context", query: "data=weather&height=640", size: WIDE },
+    { name: "date-context-phone", query: "data=weather&height=430", size: PHONE },
     // a value's menu: its first level, one row per topic with what is set
     {
         name: "value-menu",
@@ -193,8 +247,8 @@ const SHOTS = [
     // the Group level of a date: one column, the example on the right, under its two headings
     {
         name: "group-level",
-        query: "data=sales&empty",
-        size: WIDE,
+        query: "data=sales&empty&height=840",
+        size: { width: WIDE.width, height: 1000 },
         open: async (page) => {
             await page.getByTestId("field-menu-Month").click();
             await page.getByRole("menuitem", { name: "Add to Rows" }).click();
@@ -255,11 +309,61 @@ const SHOTS = [
         size: WIDE,
         chart: true,
         open: async (page) => {
+            // the legend at the bottom (its level), back on the first level: the chart types and the topic rows
             await toolbar(page, "chart-type");
+            await page.getByTestId("topic-legend").click();
             await page.getByTestId("legend-bottom").click();
         }
     },
     { name: "chart-groups", query: "data=countries", hash: GROUPED, size: WIDE, chart: true },
+    // a phone's chart of 40 countries: the zoom slider under the axis, every country in its window named
+    {
+        name: "chart-zoom",
+        query: "data=countries&height=640",
+        hash: ZOOMED,
+        size: PHONE,
+        chart: true,
+        open: async (page) => {
+            await page.addStyleTag({ content: ".pk-toast { visibility: hidden; }" });
+            await page.getByTestId("pivot-chart").evaluate((el) => el.scrollIntoView({ block: "end" }));
+        }
+    },
+    // a line with its average (dashed), its trend (dotted) and a target (solid)
+    { name: "chart-lines", query: "data=sales", hash: LINES, size: WIDE, chart: true },
+    {
+        // Display › Reference lines open over the same chart: the switches, the target and its row's level
+        name: "chart-lines-level",
+        query: "data=sales",
+        hash: LINES,
+        size: WIDE,
+        chart: true,
+        open: async (page) => {
+            await page.addStyleTag({ content: ".pk-toast { visibility: hidden; }" });
+            await toolbar(page, "chart-type");
+            await page.getByTestId("topic-lines").click();
+        }
+    },
+    {
+        // the pointer on a segment of stacked bars: the tooltip names it and adds the stack's total
+        name: "chart-tooltip",
+        query: "data=sales",
+        hash: STACKED,
+        size: WIDE,
+        chart: true,
+        open: async (page) => {
+            await page.addStyleTag({ content: ".pk-toast { visibility: hidden; }" });
+            const chart = page.getByTestId("pivot-chart");
+            const box = await chart.boundingBox();
+            // along a line through the middle of the bars until the pointer is on a segment: the
+            // tooltip then has three lines, the region, the segment and the total
+            const lines = chart.locator(":scope > div:not(:first-child) > div > div");
+            for (let x = box.x + box.width * 0.2; x < box.x + box.width; x += 8) {
+                await page.mouse.move(x, box.y + box.height * 0.6);
+                await page.waitForTimeout(40);
+                if ((await lines.count()) === 3 && (await chart.locator(":scope > div:not(:first-child)").isVisible())) break;
+            }
+        }
+    },
     {
         // Start over open at the start view: Reset greyed out with its reason, New with what it does;
         // a window of 1920 px, where Start over is in the toolbar with the field list open
@@ -366,6 +470,31 @@ const SHOTS = [
             await page.getByTestId("topic-filter").click();
         }
     },
+    // a date's More choices, open since the choice set is one of them: Next and Before the last with
+    // their counts and units, Rolling, and Counted back from (the data reach past today)
+    {
+        name: "filter-more",
+        query: "data=endoflife&empty",
+        hash: MORE,
+        size: WIDE,
+        open: async (page) => {
+            await page.getByTestId("chip-menu-EOL date by month").click();
+            await page.getByTestId("topic-filter").click();
+            await page.getByTestId("quick-more-body").scrollIntoViewIfNeeded();
+        }
+    },
+    // a rule on the name with the blank items kept: "does not begin with", the checkbox with its rows
+    {
+        name: "filter-blanks",
+        query: "data=nobel&empty",
+        hash: BLANKS,
+        size: WIDE,
+        open: async (page) => {
+            await page.getByTestId("chip-menu-Country").click();
+            await page.getByTestId("topic-filter").click();
+            await page.getByTestId("rules-blanks").scrollIntoViewIfNeeded();
+        }
+    },
     // a grouping that combines the years: Years combined with 2023 off, the summary saying so
     {
         name: "filter-cyclic",
@@ -398,8 +527,19 @@ const SHOTS = [
         size: WIDE,
         open: (page) => page.getByTestId("chip-menu-Released").click()
     },
+    // the field list's Add to Filters: the field's filter opens first, nothing is placed until Apply
     {
-        // the Top items level of a field's menu: the template's Top 3, the quick choices and Top N…
+        name: "add-to-filters",
+        query: "data=sales",
+        size: WIDE,
+        open: async (page) => {
+            await page.getByTestId("field-menu-Product").click();
+            await page.getByRole("menuitem", { name: "Add to Filters" }).click();
+            await page.locator(".pk-filter-popover").waitFor();
+        }
+    },
+    {
+        // the Top items level of a field's menu: the template's Top 3, the quick choices and Top N…, the ties
         name: "top-items",
         query: "data=countries&preset=0",
         size: WIDE,
@@ -427,6 +567,21 @@ const SHOTS = [
         open: async (page) => {
             await page.locator('[data-testid="pivot-chart"] canvas').waitFor();
             await toolbar(page, "chart-type");
+        }
+    },
+    {
+        // a donut on a phone with its values outside: a smaller pie, the labels whole on two lines
+        name: "donut-phone",
+        query: "data=sales&height=760",
+        hash: encodeViewLink({ rows: ["Region"], values: [{ field: "Revenue", agg: "sum" }], display: "chart", chart: { type: "donut", valueLabels: "value", legend: "bottom" } }),
+        size: PHONE,
+        chart: true,
+        open: async (page) => {
+            await page.addStyleTag({ content: ".pk-toast-dock { visibility: hidden; }" });
+            await page.getByTestId("pivot-chart").evaluate((el) => {
+                el.style.scrollMarginTop = "12px";
+                el.scrollIntoView({ block: "start" });
+            });
         }
     },
     {
@@ -473,7 +628,7 @@ const SHOTS = [
         }
     },
     { name: "german", query: "data=sales&lang=de", size: WIDE },
-    // loading data (allowImport, the playground's ?import): the Data menu, a file dragged over the
+    // loading data (allowImport, on in the playground; the other shots turn it off): the Data menu, a file dragged over the
     // report, its preview, the report on it, the empty report's place to drop, the preview on a phone
     { name: "data-menu", query: "data=sales&import", size: WIDE, open: (page) => toolbar(page, "data") },
     { name: "import-drop", query: "data=sales&import", size: WIDE, open: (page) => dragTickets(page, false) },
@@ -513,6 +668,14 @@ const SHOTS = [
         }
     },
     { name: "tips", query: "data=countries&preset=0", size: WIDE },
+    {
+        name: "column-subtotals",
+        query: "data=tickets&empty",
+        hash: COLUMN_SUBTOTALS,
+        size: WIDE,
+        // the note that the view came from the link would cover the last column
+        open: (page) => page.addStyleTag({ content: ".pk-toast { visibility: hidden; }" })
+    },
     // "Learn with real data": one template of each real data set
     { name: "learn-weather", query: "data=weather&preset=0", size: WIDE },
     { name: "learn-countries", query: "data=countries&preset=0", size: WIDE },
@@ -537,7 +700,42 @@ const SHOTS = [
     }
 ];
 
-const server = spawn(process.execPath, [new URL("examples/playground/serve.js", root).pathname, String(port)], { stdio: "ignore" });
+/**
+ * The print templates of `pivotkit example templates` (examples/report-templates/) over the sales
+ * example's data, rendered by pivotkit-report as the command line renders them, in the system's light
+ * and dark theme: the shots of "Your own corporate design". Corporate is light on every screen
+ * (`light: true`): one picture, written as both names.
+ */
+const REPORT_SHOTS = [
+    { name: "template-corporate", template: "corporate.template.html", view: "sales.pivotkit.json", size: { width: 1000, height: 760 }, light: true },
+    { name: "template-corporate-chart", template: "corporate.template.html", view: "sales-chart.pivotkit.json", size: { width: 1000, height: 760 }, light: true },
+    { name: "template-minimal", template: "minimal.template.html", view: "sales-chart.pivotkit.json", size: { width: 1000, height: 760 } }
+];
+
+/** Takes the report shots: the HTML report opened as a page of its own, as a reader opens the file. */
+async function reportShots(browser, only) {
+    const shots = REPORT_SHOTS.filter((s) => !only || only.includes(s.name));
+    if (!shots.length) return;
+    const [{ render }, { readFile: readTable }, echarts, { buildExamples }] = await Promise.all([import("pivotkit-report"), import("pivotkit-core/import"), import("echarts"), import("./examples.js")]);
+    const built = await buildExamples();
+    const { encode } = await import("pivotkit-core");
+    const data = encode(await readTable(new File([built.files.get("sales.csv")], "sales.csv")));
+    for (const shot of shots) {
+        const report = await render(built.files.get(shot.view), data, { format: "html", echarts, template: built.files.get(shot.template), source: "sales.csv", now: "2026-11-13T10:00:00Z" });
+        for (const theme of shot.light ? ["light"] : THEMES) {
+            const page = await browser.newPage({ viewport: shot.size, deviceScaleFactor: 1, reducedMotion: "reduce", colorScheme: theme });
+            await page.setContent(report.text);
+            const picture = await page.screenshot();
+            await page.close();
+            for (const name of shot.light ? THEMES.map((t) => `${shot.name}-${t}.png`) : [`${shot.name}-${theme}.png`]) {
+                await writeFile(`${out}${name}`, picture);
+                console.log(name);
+            }
+        }
+    }
+}
+
+const server = spawn(process.execPath, [fileURLToPath(new URL("examples/playground/serve.js", root)), String(port)], { stdio: "ignore" });
 try {
     await mkdir(out, { recursive: true });
     const browser = await chromium.launch();
@@ -545,7 +743,10 @@ try {
     for (const shot of SHOTS.filter((s) => !only || only.includes(s.name))) {
         for (const theme of THEMES) {
             const page = await browser.newPage({ viewport: shot.size, deviceScaleFactor: 1, reducedMotion: "reduce", colorScheme: theme });
-            const url = `${base}?${shot.query}&theme=${theme}${shot.hash ? `#pivot-playground=${shot.hash}` : ""}`;
+            // the report as a host gets it by default: without the Data button (allowImport), which the
+            // playground shows unless ?import=off, except in the shots of loading data
+            const query = /(^|&)import(=|&|$)/.test(shot.query) ? shot.query : `${shot.query}&import=off`;
+            const url = `${base}?${query}&theme=${theme}${shot.hash ? `#pivot-playground=${shot.hash}` : ""}`;
             // the server needs a moment on the first request
             for (let i = 0; ; i++) {
                 try {
@@ -571,6 +772,7 @@ try {
             console.log(name);
         }
     }
+    await reportShots(browser, only);
     await browser.close();
 } finally {
     server.kill();
