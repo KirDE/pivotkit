@@ -6,6 +6,13 @@ All notable changes to `pivotkit-report` are documented in this file. The format
 
 ## [Unreleased]
 
+### Added
+
+- `render` takes `numbers` (`"full"` or `"shown"`) for csv and json and `flatHeader` for csv.
+  Its result has the `grid` it exported. The `render_view` operation takes them as inputs, with `locale` for a view or layout that names
+  none; a `locale` that chooses a numbering system or that the runtime has no format for is refused
+  ([#478](https://github.com/eizedev/pivotkit/issues/478)).
+
 ### Changed
 
 - The chart's SVG takes `toEChartsOption` from `pivotkit-core/chart` (#546).
