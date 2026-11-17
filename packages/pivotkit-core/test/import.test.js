@@ -8,6 +8,7 @@ import { BUILT_IN_READERS, PLUGIN_API_VERSION, csvReader, jsonReader, loadReader
 import { LIMITS, PivotkitError, computePivot, encode, toGrid } from "pivotkit-core";
 
 import { fileName } from "../src/import-table.js";
+import { cpuClock } from "../../../tests/cpu-time.js";
 
 const fixture = (name) => readFileSync(new URL(`./import-fixtures/${name}`, import.meta.url));
 const fileOf = (name, bytes = fixture(name)) => new File([bytes], name);
@@ -163,6 +164,25 @@ test("rows with more values than names get columns named Column N", async () => 
     assert.deepEqual(t.columns, ["A", "B", "Column 3"]);
     assert.deepEqual(col(t, "Column 3"), [null, 5]);
     assert.ok(t.notes.some((n) => n.code === "COLUMNS_ADDED" && n.params.rows === 1));
+});
+
+test("unnamed lists the columns the file gives no name: a blank header cell and a row longer than the header, not a renamed repeat", async () => {
+    const t = await readFile(text("x.csv", "A;;B;B\n1;2;3;4\n5;6;7;8;9\n"));
+    assert.deepEqual(t.columns, ["A", "Column 2", "B", "B (2)", "Column 5"]);
+    assert.deepEqual(t.unnamed, ["Column 2", "Column 5"]);
+    assert.deepEqual(t.longRows, [1], "the second row is longer than the header");
+    const y = await readFile(text("y.csv", "A;B\n1;2\n"));
+    assert.deepEqual([y.unnamed, y.longRows], [[], []]);
+    // a row longer only by an empty last cell, where the other rows are not, is long: its values may be shifted
+    assert.deepEqual((await readFile(text("z.csv", "A,B,C\n1,2,3\nb,12,3,\n"))).longRows, [1]);
+    // every row ending with a separator the header lacks is a trailing separator, no shift
+    assert.deepEqual((await readFile(text("t.csv", "A,B,C\n1,2,3,\n4,5,6,\n7,8,9,\n"))).longRows, []);
+    // a header that ends with one too: a uniform file keeps its rows
+    assert.deepEqual((await readFile(text("v.csv", "A,B,C,\n1,2,3,\n7,8,9,\n"))).longRows, []);
+    // where rows differ in width, every row wider than the named header counts (which one shifted cannot be told)
+    assert.deepEqual((await readFile(text("u.csv", "A,B,C,\n1,2,3,\nb,12,3,x,\n7,8,9,\n"))).longRows, [0, 1, 2]);
+    // a value beyond the named header in a file of one width is a shift
+    assert.deepEqual((await readFile(text("w.csv", "A,B,C\n1,2,3,\nSm,ith,9,x\n"))).longRows, [0, 1]);
 });
 
 test("types from text: dates before numbers, leading zeros and long numbers stay text, the notation per column", async () => {
@@ -394,9 +414,9 @@ test("encode: columnar input is checked, typed and selected like rows", () => {
 
 test("a wide row late in a long file is refused before a column of every row is allocated", async () => {
     const lines = "A\n" + "1\n".repeat(300_000) + Array.from({ length: 1_000 }, (_, i) => i).join(",") + "\n";
-    const started = performance.now();
+    const cpu = cpuClock();
     await rejects(readFile(text("late.csv", lines)), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "importCells" && e.details.file === "late.csv");
-    assert.ok(performance.now() - started < 5_000, `${performance.now() - started} ms`);
+    assert.ok(cpu() < 5_000, `${Math.round(cpu())} ms of CPU`);
     // a row of more fields than limits.columns stops while it is split
     await rejects(readFile(text("commas.csv", "A\n" + ",".repeat(5_000) + "x\n")), (e) => e.details.limit === "columns");
 });

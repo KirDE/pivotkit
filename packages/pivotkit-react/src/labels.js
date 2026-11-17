@@ -7,7 +7,7 @@
  * load with them; a host's entries for them are kept here and win there.
  */
 
-import { GROUPING_NAMES, PivotkitError, REPORT_LABELS } from "pivotkit-core";
+import { GROUPING_NAMES, PLURAL_CATEGORIES, PivotkitError, REPORT_LABELS, ROW_COUNT_TEXTS, pluralForm } from "pivotkit-core";
 
 /**
  * Every text of the UI: these and the menus' (menu-labels.js, loaded with the menus; a type import
@@ -21,6 +21,7 @@ import { GROUPING_NAMES, PivotkitError, REPORT_LABELS } from "pivotkit-core";
 export const en = {
     /** the language of the texts, for the report's lang attribute */
     lang: "en",
+    dateYearsCombined: "{years} combined",
     /** the name of the report's region landmark */
     report: "Pivot report",
     core: /** @type {import("pivotkit-core").Labels} */ (REPORT_LABELS.en),
@@ -112,7 +113,7 @@ export const en = {
     },
     // a date grouping's name: "Date by month"; the unit as it reads inside it (unitInName); pivotkit-core's GROUPING_NAMES
     derivedName: GROUPING_NAMES.en.name,
-    unitInName: { ...GROUPING_NAMES.en.units },
+    unitInName: GROUPING_NAMES.en.units,
     binsName: GROUPING_NAMES.en.bins,
     top: "Top",
     topBadge: "Top {count}",
@@ -152,8 +153,11 @@ export const en = {
     dismissIssues: "Dismiss",
     loadingChart: "Loading chart…",
     noChartData: "Add a value to see a chart.",
-    // a count in words: one form per Intl.PluralRules category of the language ("one", "other", ...)
-    rowsCount: { one: "{count} row", other: "{count} rows" },
+    // a count in words: one form per Intl.PluralRules category of the language ("one", "other", ...);
+    // the row counts are pivotkit-core's, so pivotkit-report's HTML report says the same
+    rowsCount: ROW_COUNT_TEXTS.en.rowsCount,
+    // a filter left rows out: the rows kept ({shown}) of the data's ({count}, which picks the form)
+    rowsFiltered: ROW_COUNT_TEXTS.en.rowsFiltered,
     tableName: "Pivot table",
     emptyCell: "No rows",
     emptyValue: "No value",
@@ -164,8 +168,24 @@ export const en = {
     chartCategories: { one: "{count} category", other: "{count} categories" },
     chartSeries: { one: "{count} series", other: "{count} series" },
     chartExtremes: "Highest {max} at {maxAt}; lowest {min} at {minAt}.",
+    // the chart's reference lines in its text alternative: "Average 25; Trend from 10 to 40"
+    chartLines: "Reference lines: {lines}.",
+    chartTrendSpan: "from {from} to {to}",
     // the last sentence of the chart's text alternative
     chartTableHint: "Switch to Table to read every value.",
+    // the tooltip's last line on stacked bars and areas: the sum of the stack's parts
+    chartTotal: "Total",
+    // the tooltip's line for the series that do not fit
+    chartMore: "+{count} more",
+    chartMoreInTotal: "+{count} more (in the total)",
+    // said when a click on the legend hides or shows a series (or a slice)
+    // the chart's text alternative of a 100 % stack
+    chartShares: "Shown as shares of each stack.",
+    // the zoom slider by keyboard: its name, and what it shows
+    chartZoom: "Zoom window",
+    chartZoomWindow: "Categories {from} to {to} of {count}",
+    chartHidden: "{name} hidden",
+    chartShown: "{name} shown",
     categories: "categories",
     close: "Close",
     // toasts and live region
@@ -353,6 +373,7 @@ export const en = {
 
 export const de = {
     lang: "de",
+    dateYearsCombined: "{years} zusammengefasst",
     report: "Pivot-Bericht",
     core: /** @type {import("pivotkit-core").Labels} */ (REPORT_LABELS.de),
     zones: { rows: "Zeilen", cols: "Spalten", values: "Werte", filters: "Filter" },
@@ -431,7 +452,7 @@ export const de = {
         bin: "Bereiche"
     },
     derivedName: GROUPING_NAMES.de.name,
-    unitInName: { ...GROUPING_NAMES.de.units },
+    unitInName: GROUPING_NAMES.de.units,
     binsName: GROUPING_NAMES.de.bins,
     top: "Oberste",
     topBadge: "Top {count}",
@@ -465,7 +486,8 @@ export const de = {
     dismissIssues: "Ausblenden",
     loadingChart: "Diagramm wird geladen…",
     noChartData: "Einen Wert hinzufügen, um ein Diagramm zu sehen.",
-    rowsCount: { one: "{count} Zeile", other: "{count} Zeilen" },
+    rowsCount: ROW_COUNT_TEXTS.de.rowsCount,
+    rowsFiltered: ROW_COUNT_TEXTS.de.rowsFiltered,
     tableName: "Pivot-Tabelle",
     emptyCell: "Keine Zeilen",
     emptyValue: "Kein Wert",
@@ -475,7 +497,17 @@ export const de = {
     chartCategories: { one: "{count} Kategorie", other: "{count} Kategorien" },
     chartSeries: { one: "{count} Reihe", other: "{count} Reihen" },
     chartExtremes: "Höchster Wert {max} bei {maxAt}; niedrigster {min} bei {minAt}.",
+    chartLines: "Bezugslinien: {lines}.",
+    chartTrendSpan: "von {from} bis {to}",
     chartTableHint: "Zur Tabelle wechseln, um jeden Wert zu lesen.",
+    chartTotal: "Gesamt",
+    chartMore: "+{count} weitere",
+    chartMoreInTotal: "+{count} weitere (im Gesamtwert)",
+    chartShares: "Als Anteile je Stapel dargestellt.",
+    chartZoom: "Zoom-Fenster",
+    chartZoomWindow: "Kategorien {from} bis {to} von {count}",
+    chartHidden: "{name} ausgeblendet",
+    chartShown: "{name} eingeblendet",
     categories: "Kategorien",
     close: "Schließen",
     toastRemoved: "{field} entfernt",
@@ -689,9 +721,6 @@ export function fill(template, values) {
     return String(template).replace(/\{(\w+)\}/g, (all, name) => (Object.hasOwn(values, name) ? String(values[name]) : all));
 }
 
-/** The categories of Intl.PluralRules: the keys a count label may have. */
-const PLURAL_CATEGORIES = Object.freeze(["zero", "one", "two", "few", "many", "other"]);
-
 /** True for a count label: an object of plural forms with at least `other`. */
 const isPluralForms = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.hasOwn(v, "other") && Object.keys(v).every((k) => PLURAL_CATEGORIES.includes(k));
 
@@ -703,14 +732,20 @@ const isPluralForms = (v) => v !== null && typeof v === "object" && !Array.isArr
  * @param {{ lang: string, locale: string }} options
  */
 export function plural(forms, count, { lang, locale }) {
-    let category = "other";
-    try {
-        category = new Intl.PluralRules(lang).select(count);
-    } catch {
-        // a language tag Intl does not take: the "other" form
-    }
-    const form = typeof forms[category] === "string" ? forms[category] : forms.other;
-    return fill(form ?? "", { count: count.toLocaleString(locale) });
+    return fill(pluralForm(forms, count, lang), { count: count.toLocaleString(locale) });
+}
+
+/**
+ * The row count under the result: "15,344 rows", or "5,110 of 15,344 rows" when a filter (Top N and
+ * value conditions too) leaves rows of the data out (#108).
+ * @param {number} shown  the source rows left after every filter
+ * @param {number} total  the data's rows
+ * @param {UiLabels} labels
+ * @param {string} locale
+ */
+export function rowCount(shown, total, labels, locale) {
+    const lang = { lang: labels.lang, locale };
+    return shown < total ? fill(plural(labels.rowsFiltered, total, lang), { shown: shown.toLocaleString(locale) }) : plural(labels.rowsCount, total, lang);
 }
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);

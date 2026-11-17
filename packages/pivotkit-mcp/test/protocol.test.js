@@ -98,17 +98,25 @@ for (const era of ["legacy", "modern"]) {
     });
 }
 
-test("render_view never replaces a file: the same name twice gives -2; a served directory gets names nobody can guess", async () => {
+test("render_view never replaces a file: the same name twice gives -2; a served directory gets names nobody can guess, and an address only for an open source", async () => {
     const dir = workspace();
-    const server = await httpServer({ sources: { sales: { file: "data/sales.csv" } }, output: { dir: "out", baseUrl: "https://files.example.com/reports" }, baseDir: dir });
+    // sales: every field shown (open); closed: the default summary
+    const server = await httpServer({ sources: { sales: { file: "data/sales.csv", policy: { default: "show" } }, closed: { file: "data/sales.csv" } }, output: { dir: "out", baseUrl: "https://files.example.com/reports" }, baseDir: dir });
     try {
         const { client, close } = await httpClient(server.url);
         const a = await call(client, "render_view", { source: "sales", view: BY_REGION, format: "csv", name: "by region" });
         const b = await call(client, "render_view", { source: "sales", view: BY_REGION, format: "csv", name: "by region" });
-        assert.match(a.data.output.name, /^[A-Za-z0-9_-]{22}-by region\.pivotkit-out\.csv$/);
+        assert.match(a.data.output.name, /^[A-Za-z0-9_-]{22}-by-region\.pivotkit-out\.csv$/);
         assert.notEqual(a.data.output.name, b.data.output.name);
         assert.equal(a.data.output.url, `https://files.example.com/reports/${encodeURIComponent(a.data.output.name)}`);
-        assert.equal(readdirSync(join(dir, "out")).length, 2);
+        assert.equal(a.data.output.filename, "by-region.csv");
+        // a report over a closed source: written under a name nobody can guess, but no address anyone could open
+        const c = await call(client, "render_view", { source: "closed", view: BY_REGION, format: "csv", name: "by region" });
+        assert.match(c.data.output.name, /^[A-Za-z0-9_-]{22}-by-region\.pivotkit-out\.csv$/);
+        assert.equal(c.data.output.url, undefined);
+        assert.doesNotMatch(c.text, /files\.example\.com/);
+        assert.match(c.data.message, /The report is saved on the server; ask the operator how to open it\./);
+        assert.equal(readdirSync(join(dir, "out")).length, 3);
         await close();
     } finally {
         await server.close();
@@ -123,9 +131,9 @@ test("draft_schedule writes a draft for approval and runs nothing; a file handed
         const input = { source: "sales", view: BY_REGION, name: "Weekly sales", formats: ["xlsx"], every: { unit: "week", weekday: "mon", at: "07:00" }, recipients: ["Sales team"] };
         const draft = await call(client, "draft_schedule", input);
         assert.equal(draft.data.draft.status, "draft");
-        assert.equal(draft.data.output.name, "Weekly sales.pivotkit-out.report.json");
+        assert.equal(draft.data.output.name, "weekly-sales.pivotkit-out.report.json");
         assert.match(draft.data.message, /Nothing runs until a person approves it/);
-        assert.ok(existsSync(join(dir, "out", "Weekly sales.pivotkit-out.report.json")));
+        assert.ok(existsSync(join(dir, "out", "weekly-sales.pivotkit-out.report.json")));
         const fromFile = await call(client, "draft_schedule", { ...input, source: "file:handed-in.csv" });
         assert.equal(fromFile.isError, true);
         assert.match(fromFile.text, /^NOT_SCHEDULABLE/);
@@ -166,10 +174,11 @@ test("create_link and draft_schedule given a layout: one short error that says t
         for (const [name, extra] of [["create_link", {}], ["draft_schedule", schedule]]) {
             const r = await call(client, name, { source: "sales", layout, ...extra });
             assert.equal(r.isError, true, name);
-            assert.equal(r.text, `INVALID_INPUT: ${name} takes a view, not a layout: give the layout to validate_view, which returns the view it makes, and pass that view here`);
+            // every tool error ends with the call's id, for the person to give the operator
+            assert.match(r.text, new RegExp(`^INVALID_INPUT: ${name} takes a view, not a layout: give the layout to validate_view, which returns the view it makes, and pass that view here \\(request id [A-Za-z0-9_-]{11}\\)$`));
             // a view still works, and without either it is refused
             const neither = await call(client, name, { source: "sales", ...extra });
-            assert.match(neither.text, /^INVALID_INPUT: input needs view$/, name);
+            assert.match(neither.text, /^INVALID_INPUT: input needs view \(request id [A-Za-z0-9_-]{11}\)$/, name);
         }
         assert.equal((await call(client, "create_link", { source: "sales", view: BY_REGION })).isError, false);
         await close();

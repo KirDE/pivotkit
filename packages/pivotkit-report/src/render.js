@@ -7,14 +7,14 @@
  */
 
 import { PivotkitError, closest, computePivot, describeView, encode, fromViewFile, normalize, outsideLimits, reportLabels, toGrid } from "pivotkit-core";
-import { toCsvBytes, toJson, toXlsx } from "pivotkit-core/export";
+import { isDataAsOf, toCsvBytes, toJson, toXlsx } from "pivotkit-core/export";
 import { DEFAULT_TEMPLATE } from "./default-template.js";
 import { htmlTable } from "./html-table.js";
 import { reportCss } from "./report-css.js";
 import { chartSvg } from "./svg.js";
 import { TEMPLATE_LIMIT, escapeHtml, fillTemplate, parseTemplate } from "./template.js";
-import { fill, textsFor } from "./texts.js";
-import { cleanTokens, conditionalColors, tokenStyle } from "./tokens.js";
+import { countText, fill, textsFor } from "./texts.js";
+import { BASE_TOKENS, REPORT_FONT, TOKEN_LENGTH, cleanTokens, conditionalColors, reportTokens, tokenStyle } from "./tokens.js";
 
 const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -38,7 +38,7 @@ export const REPORT_LIMITS = Object.freeze({ template: TEMPLATE_LIMIT, chartWidt
 export const CHART_SIZE = Object.freeze({ width: 800, height: 480 });
 
 /** Issues of a report itself (warnings), besides a view's (VIEW_ISSUES). */
-export const REPORT_ISSUE_CODES = Object.freeze(["chartUnavailable", "tableCut", "chartCut", "viewFile"]);
+export const REPORT_ISSUE_CODES = Object.freeze(["chartUnavailable", "chartNotInXlsx", "tableCut", "chartCut", "viewFile"]);
 
 /** Languages written from right to left. */
 const RTL = new Set(["ar", "he", "fa", "ur", "ps", "sd", "ug", "yi", "dv", "ckb"]);
@@ -53,11 +53,14 @@ const RTL = new Set(["ar", "he", "fa", "ur", "ps", "sd", "ug", "yi", "dv", "ckb"
  * @property {boolean} [trusted]  the view is the host's own: the host's limits instead of outsideLimits() (default false)
  * @property {boolean} [strict]  no body when the view has an error (default false: the normalized view is rendered)
  * @property {Partial<import("pivotkit-core").Labels>} [labels]  pivotkit-core's texts (totals, value names)
- * @property {Partial<import("./texts.js").ReportTexts>} [texts]  the report's words around the table
- * @property {Record<string, string>} [tokens]  --pk-* colours over the light ones (the chart and the report)
+ * @property {import("./texts.js").ReportTextsInput} [texts]  the report's words around the table; a count (rowsCount, rowsFiltered) as one text or its plural forms
+ * @property {boolean} [rowCount]  html: false leaves the data's row count out of {{rows}} and the details (default true)
+ * @property {Record<string, string>} [tokens]  --pk-* colours over the light ones (the chart and the report); html: a template's own CSS over them
+ * @property {Record<string, string>} [darkTokens]  html: --pk-* colours over the dark ones, for a screen in dark mode (paper and the chart stay light); a template's own CSS over them
  * @property {string} [title]  the report's title; default the view file's name, the chart's title, "Report"
  * @property {string} [description]  default the view file's description
  * @property {string} [source]  where the data comes from, for the report's details (a file name)
+ * @property {string} [dataAsOf]  when the data is from, ISO 8601 in UTC to the second ("2026-11-15T08:00:00Z"): html prints it in the details ("Data as of") and as {{dataAsOf}}, xlsx keeps it as the document property DataAsOf
  * @property {string} [template]  html: a print template (parseTemplate), default DEFAULT_TEMPLATE
  * @property {boolean | "auto"} [chart]  html: with the chart; "auto" (default) when the view shows the chart
  * @property {"image" | "inline"} [chartEmbed]  html: the chart as a data: image (default) or as inline SVG
@@ -65,13 +68,15 @@ const RTL = new Set(["ar", "he", "fa", "ur", "ps", "sd", "ug", "yi", "dv", "ckb"
  * @property {{ width?: number, height?: number }} [size]  of the chart in px, default 800 x 480
  * @property {number} [tableCells]  html: cells of the table at most, default REPORT_LIMITS.tableCells
  * @property {boolean} [bom]  csv: start with a byte order mark, so Excel reads it as UTF-8 (default true)
+ * @property {"full" | "shown"} [numbers]  csv and json: "full" (default) writes numbers with full precision, "shown" rounds each to the decimals the view shows
+ * @property {boolean} [flatHeader]  csv: one header row instead of one per column field (default false)
  */
 
 /** @type {Readonly<Record<string, ReadonlyArray<unknown>>>} The options that take one of a few values. */
-const OPTION_VALUES = Object.freeze({ chart: [true, false, "auto"], chartEmbed: ["image", "inline"], bom: [true, false], strict: [true, false], trusted: [true, false] });
+const OPTION_VALUES = Object.freeze({ chart: [true, false, "auto"], chartEmbed: ["image", "inline"], bom: [true, false], strict: [true, false], trusted: [true, false], numbers: ["full", "shown"], flatHeader: [true, false], rowCount: [true, false] });
 
 /** The names of RenderOptions: any other is refused, so a misspelt option is not ignored. */
-const OPTION_KEYS = Object.freeze(["format", "locale", "timeZone", "now", "limits", "trusted", "strict", "labels", "texts", "tokens", "title", "description", "source", "template", "chart", "chartEmbed", "echarts", "size", "tableCells", "bom"]);
+const OPTION_KEYS = Object.freeze(["format", "locale", "timeZone", "now", "limits", "trusted", "strict", "labels", "texts", "tokens", "darkTokens", "title", "description", "source", "template", "chart", "chartEmbed", "echarts", "size", "tableCells", "bom", "dataAsOf", "numbers", "flatHeader", "rowCount"]);
 
 /**
  * @typedef {object} RenderResult
@@ -84,6 +89,7 @@ const OPTION_KEYS = Object.freeze(["format", "locale", "timeZone", "now", "limit
  * @property {boolean} ok  no issue of severity "error"
  * @property {{ rows: number, columns: number, sourceRows: number, keptRows: number, truncated: boolean } | null} summary  the table's body rows and columns, the data's rows, the rows its filters keep, whether a part was cut
  * @property {import("pivotkit-core").View | null} view  the normalized view that was rendered
+ * @property {import("pivotkit-core").Grid} [grid]  the table as pivotkit-core's toGrid made it, for another export of the same result (toCsv, toJson); absent when `strict` gave no body
  */
 
 /** @param {string} key  @param {string} message */
@@ -125,6 +131,11 @@ function generatedText(now, locale, timeZone) {
     return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone }).format(date);
 }
 
+/** "Nov 15, 2026, 8:00 AM UTC" of a dataAsOf in the locale and time zone, with the zone named: the data's age is read without the report's "generated" time. */
+function dataAsOfText(asOf, locale, timeZone) {
+    return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone, timeZoneName: "short" }).format(new Date(asOf));
+}
+
 /**
  * Renders a view over data as a file.
  * @param {unknown} view  a view, a view file or a template { name, view }, as an object or JSON text
@@ -161,6 +172,17 @@ export async function render(view, data, options = {}) {
     if ((format === "svg" || (format === "html" && options.chart === true)) && typeof options.echarts?.init !== "function") {
         throw badOption("echarts", `${format === "svg" ? "an SVG" : "a report with chart: true"} needs ECharts: pass the echarts module (with its SVG renderer) as options.echarts`);
     }
+    if (options.dataAsOf !== undefined && !isDataAsOf(options.dataAsOf)) {
+        throw badOption("dataAsOf", 'dataAsOf is a time in UTC to the second: "2026-11-15T08:00:00Z"');
+    }
+    // the colours are an object: another type would give the default colours without a word (a token
+    // in it that cannot be used is still left out on its own: tokens.js cleanTokens)
+    for (const key of /** @type {const} */ (["tokens", "darkTokens"])) {
+        const value = options[key];
+        if (value !== undefined && (value === null || typeof value !== "object" || Array.isArray(value))) {
+            throw badOption(key, `${key} is an object of --pk-* names and their values, not ${value === null ? "null" : Array.isArray(value) ? "a list" : `a ${typeof value}`}`);
+        }
+    }
     if (options.now !== undefined) {
         // checked here, so a wrong one is named as an option before any work
         generatedText(options.now, "en-US", "UTC");
@@ -190,10 +212,15 @@ export async function render(view, data, options = {}) {
     const summary = { rows: grid.bodyRows.length, columns: grid.columnCount, sourceRows: data2.length, keptRows: result.rows.length, truncated: false };
     const texts = textsFor(grid.locale, options.texts);
     const title = (options.title ?? (read.name || normalized.view.chart.title || texts.untitled)).trim() || texts.untitled;
+    // the light values the chart and the cells' colours are drawn with: the host's tokens, and over
+    // them the template's own (its CSS is the one place of its design; template-style.js)
+    // (template-style.js is loaded only for a template of the host's: a page that renders with the
+    // default one, as pivotkit-react's Export menu, never loads it)
+    const theme = template && options.template !== undefined ? (await import("./template-style.js")).templateTheme(template, options.tokens ?? {}, { base: BASE_TOKENS, font: REPORT_FONT, maxLength: TOKEN_LENGTH, clean: cleanTokens }) : reportTokens(options.tokens);
     const chartOf = () =>
         chartSvg(result, {
             echarts: /** @type {any} */ (options.echarts),
-            style: tokenStyle(options.tokens),
+            style: tokenStyle(theme),
             // set for the formats that draw a chart (svg, html), the only callers of chartOf
             .../** @type {{ width: number, height: number }} */ (size),
             locale: grid.locale,
@@ -211,18 +238,22 @@ export async function render(view, data, options = {}) {
     /** @type {Uint8Array} */
     let body;
     if (format === "json") {
-        body = new TextEncoder().encode(toJson(grid));
+        body = new TextEncoder().encode(toJson(grid, { numbers: options.numbers }));
     } else if (format === "csv") {
-        body = toCsvBytes(grid, { bom: options.bom !== false });
+        body = toCsvBytes(grid, { bom: options.bom !== false, numbers: options.numbers, flatHeader: options.flatHeader });
     } else if (format === "xlsx") {
-        body = toXlsx(grid, { sheetName: title, theme: conditionalColors(options.tokens) });
+        // a workbook is the table: a view that shows the chart says where the chart is
+        if (normalized.view.display === "chart") {
+            issues.push(reportIssue("chartNotInXlsx", REPORT_TEXTS_EN.chartNotInXlsx));
+        }
+        body = toXlsx(grid, { sheetName: title, theme: conditionalColors(theme), ...(options.dataAsOf ? { dataAsOf: options.dataAsOf } : {}) });
     } else if (format === "svg") {
         const chart = chartOf();
         chartCut(chart);
         body = new TextEncoder().encode(chart.svg);
     } else {
         const number = new Intl.NumberFormat(grid.locale);
-        const table = htmlTable(grid, { maxCells: options.tableCells ?? REPORT_LIMITS.tableCells, ...conditionalColors(options.tokens) });
+        const table = htmlTable(grid, { maxCells: options.tableCells ?? REPORT_LIMITS.tableCells, ...conditionalColors(theme) });
         let tableNote = "";
         if (table.cut) {
             summary.truncated = true;
@@ -242,12 +273,20 @@ export async function render(view, data, options = {}) {
         }
         const described = describeView(normalized.view, data2, { ...(limits ? { limits } : {}) });
         const timeZone = options.timeZone ?? grid.timeZone ?? "UTC";
+        // "6 of 8 rows" while a filter leaves rows out, as pivotkit-react's row count says; the data's
+        // row count picks the form. With rowCount false neither {{rows}} nor the details say it.
+        const counted = options.rowCount !== false;
+        const filtered = summary.keptRows < summary.sourceRows;
+        const total = number.format(summary.sourceRows);
+        const kept = { shown: number.format(summary.keptRows), count: total };
+        const rowsText = !counted ? "" : filtered ? countText(texts.rowsFiltered, summary.sourceRows, texts.countLang.rowsFiltered, kept) : countText(texts.rowsCount, summary.sourceRows, texts.countLang.rowsCount, { count: total });
         const values = {
             title,
             description: options.description ?? read.description ?? "",
             source: options.source ?? "",
             generated: generatedText(options.now, grid.locale, timeZone),
-            rows: fill(texts.rowsCount, { count: number.format(data2.length) }),
+            dataAsOf: options.dataAsOf ? dataAsOfText(options.dataAsOf, grid.locale, timeZone) : "",
+            rows: rowsText,
             filters: described.filters.length ? described.filters.map((f) => f.text).join("; ") : texts.noFilters,
             summary: described.text,
             lang: grid.locale,
@@ -255,14 +294,14 @@ export async function render(view, data, options = {}) {
         };
         const detail = (label, value) => (value ? `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>` : "");
         const markup = {
-            style: `<style>${reportCss({ columns: grid.columnCount, tokens: cleanTokens(options.tokens ?? {}), extra: table.css })}</style>`,
+            style: `<style>${reportCss({ columns: grid.columnCount, tokens: cleanTokens(options.tokens ?? {}), darkTokens: cleanTokens(options.darkTokens ?? {}), chartSurface: theme["--pk-surface"], chartMuted: theme["--pk-muted"], extra: table.css })}</style>`,
             chart: chartHtml,
             table: table.html + tableNote,
-            details: `<dl class="pk-report-details">${detail(texts.source, values.source)}${detail(texts.rows, number.format(data2.length))}${detail(texts.filters, values.filters)}${detail(texts.generated, values.generated)}</dl>`
+            details: `<dl class="pk-report-details">${detail(texts.source, values.source)}${detail(texts.dataAsOf, values.dataAsOf)}${counted ? detail(texts.rows, filtered ? fill(texts.rowsKept, kept) : total) : ""}${detail(texts.filters, values.filters)}${detail(texts.generated, values.generated)}</dl>`
         };
         body = new TextEncoder().encode(fillTemplate(/** @type {any} */ (template), { ...values, ...markup }));
     }
-    const out = { ...base, body, issues, ok, summary, view: normalized.view };
+    const out = { ...base, body, issues, ok, summary, view: normalized.view, grid };
     return kind.text ? { ...out, text: new TextDecoder().decode(body) } : out;
 }
 

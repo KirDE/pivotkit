@@ -6,6 +6,150 @@ All notable changes to `pivotkit-react` are documented in this file. The format 
 
 ## [Unreleased]
 
+### Upgrading from 0.7
+
+- The chart type menu lists the types, then a row per Display topic that opens a level: Value
+  labels, Legend, Title, Axis, Tooltip, Series and Layout ([#106](https://github.com/eizedev/pivotkit/issues/106)). Tests open the
+  level first; a choice is a menu item with `aria-checked`.
+- Bars, lines and areas with more than 20 categories get a zoom slider. Display › Axis › Zoom slider
+  › Off draws every category as before. A click on the legend changes the view, so Undo takes it
+  back ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-7)).
+- With `exportData` off, the default, the drill-down panel has no Export menu: no copy and no
+  download of its rows. Set `drillDownExport` to keep it
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#drill-export)).
+- The row count under the result says "2,190 of 4,386 rows" when a filter leaves rows out. A host
+  whose `labels` set `rowsCount` or add a language sets the new label `rowsFiltered` too
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#rows-filtered)).
+
+### Deprecated
+
+- The theme token `--pk-knob` is unused: the chart's Display settings have no switch any more. It
+  goes in 0.9.0 ([#106](https://github.com/eizedev/pivotkit/issues/106)).
+
+### Added
+
+- Date-field ranges in the footer and field descriptions, data-driven Group hints and
+  year context for cyclic groupings, in English and German (#109).
+- A zoom slider under a long category axis, Display › Axis › Zoom slider (Automatic, On, Off). It
+  works by mouse, touch and keyboard, and keeps its place when the chart is drawn again. The PNG
+  image leaves it out ([#36](https://github.com/eizedev/pivotkit/issues/36)), ([#575](https://github.com/eizedev/pivotkit/issues/575)).
+- A click on the legend hides or shows a series, or a slice. The view keeps it, a screen reader
+  hears it, and Undo takes it back. Display › Series does the same by keyboard ([#36](https://github.com/eizedev/pivotkit/issues/36)).
+- Display › Layout › Stacked to 100 % for stacked bars and areas of sums and counts. The tooltip
+  shows each part's value and share, and the total of the values ([#36](https://github.com/eizedev/pivotkit/issues/36)).
+- Display › **Reference lines** in the chart type menu, for bars, lines and areas: a level with
+  **Average**, **Trend** and a **Target** (`chart.referenceLines`, [#48](https://github.com/eizedev/pivotkit/issues/48)).
+  Its row says which lines are on. The level offers only the lines the chart can draw, with a note
+  on the rest. The Target field reads "25%" as a share, with a hint for a value shown in percent.
+  The tooltip names the lines at the category, and the chart's text alternative names each with
+  its value.
+- `labels.chartLines` and `labels.chartTrendSpan`: the reference lines in the chart's text
+  alternative ("Reference lines: {lines}.", "from {from} to {to}"), and the token
+  `--pk-chart-reference` for a target and the lines of a stack's total (default `--pk-muted`).
+- Display › **Tooltip** in the chart type menu, for bars, lines and areas: **Automatic** or **All
+  series** (`chart.tooltip`, [#106](https://github.com/eizedev/pivotkit/issues/106)). All series lists
+  every series at the pointer's category, the hovered one first, its name in the strong weight.
+- `labels.chartTotal`, the tooltip's "Total" line (German "Gesamt"), and `labels.chartMore`, the
+  line for the series that do not fit ("+{count} more"), and `labels.chartMoreInTotal` for it when
+  a total is shown ("+{count} more (in the total)").
+- `--pk-tooltip-name-w` (default `12em`): the widest series name in the tooltip. A longer one ends
+  in "…".
+
+- `drillDownExport`: the drill-down panel's copy and download while `exportData` is off, with every
+  column. Off by default.
+
+### Changed
+
+- The chart's tooltip names the element under the pointer
+  ([#376](https://github.com/eizedev/pivotkit/issues/376)):
+  - A bar or a line point shows that series alone.
+  - A segment of stacked bars, or a point of a stacked area, adds the sum of the stack's parts. A
+    value that does not add up gets no total: only sums and counts do, and not when shown as a rank
+    or a percent difference.
+  - Between the elements it lists every series at the category. Between stacked bars it shows the
+    total only.
+  - A series without a value at the category is left out, not shown as an empty line.
+  - Pie, donut and heatmap keep the tooltip of the slice or cell.
+  - The tooltip stays inside the chart. When more series are there than fit, the last line says how
+    many more there are.
+
+- The drill-down panel's copy and download follow `exportData`. With it off, the panel shows the
+  rows but offers no copy and no download (#263).
+- pivotkit-core's ECharts option (`toEChartsOption`) loads with ECharts, from `pivotkit-core/chart`,
+  not with the first load (#546).
+- The row count under the result says how many of the data's rows the filters keep: "2,190 of 4,386
+  rows", German "2.190 von 4.386 Zeilen". With nothing filtered it says "4,386 rows" (#108).
+  Its words are pivotkit-core's `ROW_COUNT_TEXTS`, so the HTML report says the same (#547).
+
+### Fixed
+
+- On a touch screen, the first tap on a bar, a point or a heatmap cell shows its tooltip. The second
+  tap on it opens the rows behind it and calls `onCellClick`. The tooltip no longer stays over the
+  panel, and the panel no longer closes right after it opens ([#538](https://github.com/eizedev/pivotkit/issues/538)).
+- A heatmap whose `--pk-heat-low` or `--pk-heat-high` is in a form ECharts cannot mix, such as
+  `oklch()` or `rgb()` with spaces, shows the host's colours instead of black cells. So do the HTML
+  report and the SVG of the Export menu, whose table also takes an `oklch()` colour scale ([#386](https://github.com/eizedev/pivotkit/issues/386)).
+- With a field on Columns, a pie's, a donut's and a heatmap's tooltip is titled by the value, not by
+  the first column, from pivotkit-core ([#537](https://github.com/eizedev/pivotkit/issues/537)).
+- A view's locale that the browser has no data for, such as `xx-XX`, is reported as unknown, and
+  the report takes the `locale` prop. Such a `locale` prop takes `en-US` with a warning. Before,
+  both took the machine's locale, from pivotkit-core ([#552](https://github.com/eizedev/pivotkit/issues/552)).
+- "Table as CSV" in a locale whose own decimal mark is `٫` (`ar-EG`, `ar-SA`, `fa-IR`, `ur-IN`,
+  `ps-AF` and others) writes the decimal mark the locale uses with Latin digits, from pivotkit-core:
+  `9.6`, not `9٫6`, which parsers misread ([#478](https://github.com/eizedev/pivotkit/issues/478)).
+- The chart's labels at small sizes, from pivotkit-core: slanted category names leave the plot its
+  height, a donut's outside labels stay whole, the value at the end of a horizontal bar is not cut,
+  and a heatmap names every row that has room ([#228](https://github.com/eizedev/pivotkit/issues/228), [#229](https://github.com/eizedev/pivotkit/issues/229), [#230](https://github.com/eizedev/pivotkit/issues/230),
+  [#231](https://github.com/eizedev/pivotkit/issues/231)).
+- The zones fold when they no longer fit the report's box, also when the box keeps its size. Longer
+  texts in another language, more fields in Rows, a tip or a late stylesheet made them taller without
+  a resize, and they stayed open over a squeezed result. Folded that way, they open again once they
+  fit (#93).
+
+## [0.7.0] - 2026-11-16
+
+### Upgrading from 0.6
+
+What a host checks; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-6-1) has the details.
+
+- Export → HTML report carries the host's dark colours too. On a dark screen a colour scale's middle
+  colour (`--pk-scale-mid`) is the one your dark theme sets, not the light one; without it the cells
+  run halfway between the dark low and high colours ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#dark-mid-colour)).
+- A field's Filter level shows its rules in a single column as wide as the menu, in every browser.
+  Tests or screenshots of that form take the new layout.
+- pivotkit-core moves to `^0.7.0` and pivotkit-report to `^0.3.0` with it.
+
+### Changed
+
+- Depends on `pivotkit-core` `^0.7.0` (was `^0.6.1`) and `pivotkit-report` `^0.3.0` (was `^0.2.1`): a host
+  that also lists pivotkit-core updates both together, or it gets two copies.
+
+### Fixed
+
+- The rules in a field's Filter level show in the WebKit of Playwright 1.65 (build 2388): the rule
+  list stacked in a wrapping column got no size there, so a new rule's row and its value field could
+  not be seen or used. The rules form is a single column as wide as the menu, each row with room for
+  its value, in every browser. Whether a Safari release shows the same fault was not checked
+  ([#474](https://github.com/eizedev/pivotkit/issues/474)).
+- Export → HTML report carries the host's dark colours too (pivotkit-report's `darkTokens`), read
+  from the report's dark theme whichever theme it shows: a reader on a dark screen sees the host's
+  dark design, not pivotkit's default dark colours. Paper and a print stay light. The report's
+  `--pk-scale-mid` on a dark screen is the one your dark theme resolves (pivotkit-report no longer
+  takes the light one there) ([#385](https://github.com/eizedev/pivotkit/issues/385)).
+- Print or save as PDF opens the print dialog in the click itself: the Export menu makes the print
+  frame ready when it opens, and the report's modules load when Print is pointed at or focused. A
+  page hidden while it printed (it gets no animation frame) did not print at all. Safari still asks
+  "This webpage is trying to print" after a cancelled print dialog: that is Safari's own rule
+  ([print or save as PDF](https://pivotkit.eize.dev/use/export/)) ([#210](https://github.com/eizedev/pivotkit/issues/210)).
+- A second click on a menu's button closes the menu in Safari and other WebKit browsers, as in the
+  others: the toolbar's menus (Export, Views, Data, Start over, More) and a field's chip menu. WebKit
+  does not focus a clicked button, so the press moved the focus out of the menu, which closed it,
+  and the click opened it again ([#393](https://github.com/eizedev/pivotkit/issues/393)).
+- `import "pivotkit-react/styles.css"` compiles in a strict TypeScript project without a bundler's
+  CSS types: the stylesheet ships its own declaration (`styles.css.d.ts`, the `types` condition of
+  its export); TypeScript answered TS2882 before
+  ([#165](https://github.com/eizedev/pivotkit/issues/165)).
+
 ## [0.6.1] - 2026-11-14
 
 ### Added
@@ -410,6 +554,8 @@ What a host checks; the [upgrade page](https://pivotkit.eize.dev/getting-started
   (`menuitemcheckbox`), not one of a set of choices.
 
 ### Fixed
+
+- Avoid distinct-date scratch allocations, localize Group timeline years, keep cyclic context in enlarged summaries, and describe Group menus with valid ARIA ownership (#109).
 
 - A loaded file shown again after a new mount lost its view when the host mounted the report twice in
   a row (PowerShell Universal's `Sync-UDElement`, two mounts within about 30 ms) or mounted it again
@@ -1049,7 +1195,8 @@ First release.
   weather (Open-Meteo), countries (World Bank), earthquakes (USGS), Nobel laureates and the release
   cycles of software products (endoflife.date).
 
-[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.6.1...HEAD
+[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.7.0...HEAD
+[0.7.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.6.1...pivotkit-react@0.7.0
 [0.6.1]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.6.0...pivotkit-react@0.6.1
 [0.6.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.5.0...pivotkit-react@0.6.0
 [0.5.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-react@0.4.0...pivotkit-react@0.5.0

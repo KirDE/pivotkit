@@ -1,95 +1,21 @@
 /*
- * Chart data from a pivot: categories from the row keys, one series per column key and value, and a
- * plain Apache ECharts option for bar, stacked bar, line, area, pie, donut and heatmap. The core does not
- * import ECharts; the UI passes the option to its own ECharts instance. Subtotals and grand totals
- * are not plotted; collapsed groups are plotted as one category.
+ * A plain Apache ECharts option for bar, stacked bar, line, area, pie, donut and heatmap, from a pivot
+ * and its chart data (chart-series.js). The core does not import ECharts; the UI passes the option to
+ * its own ECharts instance. Only a drawn chart needs this module: pivotkit-react loads it with ECharts.
  */
 
-import { DEFAULT_THEME } from "./defaults.js";
-import { TIMELINE_UNITS } from "./derive.js";
-import { checkLimit, expect } from "./errors.js";
+import { referenceLines } from "./chart-lines.js";
+import { lineLabelText } from "./chart-measure.js";
+import { autoChartType, toSeries } from "./chart-series.js";
+import { legendSelected, percentShares, stacksToPercent } from "./chart-stack.js";
+import { DEFAULT_THEME, GRID_TOP, HEATMAP_GRID_BOTTOM } from "./defaults.js";
+import { expect } from "./errors.js";
 import { formatterFor } from "./format.js";
-import { defaultFormat, valueName } from "./grid.js";
+import { valueName } from "./grid.js";
 import { DEFAULT_LABELS } from "./labels.js";
-import { axisLines } from "./layout.js";
-import { resolveLimits } from "./limits.js";
 import { isPivotResult } from "./pivot.js";
 import { resolveLocale, optionsOf } from "./util.js";
 import { SLICE_CHART_TYPES } from "./view.js";
-
-/**
- * Chart data: one category per plotted row line, one series per column line and value. Dense like
- * the grid: more than `limits.cells` data points throw a PivotkitError (LIMIT_EXCEEDED).
- * `maxCategories` keeps the first categories in the view's order (sort by value for the largest);
- * `categoryCount` is the number there were before.
- * @param {import("./pivot.js").PivotResult} result
- * @param {{ labels?: Partial<import("./labels.js").Labels>, separator?: string, limits?: Partial<import("./limits.js").Limits>, maxCategories?: number }} [options]
- */
-export function toSeries(result, options) {
-    options = optionsOf(options, "toSeries");
-    expect(isPivotResult(result), "toSeries(result): result must come from computePivot()");
-    const limits = resolveLimits(options);
-    const view = result.view;
-    const labels = { ...DEFAULT_LABELS, ...(options.labels || {}) };
-    const separator = options.separator ?? " / ";
-    const plotted = (root, depth, collapsed) => axisLines(root, depth, collapsed, false, false).filter((l) => l.kind !== "grand");
-    let rowLines = plotted(result.rowRoot, view.rows.length, view.collapsed.rows);
-    let colLines = plotted(result.colRoot, view.cols.length, view.collapsed.cols);
-    // a pivot whose only row is the grand total still plots that one bar
-    if (rowLines.length === 0) {
-        rowLines = [{ node: result.rowRoot, kind: "leaf" }];
-    }
-    const categoryCount = rowLines.length;
-    if (options.maxCategories !== undefined) {
-        expect(Number.isInteger(options.maxCategories) && options.maxCategories > 0, "toSeries: maxCategories must be a positive whole number");
-        rowLines = rowLines.slice(0, options.maxCategories);
-    }
-    if (colLines.length === 0) {
-        colLines = [{ node: result.colRoot, kind: "leaf" }];
-    }
-    const partsOf = (axis, node) => {
-        const parts = [];
-        for (let n = node; n && n.parent; n = n.parent) {
-            parts.unshift(result.label(axis, n, labels));
-        }
-        return parts;
-    };
-    const pathLabel = (axis, node) => {
-        const parts = partsOf(axis, node);
-        return parts.length ? parts.join(separator) : labels.grandTotal;
-    };
-    const plottedValues = view.values.filter((_, vi) => result.valueTypes[vi] !== "text").length;
-    checkLimit("cells", rowLines.length * Math.max(1, colLines.length * plottedValues), limits.cells, "chart data points");
-    const names = view.values.map((v) => valueName(v, labels));
-    const numeric = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
-    const series = [];
-    for (const { node: colNode } of colLines) {
-        view.values.forEach((spec, vi) => {
-            if (result.valueTypes[vi] === "text") {
-                return;
-            }
-            const colName = colNode.parent ? pathLabel("cols", colNode) : "";
-            const name = colName && view.values.length > 1 ? `${colName}${separator}${names[vi]}` : colName || names[vi];
-            series.push({
-                name,
-                valueIndex: vi,
-                colPath: colNode.path,
-                format: defaultFormat(result, vi),
-                data: rowLines.map(({ node }) => numeric(result.display(node, colNode, vi)))
-            });
-        });
-    }
-    return {
-        categories: rowLines.map(({ node }) => pathLabel("rows", node)),
-        // the label of each level of a category's path ([] for the grand total), for a two-level axis
-        categoryLevels: rowLines.map(({ node }) => partsOf("rows", node)),
-        categoryCount,
-        categoryPaths: rowLines.map(({ node }) => node.path),
-        series,
-        // per value: the row totals over all columns, for pie charts
-        totals: view.values.map((_, vi) => rowLines.map(({ node }) => numeric(result.display(node, result.colRoot, vi))))
-    };
-}
 
 /**
  * @typedef {object} ChartTheme
@@ -107,6 +33,7 @@ export function toSeries(result, options) {
  * @property {[string, string]} [heatmapColors]  low and high end of the heatmap scale
  * @property {[string, string]} [pieRadius]       inner and outer radius of a pie, default a circle (0%, 70%)
  * @property {[string, string]} [donutRadius]     inner and outer radius of a donut, default a ring (42%, 70%)
+ * @property {string} [referenceColor]  reference lines of no series (a target, a stack's total), default textColor
  */
 
 /** Room (px) the title takes above the chart: its line and 16 px below it (32 px at 16 px). */
@@ -201,33 +128,9 @@ function groupAxisOf(s, rowFields, chart, { separator, axisLine, theme }) {
 }
 
 /**
- * The chart type "auto" stands for (the view's default, `chart.type: "auto"`): lines when a field on
- * Rows is a date or a grouping of one along the time line (day, week, month, quarter, year), so the
- * categories are points in time; else bars. A grouping that repeats (weekday, hour of day, month,
- * quarter or week of year) makes categories, not a time line: bars. A date on
- * Columns alone is not enough: each date would be a line of its own, so a UI that wants lines there
- * swaps rows and columns for the chart first (pivotkit-react does).
- * @param {import("./view.js").View} view  the normalized view
- * @param {import("./encode.js").Encoded} data
- * @returns {"line" | "bar"}
- */
-export function autoChartType(view, data) {
-    const derived = Array.isArray(view.derived) ? view.derived : [];
-    const isDate = (name) => {
-        const key = String(name).toLowerCase();
-        const d = derived.find((x) => x && typeof x.name === "string" && x.name.toLowerCase() === key);
-        // a grouping along the time line counts as a date; a repeating one and a number range do not
-        if (d && !TIMELINE_UNITS.includes(d.by)) {
-            return false;
-        }
-        return data.column(d ? d.field : name)?.type === "date";
-    };
-    return (Array.isArray(view.rows) ? view.rows : []).some(isDate) ? "line" : "bar";
-}
-
-/**
  * A plain ECharts option for the view's chart, themed by the host. The view's display settings
  * (chart.valueLabels, legend, title, smooth) are part of it, so an image of the chart shows them.
+ * What the tooltip lists (chart.tooltip) is up to the UI's formatter (pivotkit-react's).
  * @param {import("./pivot.js").PivotResult} result
  * @param {object} [options]
  * @param {Partial<import("./view.js").ChartSpec>} [options.chart]  overrides the view's chart settings
@@ -266,16 +169,21 @@ export function toEChartsOption(result, options) {
         ...(theme.colors && theme.colors.length ? { color: theme.colors } : {})
     };
     const valueFormatter = (v) => (typeof v === "number" ? fmt(v) : "");
+    // a pie's or heatmap's one series is named by the value it draws (the tooltip's title): with a field
+    // on Columns the first series is the first column's, but a slice adds every column, a cell names its own
+    const vi = first ? first.valueIndex : 0;
+    const valueTitle = result.view.values[vi] ? valueName(result.view.values[vi], { ...DEFAULT_LABELS, ...(options.labels || {}) }) : "";
     // the title over the chart, and the legend where the view puts it, with the room they take
     const title = typeof chart.title === "string" && chart.title.trim() ? { title: { text: chart.title.trim(), left: "center", top: 0, textStyle: { ...textStyle, fontSize: theme.titleSize ?? DEFAULT_THEME.titleSize, fontWeight: theme.strongWeight ?? DEFAULT_THEME.strongWeight } } } : {};
     const titleRoom = title.title ? roomOfTitle(theme.titleSize ?? DEFAULT_THEME.titleSize) : 0;
     const { legend, room } = legendOf(chart.legend, SLICE_CHART_TYPES.includes(chart.type) || s.series.length > 1, titleRoom, textStyle);
-    const legendPart = legend ? { legend } : {};
+    // the hidden entries are unselected, also in a legend that is not shown (chart.hidden)
+    const selected = legendSelected(chart.hidden);
+    const legendPart = legend ? { legend: selected ? { ...legend, selected } : legend } : selected ? { legend: { show: false, selected } } : {};
     // what is written next to the marks: "percent" and "both" are a pie's; the other types write the value
     const labels = chart.valueLabels === "off" || chart.valueLabels === "value" || chart.valueLabels === "percent" || chart.valueLabels === "both" ? chart.valueLabels : "auto";
 
     if (SLICE_CHART_TYPES.includes(chart.type)) {
-        const vi = first ? first.valueIndex : 0;
         const data = s.categories
             .map((name, i) => ({ name, value: s.totals[vi] ? s.totals[vi][i] : null }))
             .filter((d) => typeof d.value === "number" && d.value > 0);
@@ -302,7 +210,7 @@ export function toEChartsOption(result, options) {
             series: [
                 {
                     type: "pie",
-                    name: first ? first.name : "",
+                    name: valueTitle,
                     radius: [...radius],
                     top: titleRoom + room.top,
                     ...(room.bottom ? { bottom: room.bottom } : {}),
@@ -318,7 +226,7 @@ export function toEChartsOption(result, options) {
     }
 
     if (chart.type === "heatmap") {
-        const columns = s.series.filter((x) => x.valueIndex === (first ? first.valueIndex : 0));
+        const columns = s.series.filter((x) => x.valueIndex === vi);
         const data = [];
         let min = Infinity;
         let max = -Infinity;
@@ -335,7 +243,7 @@ export function toEChartsOption(result, options) {
             ...base,
             ...title,
             tooltip: { trigger: "item", valueFormatter },
-            grid: { top: 16 + titleRoom, bottom: 64 },
+            grid: { top: GRID_TOP + titleRoom, bottom: HEATMAP_GRID_BOTTOM },
             // no split areas: ECharts paints them light grey whatever the theme, so the empty cells
             // would be the brightest part of a dark chart; an empty cell shows the background
             // every column is labelled (interval 0): ECharts would otherwise hide every second name
@@ -354,7 +262,7 @@ export function toEChartsOption(result, options) {
                 ...(theme.heatmapColors ? { inRange: { color: theme.heatmapColors } } : {})
             },
             // the numbers in the cells: by default while there are few enough cells
-            series: [{ type: "heatmap", name: first ? first.name : "", data, label: { show: labels === "auto" ? data.length <= 200 : labels !== "off", formatter: (p) => fmt(p.value[2]) } }]
+            series: [{ type: "heatmap", name: valueTitle, data, label: { show: labels === "auto" ? data.length <= 200 : labels !== "off", formatter: (p) => fmt(p.value[2]) } }]
         };
     }
 
@@ -369,27 +277,127 @@ export function toEChartsOption(result, options) {
         axisLabel: { ...axisText, formatter: (v) => compact(v) },
         splitLine: { lineStyle: { color: theme.gridColor } }
     };
+    // stacked to 100 %: each part as its share of the stack, the axis from 0 to 100 % (chart.stackPercent)
+    const percent = stacksToPercent(chart);
+    const shares = percent ? percentShares(s.series, new Set(chart.hidden)) : null;
+    const shareFormatter = formatterFor("percent100:1", locale);
+    if (shares) {
+        const whole = formatterFor("percent100:0", locale);
+        Object.assign(valueAxis, { max: 100, min: shares.negative ? -100 : 0, axisLabel: { ...valueAxis.axisLabel, formatter: (v) => whole(v) } });
+    }
+    const stacked = chart.stacked || percent;
     // value labels: at the end of a bar, inside a stacked one, above a point of a line
     const showValues = labels !== "auto" && labels !== "off";
-    const position = type === "line" ? "top" : chart.stacked ? "inside" : chart.horizontal ? "right" : "top";
-    const valueLabel = showValues ? { label: { show: true, position, color: theme.textColor, formatter: (p) => (typeof p.value === "number" ? fmt(p.value) : "") } } : {};
+    const position = type === "line" ? "top" : stacked ? "inside" : chart.horizontal ? "right" : "top";
+    const valueLabel = showValues ? { label: { show: true, position, color: theme.textColor, formatter: (p) => (typeof p.value === "number" ? (percent ? shareFormatter(p.value) : fmt(p.value)) : "") } } : {};
+    const marks = markLines(referenceLines(result, { chart, series: s, words: options.labels?.referenceLines, locale: options.locale }), s, { horizontal: Boolean(chart.horizontal), theme, short: (v) => compact(v), hidden: Array.isArray(chart.hidden) ? chart.hidden : [] });
+    // the value axis reaches every line: a target past the tallest bar is drawn, not cut off.
+    // dataMin and dataMax are ECharts' own (ECharts 6, scaleRawExtentInfo: they widen the data's
+    // extent before the nice ticks), little documented: tests/browser/chart-lines.spec.js checks that a
+    // target above every bar is inside the plot, so an ECharts update that drops them fails there
+    if (marks.extent) {
+        valueAxis.dataMin = marks.extent[0];
+        valueAxis.dataMax = marks.extent[1];
+    }
     return {
         ...base,
         ...title,
         ...legendPart,
-        tooltip: { trigger: "axis", valueFormatter },
+        // the tooltip covers the category under the pointer; a UI's formatter narrows it to the element
+        // under the pointer (chart.tooltip). The category lights up no bar: only the one under the
+        // pointer does (decorateOption: a bar's focus is "self")
+        // shareFormatter (not ECharts'): a share as the locale writes it, for the tooltip of 100 % stacks
+        tooltip: { trigger: "axis", valueFormatter, ...(percent ? { shareFormatter } : {}) },
+        ...(type === "bar" ? { axisPointer: { triggerEmphasis: false } } : {}),
         // room for the title and the legend; ECharts keeps its own defaults for the label margins
-        grid: { top: 16 + titleRoom + room.top, ...(room.bottom ? { bottom: room.bottom + 8 } : {}), ...(room.right ? { right: room.right + 8 } : {}) },
+        grid: { top: GRID_TOP + titleRoom + room.top + marks.room, ...(room.bottom ? { bottom: room.bottom + 8 } : {}), ...(room.right ? { right: room.right + 8 } : {}) },
         xAxis: chart.horizontal ? valueAxis : groups ? [categoryAxis, groups.axis] : categoryAxis,
         yAxis: chart.horizontal ? (groups ? [{ ...categoryAxis, inverse: true }, { ...groups.axis, inverse: true }] : { ...categoryAxis, inverse: true }) : valueAxis,
-        series: s.series.map((x) => ({
+        series: s.series.map((x, i) => ({
             type,
             name: x.name,
-            data: x.data,
-            ...(chart.stacked ? { stack: "total" } : {}),
+            // a 100 % stack's parts are { value: share, raw: value }
+            data: shares ? shares.data[i] : x.data,
+            ...(stacked ? { stack: "total" } : {}),
             ...(chart.type === "area" ? { areaStyle: {} } : {}),
             ...(type === "line" ? { connectNulls: false, smooth: Boolean(chart.smooth) } : {}),
-            ...valueLabel
+            ...valueLabel,
+            ...(marks.bySeries[i] ? { markLine: { silent: true, symbol: ["none", "none"], data: marks.bySeries[i] } } : {})
         }))
     };
+}
+
+/**
+ * How each kind of reference line is drawn: an average dashed, a trend dotted, a target solid. The
+ * labels of lying lines go right of the plot (decorateOption keeps them apart and makes room for
+ * them); on horizontal bars the lines stand upright, and their labels go above the plot, one row
+ * each (markLines' `room`).
+ */
+const LINE_TYPES = Object.freeze({ average: "dashed", trend: "dotted", target: "solid" });
+/** Room (px) between a label above the plot and the plot, and between two rows of them. */
+const LABEL_GAP = 6;
+
+/**
+ * The reference lines as ECharts markLine data, by the series that draws them: a series' own lines on
+ * it, in its colour; the lines of no series (a target, a stack's total) on the last series shown,
+ * drawn above every mark, in the theme's reference colour. Silent: a line is no element to point at; the
+ * tooltip names its value. A trend is drawn from category to category, at its value at each: over
+ * real time with a gap it bends where the axis leaves the gap out. A label writes the name and the
+ * value as the value axis does (`short`); each item's `name` is the line's name alone, for a chart too
+ * narrow for the value. `extent`: the lowest and highest value of the lines, for the value axis;
+ * `room`: the height (px) the labels of upright lines take above the plot.
+ * @param {import("./chart-lines.js").ReferenceLine[]} lines
+ * @param {ReturnType<typeof toSeries>} s
+ * @param {{ horizontal: boolean, theme: ChartTheme, short: (v: number) => string, hidden: string[] }} how
+ *   hidden: the series the legend hides (chart.hidden); ECharts hides a series' markLine with it
+ */
+function markLines(lines, s, { horizontal, theme, short, hidden }) {
+    /** @type {any[][]} */
+    const bySeries = s.series.map(() => []);
+    // the lines of no series go on the last series shown; with none shown, nowhere
+    const shown = s.series.map((x, i) => (hidden.includes(x.name) ? -1 : i)).filter((i) => i >= 0);
+    const holder = shown.length ? shown[shown.length - 1] : -1;
+    const values = [];
+    const value = horizontal ? "xAxis" : "yAxis";
+    const fontSize = theme.textSize ?? DEFAULT_THEME.textSize;
+    let rows = 0;
+    // a point of a trend: [category, value], or [value, category] along a horizontal chart
+    const point = (category, v) => ({ coord: horizontal ? [v, category] : [category, v] });
+    for (const line of lines) {
+        const own = line.series !== null ? s.series[line.series] : undefined;
+        const text = line.kind === "trend" ? line.name : `${line.name} ${short(/** @type {number} */ (line.value))}`;
+        // upright lines: the labels in rows above the plot (the category axis runs downwards, so a
+        // line starts at the top), the first row nearest to it; lying ones right of the plot
+        const where = horizontal ? { position: "start", distance: [0, LABEL_GAP + rows * (fontSize + LABEL_GAP)] } : { position: "end", distance: LABEL_GAP };
+        rows += 1;
+        // the line's colour: its series' (the palette's, as ECharts picks it), else the reference colour
+        const colors = theme.colors ?? [];
+        const color = own ? colors[/** @type {number} */ (line.series) % Math.max(1, colors.length)] : (theme.referenceColor ?? theme.textColor);
+        const type = LINE_TYPES[line.kind];
+        const style = {
+            name: line.name,
+            lineStyle: { type, width: 1.5, ...(own ? {} : { color }) },
+            // the words in the text colour, after a sample of the line's dash in its colour
+            label: { formatter: () => lineLabelText(type, text), rich: { s: { ...(color ? { color } : {}), fontSize } }, ...where, color: theme.textColor, fontSize }
+        };
+        const target = bySeries[own ? /** @type {number} */ (line.series) : holder];
+        if (line.kind === "trend") {
+            const first = /** @type {number} */ (line.first);
+            const last = /** @type {number} */ (line.last);
+            const at = /** @type {(i: number) => number} */ (line.at);
+            // over the categories' order the line is straight: one segment
+            const step = line.byTime ? 1 : last - first;
+            for (let i = first; i < last; i += step) {
+                // the label on the last part only
+                const part = i + step === last ? style : { ...style, label: { ...style.label, show: false } };
+                target?.push([{ ...point(i, at(i)), ...part }, point(i + step, at(i + step))]);
+                values.push(at(i));
+            }
+            values.push(at(last));
+        } else {
+            target?.push({ [value]: line.value, ...style });
+            values.push(/** @type {number} */ (line.value));
+        }
+    }
+    return { bySeries: bySeries.map((d) => (d.length ? d : null)), extent: values.length ? [Math.min(...values), Math.max(...values)] : null, room: horizontal && rows ? rows * (fontSize + LABEL_GAP) + LABEL_GAP : 0 };
 }

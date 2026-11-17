@@ -27,6 +27,7 @@
 import { constants } from "node:fs";
 import { link, lstat, open, realpath, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, isAbsolute, sep } from "node:path";
+import { limitText } from "pivotkit-core/internal";
 import { CliError, printable, shortName } from "./errors.js";
 
 const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
@@ -129,7 +130,7 @@ export async function readSafe(path, { cwd, allow, maxBytes, limit = "fileBytes"
 }
 
 /** A file over its limit, named by its base name. */
-const tooLarge = (path, size, max, limit) => new CliError("limit", "LIMIT_EXCEEDED", `${shortName(path)}: ${size.toLocaleString("en-US")} bytes exceed the limit of ${max.toLocaleString("en-US")} (limits.${limit})`);
+const tooLarge = (path, size, max, limit) => new CliError("limit", "LIMIT_EXCEEDED", `${shortName(path)}: ${limitText(size, max, "bytes", `limits.${limit}`)}`);
 
 /**
  * Reads stdin up to `maxBytes` bytes.
@@ -194,10 +195,11 @@ export function isWindowsDevice(name) {
  * between the check and the write), so nothing is replaced: `EXISTS`.
  * @param {string} path
  * @param {Uint8Array} bytes
- * @param {{ cwd: string, allow: string[], exclusive?: boolean }} options
+ * @param {{ cwd: string, allow: string[], exclusive?: boolean, mode?: number }} options  `mode`: the new file's
+ *   permissions (0o600: only its owner reads it), also when it replaces one; default the replaced file's, else 0o644
  * @returns {Promise<string>}  the real path written
  */
-export async function writeSafe(path, bytes, { cwd, allow, exclusive = false }) {
+export async function writeSafe(path, bytes, { cwd, allow, exclusive = false, mode }) {
     const full = resolve(cwd, path);
     let dir;
     try {
@@ -222,7 +224,7 @@ export async function writeSafe(path, bytes, { cwd, allow, exclusive = false }) 
         throw new CliError("io", existing.isSymbolicLink() || existing.isDirectory() ? "NOT_REGULAR_FILE" : "SPECIAL_FILE", `${shortName(path)}: exists and is ${what}; not replaced`);
     }
     const temp = join(dir, tempFileName(basename(full)));
-    const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), existing ? existing.mode & 0o777 : 0o644);
+    const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), mode ?? (existing ? existing.mode & 0o777 : 0o644));
     try {
         await handle.writeFile(bytes);
         await handle.sync();
@@ -247,11 +249,11 @@ export async function writeSafe(path, bytes, { cwd, allow, exclusive = false }) 
     return target;
 }
 
-/** The characters a name of writeNew keeps; the others become "-". */
-const NAME_CHARS = /[^A-Za-z0-9 ._-]/g;
+/** The characters a name of writeNew keeps (parentheses too: "Orders (fake backend)"); the others become "-". */
+const NAME_CHARS = /[^A-Za-z0-9 ._()-]/g;
 
 /**
- * A file name from a name given from outside: letters, digits, space, ".", "_" and "-" only, no
+ * A file name from a name given from outside: letters, digits, space, ".", "_", "-" and parentheses only, no
  * leading dot, at most `max` characters; "report" when nothing is left.
  * @param {unknown} name
  * @param {number} [max]

@@ -5,14 +5,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { connect } from "node:net";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { CONNECTION_LIMITS, connectionGate, connectionLimitsOf, refusedText } from "../src/listen.js";
-import { serveFetch } from "pivotkit-server";
-import { BIN, TOKEN, call, restServer, workspace } from "./helpers.js";
+import { checkConfig, serveFetch } from "pivotkit-server";
+import { BIN, TOKEN, call, factsOf, restServer, workspace } from "./helpers.js";
 
 /** Sends raw bytes and gives back what the server answers (until it closes or `ms` pass). */
 function rawExchange(port, text, ms = 3000) {
@@ -33,7 +33,7 @@ function rawExchange(port, text, ms = 3000) {
 }
 
 test("CONNECTION_LIMITS: the defaults", () => {
-    assert.deepEqual({ ...CONNECTION_LIMITS }, { total: 256, perAddress: 0, loopback: 16, headersMs: 5_000, requestMs: 30_000, checkMs: 1_000 });
+    assert.deepEqual({ ...CONNECTION_LIMITS }, { total: 256, perAddress: 32, loopback: 16, headersMs: 5_000, requestMs: 30_000, checkMs: 1_000 });
 });
 
 test("connections: one address gets perAddress, the network gets all but the loopback slots, loopback the rest", () => {
@@ -53,11 +53,24 @@ test("connections: one address gets perAddress, the network gets all but the loo
     assert.equal(gate.admit("203.0.113.1"), true, "a freed slot of the network");
     assert.equal(gate.admit("127.0.0.1"), false);
     assert.equal(gate.open(), 6);
-    // behind a proxy the server trusts, every client has the proxy's address: no bound per address
-    // no bound per address unless the operator sets one: behind NAT or a published port every client has one address
-    assert.deepEqual(connectionLimitsOf({}), {});
-    assert.deepEqual(connectionLimitsOf({ http: { trustProxy: true } }), {});
-    assert.deepEqual(connectionLimitsOf({ http: { maxConnectionsPerAddress: 32 } }), { perAddress: 32 });
+    // the bound counts the socket's peer: 32 where clients reach the server directly; behind a proxy
+    // the server trusts (http.trustProxy) every client has the proxy's address, so none by default
+    assert.deepEqual(connectionLimitsOf({}), { perAddress: 32 });
+    assert.deepEqual(connectionLimitsOf({ http: { trustProxy: false } }), { perAddress: 32 });
+    assert.deepEqual(connectionLimitsOf({ http: { trustProxy: true } }), { perAddress: 0 });
+    // the operator's number wins either way; 0 switches the bound off
+    assert.deepEqual(connectionLimitsOf({ http: { maxConnectionsPerAddress: 8 } }), { perAddress: 8 });
+    assert.deepEqual(connectionLimitsOf({ http: { maxConnectionsPerAddress: 0 } }), { perAddress: 0 });
+    assert.deepEqual(connectionLimitsOf({ http: { trustProxy: true, maxConnectionsPerAddress: 16 } }), { perAddress: 16 });
+    assert.deepEqual(connectionLimitsOf({ http: { trustProxy: true, maxConnectionsPerAddress: 0 } }), { perAddress: 0 });
+    // by default one address on the network cannot take every slot
+    const direct = connectionGate({ ...CONNECTION_LIMITS, ...connectionLimitsOf({}) });
+    for (let i = 0; i < 32; i++) {
+        assert.equal(direct.admit("203.0.113.7"), true);
+    }
+    assert.equal(direct.admit("203.0.113.7"), false, "a 33rd from one address");
+    assert.equal(direct.refusedBy, "perAddress");
+    assert.equal(direct.admit("203.0.113.8"), true, "another address still gets in");
     const open = connectionGate({ ...CONNECTION_LIMITS, total: 6, loopback: 2 });
     for (let i = 0; i < 4; i++) {
         assert.equal(open.admit("203.0.113.9"), true, "one address may take every slot of the network");
@@ -116,7 +129,7 @@ test("refused connections are told once a minute with the address and counts; ht
     assert.match(refusedText(told[1]), /every connection the server may hold was open/);
     const dir = workspace();
     await assert.rejects(restServer({ sources: { sales: { file: "data/sales.csv" } }, http: { maxConnectionsPerAddress: -1 }, baseDir: dir }), /http\.maxConnectionsPerAddress/);
-    await assert.rejects(restServer({ sources: { sales: { file: "data/sales.csv" } }, http: { maxConnectionsPerAddress: 300 }, baseDir: dir }), /http\.maxConnectionsPerAddress: 0 \(no bound, the default\) to 256/);
+    await assert.rejects(restServer({ sources: { sales: { file: "data/sales.csv" } }, http: { maxConnectionsPerAddress: 300 }, baseDir: dir }), /http\.maxConnectionsPerAddress: 0 \(no bound\) to 256/);
     const bounded = await restServer({ sources: { sales: { file: "data/sales.csv" } }, http: { maxConnectionsPerAddress: 8 }, baseDir: dir });
     await bounded.close();
 });
@@ -142,7 +155,7 @@ test("a request target that is not a path: the absolute form by its path, '*' 40
 test("a static token with characters a bearer token cannot carry is refused at start and in check-config", async () => {
     const dir = workspace();
     const bad = "a-test-token:that-is-long-enough!0123456789";
-    await assert.rejects(restServer({ sources: { sales: { file: "data/sales.csv" } }, auth: { mode: "token", tokens: [{ name: "bot", env: "BOT" }] }, baseDir: dir }, { env: { BOT: bad } }), (e) => /the token "bot".*cannot carry.*make one with: node -e/.test(e.message));
+    await assert.rejects(restServer({ sources: { sales: { file: "data/sales.csv" } }, auth: { mode: "token", tokens: [{ name: "bot", env: "BOT" }] }, baseDir: dir }, { env: { BOT: bad } }), (e) => /the token "bot".*cannot carry.*make one with: pivotkit-server token new/.test(e.message));
     const config = join(dir, "pivotkit.json");
     writeFileSync(config, JSON.stringify({ sources: { sales: { file: "data/sales.csv" } }, auth: { mode: "token", tokens: [{ name: "bot", env: "BOT" }] } }));
     const check = spawnSync(process.execPath, [BIN, "check-config", "--config", config], { encoding: "utf8", env: { PATH: process.env.PATH ?? "", BOT: bad } });
@@ -243,4 +256,111 @@ test("oauth without required scopes or tool scopes: REST warns at start, as MCP 
     } finally {
         await scoped.close();
     }
+});
+
+test("a client that leaves before the answer starts: its streamed body is given up as soon as it comes, so what waits for its end (a caller's slot) is freed", async () => {
+    let cancelled = false;
+    const listening = await serveFetch(
+        {
+            // the answer comes 300 ms after the client left; its body would stream until a call ends
+            fetch: async () => {
+                await new Promise((resolve) => setTimeout(resolve, 300));
+                return new Response(new ReadableStream({ cancel: () => void (cancelled = true) }), { headers: { "content-type": "text/event-stream" } });
+            }
+        },
+        { host: "127.0.0.1", port: 0, bodyBytes: 1024 }
+    );
+    try {
+        await new Promise((resolve) => {
+            const socket = connect(listening.port, "127.0.0.1", () => {
+                socket.write("POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}");
+                setTimeout(() => {
+                    socket.destroy();
+                    resolve(undefined);
+                }, 30);
+            });
+        });
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        assert.equal(cancelled, true, "the body of an answer whose client already left is cancelled");
+    } finally {
+        await listening.close();
+    }
+});
+
+test("a body that fails in the middle of an answer ends the connection, never a clean answer cut short", async () => {
+    const listening = await serveFetch(
+        {
+            fetch: async () =>
+                new Response(
+                    new ReadableStream({
+                        start(controller) {
+                            controller.enqueue(new TextEncoder().encode("part"));
+                            setTimeout(() => controller.error(new Error("the source failed")), 50);
+                        }
+                    }),
+                    { headers: { "content-type": "text/event-stream" } }
+                )
+        },
+        { host: "127.0.0.1", port: 0, bodyBytes: 1024 }
+    );
+    try {
+        const ended = await new Promise((resolve) => {
+            const socket = connect(listening.port, "127.0.0.1", () => socket.write("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"));
+            let text = "";
+            socket.on("data", (d) => (text += d));
+            socket.on("error", () => resolve({ text, how: "error" }));
+            socket.on("close", () => resolve({ text, how: "close" }));
+        });
+        assert.match(ended.text, /part/);
+        // chunked transfer: a clean end is the zero-length chunk; a failed body must not send it
+        assert.doesNotMatch(ended.text, /\r\n0\r\n\r\n$/, "no terminating chunk: the client sees the answer was cut");
+    } finally {
+        await listening.close();
+    }
+});
+
+test("serveFetch: a client that leaves while the answer streams cancels it", async () => {
+    let cancelled = 0;
+    const listening = await serveFetch(
+        {
+            fetch: async () =>
+                // an answer that would stream for ever: only a cancel ends it
+                new Response(new ReadableStream({ start: (controller) => controller.enqueue(new TextEncoder().encode(": open\n\n")), pull: () => new Promise((resolve) => setTimeout(resolve, 60_000).unref()), cancel: () => void cancelled++ }), { headers: { "content-type": "text/event-stream" } })
+        },
+        { host: "127.0.0.1", port: 0, bodyBytes: 1024 }
+    );
+    try {
+        await new Promise((resolve) => {
+            const req = httpRequest({ host: "127.0.0.1", port: listening.port, path: "/", method: "GET" });
+            req.on("error", () => resolve(undefined));
+            req.on("response", () => {
+                req.destroy();
+                resolve(undefined);
+            });
+            req.end();
+        });
+        for (let i = 0; i < 50 && !cancelled; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        assert.equal(cancelled, 1);
+    } finally {
+        await listening.close();
+    }
+});
+
+test("check-config says which per-address bound applies: the default without and with http.trustProxy, the operator's number, or 0", async () => {
+    const dir = workspace();
+    const lineOf = async (http) => {
+        const text = factsOf((await checkConfig({ sources: { sales: { file: "data/sales.csv" } }, http, baseDir: dir }, { http: true, env: {} })).text);
+        // the HTTP section's lines after its heading
+        return text.split("\nHTTP: ")[1].split("\n\n")[0].split("\n").slice(1);
+    };
+    assert.deepEqual(await lineOf({ host: "0.0.0.0" }), ["  connections per address: at most 32 (the default; clients reach the server directly)", "    behind NAT or a proxy, clients share one address: raise http.maxConnectionsPerAddress, or set http.trustProxy behind a proxy"]);
+    // on loopback only, no client is bounded per address: the hint is left out
+    assert.deepEqual(await lineOf({}), ["  connections per address: at most 32 (the default; clients reach the server directly)"]);
+    assert.deepEqual(await lineOf({ trustProxy: true }), ["  connections per address: no bound (the default with http.trustProxy; the proxy limits its clients)"]);
+    assert.deepEqual(await lineOf({ maxConnectionsPerAddress: 64 }), ["  connections per address: at most 64 (http.maxConnectionsPerAddress)"]);
+    assert.deepEqual(await lineOf({ maxConnectionsPerAddress: 0 }), ["  connections per address: no bound (http.maxConnectionsPerAddress is 0)"]);
+    // behind a trusted proxy the bound counts the proxy's address: every client shares it
+    assert.deepEqual(await lineOf({ trustProxy: true, maxConnectionsPerAddress: 64 }), ["  connections per address: at most 64 (http.maxConnectionsPerAddress)", "    it counts the proxy's address, so all clients behind it share these 64"]);
 });

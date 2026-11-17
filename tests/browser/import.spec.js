@@ -10,7 +10,7 @@
 import { test as plain } from "@playwright/test";
 import { chips, drag, expect, tableRows, test, toolbar } from "./fixtures.js";
 import { makeXlsx } from "../../packages/pivotkit-xlsx/test/make-xlsx.js";
-import { dataMenu, dropFiles, fieldNames, fileOf, pickThroughMenu } from "./import-helpers.js";
+import { dataMenu, dropFiles, fieldNames, fileOf, nextFileChooser, pickThroughMenu } from "./import-helpers.js";
 
 const TICKETS = "Id;Team;Opened;Hours;Zip\n1001;Network;10.11.2026;1,5;01067\n1002;Server;11.11.2026;2,25;10115\n1003;Network;12.11.2026;4;01067\n\n1004;Client;13.11.2026;0,5;20095\n";
 const CSV = "text/csv";
@@ -105,7 +105,7 @@ test("the Data menu by keyboard: where the data comes from, Load data… opens t
     // the first entry takes the focus once the menu is there; no Back while the playground's data is shown
     await expect(page.getByTestId("load-file")).toBeFocused();
     await expect(page.getByTestId("back-to-original")).toHaveCount(0);
-    const chooser = page.waitForEvent("filechooser");
+    const chooser = nextFileChooser(page);
     await page.keyboard.press("Enter");
     const fc = await chooser;
     // the chooser offers what the readers read
@@ -288,32 +288,15 @@ async function elementPage(page, query = "") {
     return page.locator("pivot-report");
 }
 
-/**
- * A test of the element's page under a strict CSP: no console error and no violation of the policy.
- * One exception, WebKit's own: it reports a style-src-attr violation (and its console error) for every
- * native <select> it creates, a page's own as well (the control below), never for the report's code:
- * exactly one per <select> the report made, none in Chromium and Firefox.
- */
+/** A test of the element's page under a strict CSP: no console error and no violation of the policy. */
 function strict(name, body) {
-    plain(name, async ({ page, browserName }) => {
+    plain(name, async ({ page }) => {
         const problems = [];
         page.on("console", (m) => (m.type() === "error" || m.type() === "warning") && problems.push(m.text()));
         page.on("pageerror", (e) => problems.push(e.message));
         await body({ page });
-        const { violations, selects } = await page.evaluate(() => ({ violations: window.__violations, selects: window.__selects }));
-        if (browserName === "webkit") {
-            const own = (text) => text.startsWith("Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline' does not appear in the style-src directive");
-            expect(violations.every((v) => v === "style-src-attr: inline")).toBe(true);
-            expect(violations.length).toBe(selects);
-            expect(problems.filter((p) => !own(p))).toEqual([]);
-            // the control: a page's own <select>, without pivotkit, is reported the same way
-            const before = violations.length;
-            await page.evaluate(() => document.body.append(document.createElement("select")));
-            await expect.poll(() => page.evaluate(() => window.__violations.length)).toBe(before + 1);
-        } else {
-            expect(violations).toEqual([]);
-            expect(problems).toEqual([]);
-        }
+        expect(await page.evaluate(() => window.__violations)).toEqual([]);
+        expect(problems).toEqual([]);
     });
 }
 
@@ -356,8 +339,8 @@ plain("a policy that refuses workers: the element reads the file on the page and
     // the browser says it refused the worker; nothing else went wrong
     const violations = await page.evaluate(() => window.__violations);
     expect(violations.some((v) => v.startsWith("worker-src"))).toBe(true);
-    expect(violations.filter((v) => !v.startsWith("worker-src") && v !== "style-src-attr: inline")).toEqual([]);
-    expect(problems.filter((p) => !/worker|Worker|style-src/.test(p))).toEqual([]);
+    expect(violations.filter((v) => !v.startsWith("worker-src"))).toEqual([]);
+    expect(problems.filter((p) => !/worker|Worker/.test(p))).toEqual([]);
 });
 
 strict("the element's importWorkerUrl: the worker starts from the app's own path, relative to the page (#194)", async ({ page }) => {
@@ -371,7 +354,7 @@ strict("the element's importWorkerUrl: the worker starts from the app's own path
     expect(await page.evaluate(() => document.querySelector("pivot-report").importWorkerUrl)).toBe("app-assets/pk-import-worker.js");
 });
 
-plain("the element's importWorkerUrl of another origin: refused, the file read on the page, said once, no browser error (#194)", async ({ page, browserName }) => {
+plain("the element's importWorkerUrl of another origin: refused, the file read on the page, said once, no browser error (#194)", async ({ page }) => {
     const problems = [];
     page.on("console", (m) => (m.type() === "error" || m.type() === "warning") && problems.push(m.text()));
     page.on("pageerror", (e) => problems.push(e.message));
@@ -383,8 +366,7 @@ plain("the element's importWorkerUrl of another origin: refused, the file read o
     await report.getByTestId("import-apply").click();
     await expect.poll(() => fieldNames(report)).toEqual(["Id", "Team", "Opened", "Hours", "Zip"]);
     expect(workers).toBe(0);
-    const own = (text) => browserName === "webkit" && text.startsWith("Refused to apply a stylesheet because its hash");
-    expect(problems.filter((p) => !own(p))).toEqual(['pivotkit: importWorkerUrl "https://example.com/import-worker.js" is not of the page\'s origin; files are read on the page']);
+    expect(problems).toEqual(['pivotkit: importWorkerUrl "https://example.com/import-worker.js" is not of the page\'s origin; files are read on the page']);
 });
 
 strict("the element: preventDefault() on pivot-data-load refuses the file, the data stays", async ({ page }) => {
@@ -409,7 +391,7 @@ strict("the element takes columnar data; without data, the empty report offers t
     report = await elementPage(page, "?empty");
     await expect(report.getByTestId("empty-state").getByRole("heading")).toHaveText("Load data to start");
     await expect(report.getByTestId("empty-drop")).toContainText("Drop a file onto the report, or");
-    const chooser = page.waitForEvent("filechooser");
+    const chooser = nextFileChooser(page);
     await report.getByTestId("empty-load").click();
     await (await chooser).setFiles({ name: "teams.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify({ data: [{ Team: "A", Hours: 2 }, { Team: "B", Hours: 3 }] })) });
     await expect(report.getByTestId("import-notes").locator("li[data-code='JSON_PROPERTY']")).toHaveText("The rows were read from “data”.");

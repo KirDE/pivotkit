@@ -6,8 +6,9 @@
  * nothing is trusted to the renderer's escaping alone.
  */
 
-import { PivotkitError, chartPlan, chartThemeFrom, computePivot, swapAxes, toEChartsOption, toSeries } from "pivotkit-core";
-import { decorateOption } from "pivotkit-core/chart";
+import { PivotkitError, chartPlan, chartThemeFrom, computePivot, swapAxes, toSeries } from "pivotkit-core";
+// the option from the chart's entry point: a bundle with pivotkit-report keeps it off its first load
+import { decorateOption, toEChartsOption } from "pivotkit-core/chart";
 import { BIDI_CONTROLS } from "./texts.js";
 import { LIGHT_TOKENS } from "./tokens.js";
 
@@ -143,7 +144,7 @@ export function cleanSvg(svg) {
  * "auto" picks; rows and columns swapped for the chart where it says so), the theme's colours from
  * `style`, the axis labels laid out for the size, at most `maxCategories` categories.
  * @param {import("pivotkit-core").PivotResult} result
- * @param {{ echarts: { init: Function }, style: { getPropertyValue(name: string): string }, width: number, height: number,
+ * @param {{ echarts: { init: Function, color?: { parse?: (color: string) => unknown } }, style: { getPropertyValue(name: string): string }, width: number, height: number,
  *   locale: string, labels?: object, limits?: object, now?: any, maxCategories: number }} options
  * @returns {{ svg: string, categories: number, of: number }}
  */
@@ -153,15 +154,26 @@ export function chartSvg(result, { echarts, style, width, height, locale, labels
     const drawn = plan.swap ? computePivot(result.encoded, swapAxes(view), { locale, limits, ...(now !== undefined ? { now } : {}) }) : result;
     const series = toSeries(drawn, { labels, limits, maxCategories });
     const option = toEChartsOption(drawn, { theme: chartThemeFrom(style), locale, labels, limits, maxCategories, series, chart: plan.chart });
-    const decorated = decorateOption(option, style, { width, height, categoryNames: series.categories, axisLabels: view.chart.axisLabels });
+    // a heatmap colour ECharts' parser does not read (oklch(), rgb() with spaces) would turn the cells
+    // black: the light default stands in for it. Every other colour is written into the SVG as it is
+    const parse = echarts.color?.parse;
+    const readColor = typeof parse === "function" ? (/** @type {string} */ c) => (parse(c.trim()) ? c : null) : undefined;
+    const marked = (/** @type {((v: number) => number) | undefined} */ pixelOf) => {
+        // axisEvery is the report's own note, not ECharts'
+        const { axisEvery, ...decorated } = decorateOption(option, style, { width, height, categoryNames: series.categories, axisLabels: view.chart.axisLabels, readColor, pixelOf });
+        void axisEvery;
+        return decorated;
+    };
     const surface = style.getPropertyValue("--pk-surface").trim() || LIGHT_TOKENS["--pk-surface"];
     const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width, height });
     let svg;
     try {
-        // axisEvery is the report's own note, not ECharts'
-        const { axisEvery, ...option2 } = decorated;
-        void axisEvery;
-        chart.setOption({ ...option2, backgroundColor: surface, animation: false });
+        const first = marked(undefined);
+        chart.setOption({ ...first, backgroundColor: surface, animation: false });
+        // the labels of lying reference lines at their lines' real heights, as on the screen
+        if (!Array.isArray(first.yAxis) && first.yAxis?.type === "value" && (first.series ?? []).some((/** @type {any} */ s) => s.markLine)) {
+            chart.setOption({ series: marked((v) => chart.convertToPixel({ yAxisIndex: 0 }, v)).series });
+        }
         svg = chart.renderToSVGString();
     } finally {
         chart.dispose();

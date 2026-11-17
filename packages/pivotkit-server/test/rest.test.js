@@ -33,7 +33,8 @@ test("GET /sources lists the source; GET /sources/{id} and POST /sources/describ
         const byId = await call(`${server.api}/sources/sales`);
         const byPost = await call(`${server.api}/sources/describe`, { body: { source: "sales" } });
         assert.equal(byId.status, 200);
-        assert.deepEqual(byId.data, byPost.data);
+        // alike but for each answer's own request id
+        assert.deepEqual({ ...byId.data, requestId: undefined }, { ...byPost.data, requestId: undefined });
         const names = byId.data.fields.map((f) => f.name);
         assert.ok(!names.includes("Customer"), "a hidden field is not listed");
         assert.equal(byId.data.hiddenFields, 1);
@@ -101,7 +102,7 @@ test("render: the file is saved in the output directory; a summary field withhol
         assert.deepEqual(res.data.withheld, ["rows", "columns", "bytes", "content"]);
         assert.equal(res.data.summary, undefined);
         assert.equal(res.data.inline, undefined);
-        assert.match(res.data.message, /Its content is not part of this answer, since the operator does not show the values of Sales\./);
+        assert.match(res.data.message, /Its content is not part of this answer: results over fields that are not fully shown \(Sales\) stay in the file\./);
         assert.ok(!/assistant/.test(res.data.message), "words for a program, not a model");
         assert.deepEqual(readdirSync(join(dir, "out")), [res.data.output.name]);
         assert.equal(res.data.output.path, undefined, "no server path");
@@ -131,6 +132,47 @@ test("render inline: only with rest.inline and only when every field the view us
         assert.match(xlsx.data.detail, /views\/render\/file/);
     } finally {
         await server.close();
+    }
+});
+
+test("render with save: false: the result inline and nothing saved; refused with a way out where it cannot be inline; the file route takes it and sends the file", async () => {
+    const dir = workspace();
+    const server = await restServer({ sources: { sales: { file: "data/sales.csv", policy: { default: "show", results: true } }, closed: { file: "data/sales.csv", policy: { fields: { Region: "show" } } } }, rest: { inline: true }, output: { dir: "out" }, baseDir: dir });
+    const files = () => readdirSync(join(dir, "out")).filter((n) => !n.startsWith("."));
+    try {
+        const res = await call(`${server.api}/views/render`, { body: { source: "sales", view: BY_REGION, format: "json", save: false } });
+        assert.equal(res.status, 200, JSON.stringify(res.data));
+        assert.match(res.data.inline.text, /North/);
+        assert.equal(res.data.output, null);
+        assert.match(res.data.message, /not saved as a file/);
+        assert.deepEqual(files(), []);
+        const line = server.log.find((l) => l.event === "request" && l.operation === "render_view");
+        assert.deepEqual([line?.saved, line?.status], [false, 200]);
+        assertProblem(await call(`${server.api}/views/render`, { body: { source: "sales", view: BY_REGION, format: "xlsx", save: false } }), 400, "INVALID_INPUT");
+        const closed = await call(`${server.api}/views/render`, { body: { source: "closed", view: BY_REGION, format: "csv", save: false } });
+        assertProblem(closed, 403, "NOT_ALLOWED");
+        assert.match(closed.data.detail, /^a field the view uses is at level values or summary, so its numbers cannot come back in the answer/);
+        assert.deepEqual(files(), []);
+        // the file route sends the file and saves nothing: save is no input of it, and its log never says saved
+        const file = await call(`${server.api}/views/render/file`, { body: { source: "sales", view: BY_REGION, format: "csv", save: false } });
+        assertProblem(file, 400, "INVALID_INPUT");
+        assert.match(file.data.detail, /save/);
+        assert.ok(!server.log.some((l) => l.event === "request" && l.route === "POST /views/render/file" && "saved" in l));
+        const sent = await call(`${server.api}/views/render/file`, { body: { source: "sales", view: BY_REGION, format: "csv" } });
+        assert.equal(sent.status, 200);
+        assert.deepEqual(files(), []);
+    } finally {
+        await server.close();
+    }
+    // without rest.inline nothing may come back inline: refused, naming the file route
+    const off = await restServer({ sources: { sales: { file: "data/sales.csv", policy: { default: "show" } } }, output: { dir: "out" }, baseDir: dir });
+    try {
+        const res = await call(`${off.api}/views/render`, { body: { source: "sales", view: BY_REGION, format: "csv", save: false } });
+        assertProblem(res, 403, "NOT_ALLOWED");
+        assert.match(res.data.detail, /^inline results are switched off by the operator \(rest\.inline.*views\/render\/file/);
+        assert.deepEqual(files(), []);
+    } finally {
+        await off.close();
     }
 });
 
@@ -285,7 +327,7 @@ test("the Host check refuses a name the server does not answer to (DNS rebinding
     }
 });
 
-test("output.maxAgeDays: old reports and drafts, and temporary files of killed writes after an hour, go at start (and hourly); files pivotkit did not write, newer ones and subdirectories stay", async () => {
+test("output.maxAgeDays: old reports, drafts no longer waiting, and temporary files of killed writes after an hour, go at start (and hourly); drafts waiting for approval, files pivotkit did not write, newer ones and subdirectories stay", async () => {
     const dir = workspace();
     const { utimesSync } = await import("node:fs");
     const old = new Date(Date.now() - 3 * 86_400_000);
@@ -296,6 +338,7 @@ test("output.maxAgeDays: old reports and drafts, and temporary files of killed w
     const ages = {
         "old.pivotkit-out.xlsx": old,
         "old.pivotkit-out.report.json": old,
+        "approved.pivotkit-out.report.json": old,
         "notes.txt": old,
         "operator.csv": old,
         ".a1b2-sales.pivotkit-out.xlsx.4242-k3j9x0qz.tmp": hours,
@@ -304,7 +347,9 @@ test("output.maxAgeDays: old reports and drafts, and temporary files of killed w
         "recent.pivotkit-out.xlsx": null
     };
     for (const [name, time] of Object.entries(ages)) {
-        writeFileSync(join(dir, "out", name), name);
+        // a draft as draft_schedule writes it: one still waits, one the host approved
+        const status = name === "approved.pivotkit-out.report.json" ? "approved" : "draft";
+        writeFileSync(join(dir, "out", name), name.endsWith(".report.json") ? JSON.stringify({ format: "pivotkit-report-draft", version: 0, status, name: "Weekly" }) : name);
         if (time) {
             utimesSync(join(dir, "out", name), time, time);
         }
@@ -314,7 +359,7 @@ test("output.maxAgeDays: old reports and drafts, and temporary files of killed w
     utimesSync(join(dir, "out", "keep", "old.pivotkit-out.csv"), old, old);
     const server = await restServer({ sources: { sales: { file: "data/sales.csv" } }, output: { dir: "out", maxAgeDays: 2 }, baseDir: dir });
     try {
-        assert.deepEqual(readdirSync(join(dir, "out")).sort(), [".a1b2-sales.pivotkit-out.csv.4243-p0o9i8u7.tmp", ".notes.txt.4244-a1b2c3d4.tmp", "keep", "notes.txt", "operator.csv", "recent.pivotkit-out.xlsx"]);
+        assert.deepEqual(readdirSync(join(dir, "out")).sort(), [".a1b2-sales.pivotkit-out.csv.4243-p0o9i8u7.tmp", ".notes.txt.4244-a1b2c3d4.tmp", "keep", "notes.txt", "old.pivotkit-out.report.json", "operator.csv", "recent.pivotkit-out.xlsx"]);
         assert.deepEqual(readdirSync(join(dir, "out", "keep")), ["old.pivotkit-out.csv"]);
         const res = await call(`${server.api}/views/render`, { body: { source: "sales", view: BY_REGION } });
         assert.equal(res.status, 200);
@@ -332,7 +377,9 @@ test("the log names the route, the source and the status; never the view, a valu
         assert.equal(entry.source, "sales");
         assert.equal(entry.status, 200);
         assert.equal(entry.client, "local");
-        assert.equal(entry.address, undefined, "no client address without http.trustProxy");
+        // log.address is on by default: without http.trustProxy the socket's peer, and no peerAddress beside it
+        assert.equal(entry.address, "127.0.0.1");
+        assert.equal(entry.peerAddress, undefined, "no second address without http.trustProxy");
         const text = JSON.stringify(server.log);
         assert.ok(!text.includes("SecretRegion") && !text.includes(dir) && !text.includes("Alice"));
     } finally {
@@ -365,7 +412,8 @@ test("a client that leaves in the middle of a large download does not keep the s
     await new Promise((r) => setTimeout(r, 200));
     const started = Date.now();
     await server.close();
-    assert.ok(Date.now() - started < 2000, `close took ${Date.now() - started} ms`);
+    // below graceMs (5 s): a close that waits for the stalled client takes all of it
+    assert.ok(Date.now() - started < 4000, `close took ${Date.now() - started} ms`); // wall time: event latency
 });
 
 test("a file name cut at 80 characters never splits a character; the download still works", async () => {
@@ -375,6 +423,8 @@ test("a file name cut at 80 characters never splits a character; the download st
         const res = await call(`${server.api}/views/render/file`, { body: { source: "sales", view: BY_REGION, format: "csv" } });
         assert.equal(res.status, 200);
         assert.match(res.headers.get("content-disposition"), /filename\*=UTF-8''x{79}%F0%9F%98%80\.csv$/);
+        const sent = server.log.find((l) => l.event === "download");
+        assert.deepEqual([sent.status, sent.level, sent.outcome, sent.msg], [200, "info", "ok", "file sent"]);
         const quoted = await call(`${server.api}/views/render/file`, { body: { source: "sales", view: BY_REGION, format: "csv", name: "it's (a) *test*" } });
         assert.match(quoted.headers.get("content-disposition"), /filename\*=UTF-8''it%27s%20%28a%29%20_test_\.csv$/);
     } finally {
@@ -396,7 +446,13 @@ test("limits: requests of one caller at once, the client's address behind a prox
         release();
         assert.deepEqual((await Promise.all(running)).map((r) => r.status), [200, 200]);
         await call(`${server.api}/sources`, { headers: { "x-forwarded-for": "198.51.100.7, 203.0.113.9" } });
-        assert.equal(server.log.filter((l) => l.event === "request").at(-1).address, "203.0.113.9");
+        // address is the forwarded client (the last entry, the one the proxy added), as before;
+        // peerAddress is the socket's peer, here the proxy on loopback
+        const proxied = server.log.filter((l) => l.event === "request").at(-1);
+        assert.equal(proxied.address, "203.0.113.9");
+        assert.equal(proxied.peerAddress, "127.0.0.1");
+        // the 429 of a caller over its concurrency is a refused line with its reason
+        assert.ok(server.log.some((l) => l.event === "refused" && l.status === 429 && l.reason === "rate_limited" && l.limit === "concurrency" && l.client === "local"));
     } finally {
         await server.close();
     }

@@ -3,17 +3,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { computePivot, encode, toEChartsOption, toGrid, toSeries } from "pivotkit-core";
-import { decorate } from "../src/chart-decorate.js";
+import { decorate, screenColor } from "../src/chart-decorate.js";
 import { chartSummary } from "../src/chart-summary.js";
-import { tooltipContent, tooltipFormatter } from "../src/chart-tooltip.js";
+import { linesSummary, tooltipContent, tooltipFormatter, tooltipReferences } from "../src/chart-tooltip.js";
 import { BOTTOM_LEGEND_ROOM, SLANTED_LABEL_WIDTH, columnLabelLayout, heatmapCellLabels, pieLabelRoom, ringLabelsFit, rowLabelInterval } from "pivotkit-core/chart";
 import { announcementsOf, nextTarget } from "../src/dnd-moves.js";
 import { dataUrlToBlob, safeFileName } from "../src/files.js";
-import { LABELS, errorText, fill, plural, resolveLabels } from "../src/labels.js";
+import { LABELS, errorText, fill, plural, resolveLabels, rowCount } from "../src/labels.js";
+import { ROW_COUNT_TEXTS } from "pivotkit-core";
+import { REPORT_TEXTS } from "pivotkit-report";
 import { fieldAction, layoutSummary, valueLabel } from "../src/names.js";
 import { HISTORY_LIMIT, answered, createState, record, redo, reset, settle, tagFor, told, undo } from "../src/view-history.js";
 import { de as menuDe } from "../src/menu-labels-de.js";
 import { en as menuEn } from "../src/menu-labels.js";
+import { cpuClock } from "../../../tests/cpu-time.js";
 
 /** The menus' texts of both languages (German is a chunk of its own in the package). */
 const MENU_LABELS = { en: menuEn, de: menuDe };
@@ -114,6 +117,26 @@ test("counts in words take the plural form of the language: 1 series, 1 Reihe", 
     assert.equal(plural({ other: "{count} things" }, 1, { lang: "en", locale: "en-US" }), "1 things");
 });
 
+test("the row count under the result: the data's rows, or the rows a filter keeps of them (#108)", () => {
+    assert.equal(rowCount(15344, 15344, en, "en-US"), "15,344 rows");
+    assert.equal(rowCount(1, 1, en, "en-US"), "1 row");
+    assert.equal(rowCount(5110, 15344, en, "en-US"), "5,110 of 15,344 rows");
+    assert.equal(rowCount(0, 1, en, "en-US"), "0 of 1 row");
+    assert.equal(rowCount(2190, 4386, LABELS.de, "de-DE"), "2.190 von 4.386 Zeilen");
+    assert.equal(rowCount(4386, 4386, LABELS.de, "de-DE"), "4.386 Zeilen");
+    // a host's text for the filtered count, one text for every count
+    assert.equal(rowCount(3, 10, resolveLabels("en", { rowsFiltered: "{shown}/{count} records" }), "en-US"), "3/10 records");
+});
+
+test("the row count's words are pivotkit-core's: the component and the HTML report say the same (#547)", () => {
+    for (const lang of /** @type {const} */ (["en", "de"])) {
+        assert.equal(LABELS[lang].rowsCount, ROW_COUNT_TEXTS[lang].rowsCount, lang);
+        assert.equal(LABELS[lang].rowsFiltered, ROW_COUNT_TEXTS[lang].rowsFiltered, lang);
+        assert.equal(REPORT_TEXTS[lang].rowsCount, ROW_COUNT_TEXTS[lang].rowsCount, lang);
+        assert.equal(REPORT_TEXTS[lang].rowsFiltered, ROW_COUNT_TEXTS[lang].rowsFiltered, lang);
+    }
+});
+
 test("value names: plain aggregator words, show-as renames the value", () => {
     assert.equal(valueLabel({ field: "Revenue", agg: "sum" }, en), "Sum of Revenue");
     assert.equal(valueLabel({ field: "Revenue", agg: "sum", showAs: { type: "percentOfGrandTotal" } }, en), "% of grand total of Revenue");
@@ -130,10 +153,10 @@ test("file names: no path, no reserved characters or names", () => {
     assert.equal(safeFileName("report"), "report");
     assert.equal(safeFileName(" .report. . "), "report");
     // trailing dots and spaces are trimmed in linear time (a regex for them backtracked quadratically)
-    const t0 = performance.now();
+    const cpu = cpuClock();
     assert.equal(safeFileName(`a${". ".repeat(200_000)}x`), `a${". ".repeat(200_000)}x`.slice(0, 120).replace(/[\s.]+$/, ""));
     assert.equal(safeFileName(`a${". ".repeat(200_000)}`), "a");
-    assert.ok(performance.now() - t0 < 200, `${Math.round(performance.now() - t0)} ms`);
+    assert.ok(cpu() < 200, `${Math.round(cpu())} ms of CPU`);
     assert.equal(safeFileName("../../etc/passwd"), "etc-passwd");
     assert.equal(safeFileName("C:\\\\temp\\\\x"), "C-temp-x");
     assert.equal(safeFileName('a<b>c:"d|e?*'), "a-b-c-d-e-");
@@ -284,10 +307,11 @@ test("a limit of the core is a message in words with what to change, any other e
 
 test("chart tooltips: a title and a line per series or slice, values in the core's format", () => {
     const fmt = (v) => (typeof v === "number" ? `${v.toFixed(1)} u` : "");
-    // trigger "axis" (bar, line, area): the category, then each series
+    // trigger "axis" (bar, line, area): the category, then each series with a value there (#376: a
+    // series without one is left out, no empty line)
     assert.deepEqual(
-        tooltipContent([{ axisValueLabel: "North", name: "North", seriesName: "2025", value: 3, color: "#123456" }, { name: "North", seriesName: "2026", value: null, color: { type: "linear" } }], { valueFormatter: fmt }),
-        { title: "North", lines: [{ color: "#123456", name: "2025", value: "3.0 u" }, { color: null, name: "2026", value: "" }] }
+        tooltipContent([{ axisValueLabel: "North", name: "North", seriesName: "2025", value: 3, color: "#123456" }, { name: "North", seriesName: "2026", value: 4, color: { type: "linear" } }, { name: "North", seriesName: "2027", value: null, color: "#654321" }], { valueFormatter: fmt }),
+        { title: "North", lines: [{ color: "#123456", name: "2025", value: "3.0 u" }, { color: null, name: "2026", value: "4.0 u" }] }
     );
     // pie: the value's name, then the slice
     assert.deepEqual(tooltipContent({ seriesType: "pie", seriesName: "Sum of Units", name: "<b>x</b>", value: 2, color: "#abc" }, { valueFormatter: fmt }), {
@@ -314,11 +338,118 @@ test("chart tooltips are nodes with texts and CSSOM styles, never markup", () =>
     assert.equal(JSON.stringify(box).includes("innerHTML"), false);
 });
 
+test("chart tooltips follow the pointer: the element alone, a stack's total, every series between elements (#376)", () => {
+    const fmt = (v) => `${v} u`;
+    const names = ["Software", "Hardware", "Services"];
+    // the axis items ECharts hands the formatter at one category: one per series, null where it has no value
+    const at = (dataIndex, values) => values.map((value, i) => ({ seriesIndex: i, dataIndex, axisValueLabel: "East", name: "East", seriesName: names[i], value, color: `#00000${i}` }));
+    const stack = (type) => names.map(() => ({ type, stack: "total" }));
+    const own = (type) => names.map(() => ({ type }));
+    const line = (i, value) => ({ color: `#00000${i}`, name: names[i], value: `${value} u` });
+    const total = (value) => ({ name: "Total", value: `${value} u` });
+    const north = at(0, [30, 20, 10]);
+    const east = at(2, [40, null, 12]);
+    const content = (params, options) => tooltipContent(params, { valueFormatter: fmt, totalLabel: "Total", ...options });
+
+    // stacked bars: a segment shows its series and the stack's total
+    assert.deepEqual(content(north, { series: stack("bar"), hover: { seriesIndex: 1, dataIndex: 0 } }), { title: "East", lines: [line(1, 20)], total: total(60) });
+    // the gap between stacked bars: the total only; so does an element of another category
+    assert.deepEqual(content(north, { series: stack("bar"), hover: null }), { title: "East", lines: [], total: total(60) });
+    assert.deepEqual(content(north, { series: stack("bar"), hover: { seriesIndex: 1, dataIndex: 2 } }), { title: "East", lines: [], total: total(60) });
+    // grouped bars: a bar alone, no total; between bars every series with a value
+    assert.deepEqual(content(east, { series: own("bar"), hover: { seriesIndex: 2, dataIndex: 2 } }), { title: "East", lines: [line(2, 12)] });
+    assert.deepEqual(content(east, { series: own("bar"), hover: null }), { title: "East", lines: [line(0, 40), line(2, 12)] });
+    // lines: a point alone; the line between points every series, the one without a value left out
+    assert.deepEqual(content(east, { series: own("line"), hover: { seriesIndex: 0, dataIndex: 2 } }), { title: "East", lines: [line(0, 40)] });
+    assert.deepEqual(content(east, { series: own("line") }), { title: "East", lines: [line(0, 40), line(2, 12)] });
+    // stacked area: the fill every series and the total; a point that point and the total
+    assert.deepEqual(content(east, { series: stack("line") }), { title: "East", lines: [line(0, 40), line(2, 12)], total: total(52) });
+    assert.deepEqual(content(east, { series: stack("line"), hover: { seriesIndex: 2, dataIndex: 2 } }), { title: "East", lines: [line(2, 12)], total: total(52) });
+
+    // "axis" (every series): all of them wherever the pointer is, the hovered one marked, and the total
+    assert.deepEqual(content(north, { mode: "axis", series: stack("bar"), hover: { seriesIndex: 0, dataIndex: 0 } }), { title: "East", lines: [{ ...line(0, 30), hovered: true }, line(1, 20), line(2, 10)], total: total(60) });
+    assert.deepEqual(content(north, { mode: "axis", series: own("bar") }), { title: "East", lines: [line(0, 30), line(1, 20), line(2, 10)] });
+    // a legend that hides a series: ECharts leaves it out of the items, so the total is what is drawn
+    assert.deepEqual(content(north.slice(1), { series: stack("bar") }), { title: "East", lines: [], total: total(30) });
+});
+
+test("chart tooltips: the total is the sum of the parts, none for a value that does not add up; the hovered series first; a long list cut (review of #376)", () => {
+    const fmt = (v) => `${v} u`;
+    const names = ["Software", "Hardware", "Services"];
+    const at = (values) => values.map((value, i) => ({ seriesIndex: i, dataIndex: 0, axisValueLabel: "North", seriesName: names[i], value, color: `#00000${i}` }));
+    const stack = (additive = true) => names.map(() => ({ type: "bar", stack: "total", additive }));
+    const content = (params, options) => tooltipContent(params, { valueFormatter: fmt, totalLabel: "Total", ...options });
+    // a part below zero: the total is the sum of the parts, 30 - 20 + 10
+    assert.deepEqual(content(at([30, -20, 10]), { series: stack(), hover: { seriesIndex: 1, dataIndex: 0 } }).total, { name: "Total", value: "20 u" });
+    // an average does not add up: no total, and between the bars every series instead of the total
+    const averages = content(at([30, 20, 10]), { series: stack(false), hover: null });
+    assert.deepEqual([averages.lines.map((l) => l.name), averages.total], [names, undefined]);
+    assert.deepEqual(content(at([30, 20, 10]), { series: stack(false), hover: { seriesIndex: 2, dataIndex: 0 } }), { title: "North", lines: [{ color: "#000002", name: "Services", value: "10 u" }] });
+    // every series: the hovered one comes first, marked
+    assert.deepEqual(content(at([30, 20, 10]), { mode: "axis", series: stack(), hover: { seriesIndex: 2, dataIndex: 0 } }).lines.map((l) => [l.name, Boolean(l.hovered)]), [["Services", true], ["Software", false], ["Hardware", false]]);
+    // more lines than fit: the first ones and how many more, the hovered one kept first
+    const many = Array.from({ length: 15 }, (_, i) => ({ seriesIndex: i, dataIndex: 0, axisValueLabel: "North", seriesName: `S${i}`, value: i, color: "#000000" }));
+    const cut = tooltipContent(many, { mode: "axis", maxLines: 6, moreLabel: "+{count} more", hover: { seriesIndex: 9, dataIndex: 0 } });
+    assert.deepEqual([cut.lines.map((l) => l.name), cut.more], [["S9", "S0", "S1", "S2", "S3"], "+10 more"]);
+    assert.equal(tooltipContent(many.slice(0, 6), { mode: "axis", maxLines: 6 }).more, undefined);
+});
+
+test("a stack's total only for values that add up: sums and counts, not shown as a rank or a percent difference (#376)", async () => {
+    const { valueAddsUp } = await import("../src/chart-tooltip.js");
+    const value = (agg, showAs = null) => ({ field: "Revenue", agg, showAs });
+    assert.deepEqual([value("sum"), value("count"), value("average"), value("median"), value("max")].map(valueAddsUp), [true, true, false, false, false]);
+    for (const type of ["rankAscending", "rankDescending", "percentDifferenceFromPrevious", "percentOfColumnTotal", "percentRunningTotal"]) {
+        assert.equal(valueAddsUp(value("sum", { type, axis: "rows" })), false, type);
+    }
+    for (const type of ["percentOfGrandTotal", "percentOfRowTotal", "differenceFromPrevious", "runningTotal"]) {
+        assert.equal(valueAddsUp(value("sum", { type, axis: "rows" })), true, type);
+    }
+    assert.equal(valueAddsUp(value("average", { type: "percentOfRowTotal", axis: "rows" })), false);
+    // a running total across the series of a category counts each part again: no total
+    assert.equal(valueAddsUp(value("sum", { type: "runningTotal", axis: "cols" })), false);
+    assert.equal(valueAddsUp(value("sum", { type: "differenceFromPrevious", axis: "cols" })), false);
+    assert.equal(valueAddsUp(undefined), false);
+});
+
+test("a cut list with a total says the cut series are in the total", () => {
+    const many = Array.from({ length: 15 }, (_, i) => ({ seriesIndex: i, dataIndex: 0, axisValueLabel: "North", seriesName: `S${i}`, value: 1, color: "#000000" }));
+    const series = many.map(() => ({ type: "line", stack: "total" }));
+    const options = { maxLines: 6, moreLabel: "+{count} more", moreInTotalLabel: "+{count} more (in the total)" };
+    assert.equal(tooltipContent(many, { ...options, series }).more, "+10 more (in the total)");
+    assert.equal(tooltipContent(many, { ...options, series: series.map(() => ({ type: "line" })) }).more, "+10 more");
+});
+
+test("the tooltip's total row and the hovered line: weights and the rule from the tokens, set through the CSSOM", () => {
+    const node = () => ({ style: {}, textContent: "", children: [], append(...c) { this.children.push(...c); } });
+    const doc = /** @type {any} */ ({ createElement: () => node() });
+    const params = [
+        { seriesIndex: 0, dataIndex: 0, axisValueLabel: "North", seriesName: "Software", value: 30, color: "#111111" },
+        { seriesIndex: 1, dataIndex: 0, axisValueLabel: "North", seriesName: "Hardware", value: 20, color: "#222222" }
+    ];
+    const series = [{ type: "bar", stack: "total" }, { type: "bar", stack: "total" }];
+    const box = /** @type {any} */ (tooltipFormatter(doc, { mode: "axis", series, hover: { seriesIndex: 1, dataIndex: 0 }, totalLabel: "Total" })(params));
+    // the hovered series first (#376 review), then the others in their order
+    const [head, hardware, software, sum] = box.children;
+    assert.deepEqual([head.textContent, box.children.length], ["North", 4]);
+    assert.deepEqual([hardware.children[1].textContent, software.children[1].textContent], ["Hardware", "Software"]);
+    assert.equal(software.children[1].style.fontWeight, undefined);
+    assert.equal(hardware.children[1].style.fontWeight, "var(--pk-weight-strong)");
+    // a long name ends in "…" at the token's width
+    assert.deepEqual([software.children[1].style.maxWidth, software.children[1].style.textOverflow], ["var(--pk-tooltip-name-w)", "ellipsis"]);
+    assert.deepEqual([sum.children[1].textContent, sum.children[2].textContent], ["Total", "50"]);
+    assert.equal(sum.style.borderTop, "1px solid var(--pk-border)");
+    assert.equal(sum.style.fontWeight, "var(--pk-weight-strong)");
+    // the tooltip's size, as every line: no size of its own
+    assert.equal(sum.style.fontSize, undefined);
+    // the total's marker keeps the column but shows no colour
+    assert.equal(sum.children[0].style.backgroundColor, undefined);
+});
+
 test("heatmap column names: straight when they fit, slanted and cut when they would overlap", () => {
     const names = ["App", "Database", "Device", "Framework", "Language", "Operating system", "Server app", "Service", "Standard"];
-    // "Operating system" at 14 px takes about 123 px: straight from a chart of about 1200 px; the chart
-    // of a report 1440 px wide (about 1100 px) slants them, at 12 px it would not
-    assert.deepEqual(columnLabelLayout(names, 1200), { rotate: 0 });
+    // "Operating system" at 14 px takes about 125 px (its capital a little wider): straight from a chart
+    // of about 1250 px; the chart of a report 1440 px wide (about 1100 px) slants them, at 12 px it would not
+    assert.deepEqual(columnLabelLayout(names, 1250), { rotate: 0 });
     assert.deepEqual(columnLabelLayout(names, 1100), { rotate: 45, width: SLANTED_LABEL_WIDTH, overflow: "truncate" });
     assert.deepEqual(columnLabelLayout(names, 1100, 12), { rotate: 0 });
     assert.deepEqual(columnLabelLayout(names, 390), { rotate: 45, width: SLANTED_LABEL_WIDTH, overflow: "truncate" });
@@ -344,13 +475,14 @@ test("heatmap cells show their numbers only when the formatted numbers fit", () 
 });
 
 test("heatmap row names: every one when a line fits each row, else every n-th", () => {
-    // a line of 14 px text takes 19 px: 15 rows in 440 px, 21 px each, hold every name
+    // a row needs a px more than 14 px text; the cells get the height less 102 px of frame (straight
+    // column names): 15 rows in 440 px, 22 px each, hold every name
     assert.equal(rowLabelInterval(15, 440), 0);
-    // 15 rows in 300 px: 12 px each, every second name
+    // 15 rows in 300 px: 13 px each, every second name
     assert.equal(rowLabelInterval(15, 300), 1);
-    // 45 rows in 300 px: 4 px each, every fifth (every fourth at 12 px, a line of 16 px)
-    assert.equal(rowLabelInterval(45, 300), 4);
-    assert.equal(rowLabelInterval(45, 300, 12), 3);
+    // 45 rows in 300 px: 4.4 px each, every fourth (every third at 12 px, rows of 13 px)
+    assert.equal(rowLabelInterval(45, 300), 3);
+    assert.equal(rowLabelInterval(45, 300, 12), 2);
     assert.equal(rowLabelInterval(0, 300), 0);
 });
 
@@ -561,4 +693,108 @@ test("the views a controlled host has not passed back: at most HISTORY_LIMIT, th
     assert.deepEqual(answered(["a", "b", "c"], "c"), []);
     // a view it was not told is a change of its own: nothing waits
     assert.deepEqual(answered(["a", "b"], "x"), []);
+});
+
+test("screenColor: a colour ECharts reads as it is, another as the canvas draws it, null for one the canvas does not take (#386)", () => {
+    // a 2D context as a browser's: fillStyle keeps its colour when it is given one it does not take,
+    // and a pixel is what the last fillStyle it took paints
+    const DRAWN = { transparent: [0, 0, 0, 0], "oklch(0.96 0.02 250)": [232, 243, 255, 255], "rgb(178 34 34)": [178, 34, 34, 255] };
+    const SHOWN = { transparent: "rgba(0, 0, 0, 0)", "oklch(0.96 0.02 250)": "oklch(0.96 0.02 250)", "rgb(178 34 34)": "#b22222" };
+    let style = "#000000";
+    const ctx = {
+        get fillStyle() {
+            return Object.hasOwn(SHOWN, style) ? SHOWN[style] : style;
+        },
+        set fillStyle(v) {
+            if (Object.hasOwn(DRAWN, v)) style = v;
+        },
+        clearRect() {},
+        fillRect() {},
+        getImageData: () => ({ data: Uint8ClampedArray.from(DRAWN[style]) })
+    };
+    const doc = { createElement: () => ({ getContext: () => ctx }) };
+    const hexOnly = (c) => /^#[\da-f]{6}$/i.test(c);
+    const kept = globalThis.CSS;
+    // CSS.supports takes all of these, light-dark() and an unresolved var() included
+    globalThis.CSS = { supports: () => true };
+    try {
+        const read = screenColor(/** @type {any} */ (doc), hexOnly);
+        assert.equal(read("#003366"), "#003366");
+        assert.equal(read("oklch(0.96 0.02 250)"), "#e8f3ff");
+        assert.equal(read("rgb(178 34 34)"), "#b22222");
+        // the canvas does not take them: fillStyle stays the sentinel, never the colour drawn before
+        assert.equal(read("light-dark(#fff, #000)"), null);
+        assert.equal(read("var(--pk-missing)"), null);
+    } finally {
+        globalThis.CSS = kept;
+    }
+    // without CSS.supports (no browser) nothing is drawn
+    assert.equal(screenColor(/** @type {any} */ (doc), hexOnly)("oklch(0.5 0.1 200)"), null);
+});
+
+// Reference lines (#48): revenue per month and product, A 10, 20, 30, 40 (average 25, trend 10 to 40),
+// B 5, 5, 7, 3 (average 5, trend 5.6 to 4.4), a target of 35.
+const LINE_ROWS = [10, 20, 30, 40].flatMap((a, i) => [
+    { Date: `2026-0${i + 1}-15`, Product: "A", Revenue: a },
+    { Date: `2026-0${i + 1}-15`, Product: "B", Revenue: [5, 5, 7, 3][i] }
+]);
+const linePivot = (chart, locale = "en-US") => computePivot(encode(LINE_ROWS), { derived: [{ name: "Month", field: "Date", by: "yearMonth" }], rows: ["Month"], cols: ["Product"], values: [{ field: "Revenue", agg: "sum" }], formatting: { locale }, chart });
+
+test("the tooltip names the reference lines: the hovered series' own and the lines of no series, a trend at its category", async () => {
+    const { referenceLines } = await import("pivotkit-core/chart");
+    const r = linePivot({ type: "line", referenceLines: { average: true, trend: true, target: 35 } });
+    const s = toSeries(r);
+    const names = s.series.map((x) => x.name);
+    const context = tooltipReferences(referenceLines(r, { series: s }), names, "#abcdef");
+    const params = s.series.map((x, i) => ({ seriesIndex: i, dataIndex: 2, axisValueLabel: "Mar 2026", seriesName: x.name, value: x.data[2], color: ["#111111", "#222222"][i] }));
+    const fmt = (v) => String(v);
+    // every series at the category: every line in its series' colour, a trend at the category (A: 30, B: 4.8)
+    const all = tooltipContent(params, { valueFormatter: fmt, mode: "axis", references: context });
+    assert.deepEqual(
+        all.references.map((l) => [l.name, l.value, l.color]),
+        [
+            ["Average (A)", "25", "#111111"],
+            ["Average (B)", "5", "#222222"],
+            ["Trend (A)", "30", "#111111"],
+            ["Trend (B)", "4.8", "#222222"],
+            ["Target", "35", "#abcdef"]
+        ]
+    );
+    // the point of B under the pointer: B's lines and the target
+    const b = tooltipContent(params, { valueFormatter: fmt, references: context, hover: { seriesIndex: 1, dataIndex: 2 } });
+    assert.deepEqual(b.references.map((l) => l.name), ["Average (B)", "Trend (B)", "Target"]);
+    // one series: the lines go by their names alone
+    assert.deepEqual(tooltipReferences(referenceLines(r, { series: s }), ["A"], null).map((l) => l.name), ["Average", "Average", "Trend", "Trend", "Target"]);
+    // no lines: no part of the tooltip
+    assert.equal(tooltipContent(params, { valueFormatter: fmt }).references, undefined);
+    // decorate hands them to the tooltip: the lines' colour of no series from --pk-chart-reference
+    const drawn = decorate(toEChartsOption(r, { series: s }), { getPropertyValue: (n) => ({ "--pk-chart-reference": "#abcdef" })[n] ?? "" }, 480, /** @type {any} */ ({ createElement: () => ({ style: {}, children: [], append() {} }) }), 800, { tooltip: { lines: referenceLines(r, { series: s }) } });
+    assert.equal(typeof drawn.tooltip.formatter, "function");
+});
+
+test("the tooltip's reference lines as nodes, below a rule in the tokens' colours", () => {
+    const node = () => ({ style: {}, textContent: "", children: [], append(...c) { this.children.push(...c); } });
+    const doc = /** @type {any} */ ({ createElement: () => node() });
+    const format = tooltipFormatter(doc, { valueFormatter: String, mode: "axis", references: [{ name: "Target", color: "#abcdef", series: null, value: () => "35" }] });
+    const box = /** @type {any} */ (format([{ seriesIndex: 0, dataIndex: 0, axisValueLabel: "Jan", seriesName: "A", value: 10, color: "#111111" }]));
+    const [, a, target] = box.children;
+    assert.equal(a.children[1].textContent, "A");
+    assert.deepEqual([target.children[0].style.backgroundColor, target.children[1].textContent, target.children[2].textContent], ["#abcdef", "Target", "35"]);
+    assert.equal(target.style.borderTop, "1px solid var(--pk-border)");
+});
+
+test("the chart's text alternative names the reference lines with their values", async () => {
+    const { referenceLines } = await import("pivotkit-core/chart");
+    const r = linePivot({ type: "line", referenceLines: { average: true, trend: true, target: 35 } });
+    const s = toSeries(r);
+    const linesText = linesSummary(referenceLines(r, { series: s }), s.series.map((x) => x.name), en);
+    const text = chartSummary(s, { type: "line", rows: ["Month"], valueNames: ["Sum of Revenue"], labels: en, locale: "en-US", linesText });
+    assert.match(text, /Reference lines: Average \(A\) 25; Average \(B\) 5; Trend \(A\) from 10 to 40; Trend \(B\) from 5\.6 to 4\.4; Target 35\. Switch to Table/);
+    const de = linePivot({ type: "line", referenceLines: { average: true, trend: false, target: 35 } }, "de-DE");
+    const deLines = linesSummary(referenceLines(de, { words: LABELS.de.core.referenceLines }), ["A", "B"], LABELS.de);
+    const deText = chartSummary(toSeries(de), { type: "line", rows: ["Monat"], valueNames: ["Summe von Revenue"], labels: LABELS.de, locale: "de-DE", linesText: deLines });
+    assert.match(deText, /Bezugslinien: Durchschnitt \(A\) 25; Durchschnitt \(B\) 5; Ziel 35\./);
+    // no lines: no sentence, the text stays as it was
+    assert.equal(linesSummary([], ["A"], en), "");
+    assert.doesNotMatch(chartSummary(s, { type: "line", rows: ["Month"], valueNames: ["Sum of Revenue"], labels: en, locale: "en-US" }), /Reference/);
 });

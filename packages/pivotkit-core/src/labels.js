@@ -22,6 +22,8 @@ const DATE_TIME = { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" };
  * @property {Record<string, string>} aggregators
  * @property {string} [showAsName]  the name of a value shown as a calculation; {showAs} and {value}
  * @property {Record<string, string>} [showAs]  names of the "show values as" calculations
+ * @property {{ average: string, trend: string, target: string }} [referenceLines]  the names of a
+ *   chart's reference lines
  * @property {Record<string, string>} [fields]  display names of fields by field name (matched
  *   case-insensitively): the corner headers, value names and exports show them; views keep the names
  */
@@ -68,7 +70,8 @@ export const DEFAULT_LABELS = Object.freeze({
         percentRunningTotal: "% running total",
         rankAscending: "Rank (smallest first)",
         rankDescending: "Rank (largest first)"
-    })
+    }),
+    referenceLines: Object.freeze({ average: "Average", trend: "Trend", target: "Target" })
 });
 
 /**
@@ -139,7 +142,8 @@ export const REPORT_LABELS = Object.freeze({
             percentRunningTotal: "% laufende Summe",
             rankAscending: "Rang (kleinster zuerst)",
             rankDescending: "Rang (größter zuerst)"
-        }
+        },
+        referenceLines: { average: "Durchschnitt", trend: "Trend", target: "Ziel" }
     })
 });
 
@@ -192,6 +196,50 @@ for (const labels of Object.values(REPORT_LABELS)) {
     Object.freeze(labels.aggregators);
     Object.freeze(labels.showAs);
 }
+
+/** The categories of Intl.PluralRules: the keys a count's forms may have. */
+export const PLURAL_CATEGORIES = Object.freeze(["zero", "one", "two", "few", "many", "other"]);
+
+/**
+ * The form of a count's words for `count` in `lang` (Intl.PluralRules): `forms[category]`, else
+ * `forms.other`, else "". A language Intl has no rules for counts as English, never as the
+ * runtime's language; a tag Intl does not take gets `other`. No forms give "".
+ * @param {Readonly<Partial<Record<string, string>>> | null | undefined} forms  e.g. { one: "{count} row", other: "{count} rows" }
+ * @param {number} count
+ * @param {string} lang
+ * @returns {string}
+ */
+export function pluralForm(forms, count, lang) {
+    if (forms === null || typeof forms !== "object") {
+        return "";
+    }
+    let category = "other";
+    try {
+        category = new Intl.PluralRules(Intl.PluralRules.supportedLocalesOf(lang)[0] ?? "en").select(count);
+    } catch {
+        // the "other" form
+    }
+    const form = typeof forms[category] === "string" ? forms[category] : forms.other;
+    return typeof form === "string" ? form : "";
+}
+
+/**
+ * The row count in words, English and German: pivotkit-react's line under the result and
+ * pivotkit-report's HTML report both say it. One form per Intl.PluralRules category; `rowsFiltered`
+ * is the count while a filter leaves rows out: the rows kept ({shown}) of the data's ({count}, which
+ * picks the form).
+ * @type {Readonly<Record<"en" | "de", Readonly<{ rowsCount: Readonly<{ one: string, other: string }>, rowsFiltered: Readonly<{ one: string, other: string }> }>>>}
+ */
+export const ROW_COUNT_TEXTS = Object.freeze({
+    en: Object.freeze({
+        rowsCount: Object.freeze({ one: "{count} row", other: "{count} rows" }),
+        rowsFiltered: Object.freeze({ one: "{shown} of {count} row", other: "{shown} of {count} rows" })
+    }),
+    de: Object.freeze({
+        rowsCount: Object.freeze({ one: "{count} Zeile", other: "{count} Zeilen" }),
+        rowsFiltered: Object.freeze({ one: "{shown} von {count} Zeile", other: "{shown} von {count} Zeilen" })
+    })
+});
 
 /**
  * The REPORT_LABELS of a locale's language ("de-DE": German), English for any other.

@@ -265,9 +265,9 @@ test("a custom sort order: listed items first in their order, the rest by label,
 });
 
 test("chart display settings: value labels, legend, title and smooth lines, checked against fixed lists", () => {
-    assert.deepEqual(emptyView().chart, { type: "auto", stacked: false, horizontal: false, valueLabels: "auto", legend: "auto", title: null, smooth: false, axisLabels: "auto", groupLabels: "auto", labelPosition: "outside" });
-    const chart = { type: "pie", valueLabels: "both", legend: "right", title: "  Units by region ", smooth: true, labelPosition: "inside" };
-    assert.deepEqual(norm({ chart }).chart, { type: "pie", stacked: false, horizontal: false, valueLabels: "both", legend: "right", title: "Units by region", smooth: true, axisLabels: "auto", groupLabels: "auto", labelPosition: "inside" });
+    assert.deepEqual(emptyView().chart, { type: "auto", stacked: false, horizontal: false, valueLabels: "auto", legend: "auto", title: null, smooth: false, axisLabels: "auto", groupLabels: "auto", labelPosition: "outside", tooltip: "auto", zoom: "auto", stackPercent: false, hidden: [], referenceLines: { average: false, trend: false, target: null } });
+    const chart = { type: "pie", valueLabels: "both", legend: "right", title: "  Units by region ", smooth: true, labelPosition: "inside", tooltip: "axis" };
+    assert.deepEqual(norm({ chart }).chart, { type: "pie", stacked: false, horizontal: false, valueLabels: "both", legend: "right", title: "Units by region", smooth: true, axisLabels: "auto", groupLabels: "auto", labelPosition: "inside", tooltip: "axis", zoom: "auto", stackPercent: false, hidden: [], referenceLines: { average: false, trend: false, target: null } });
     assert.equal(norm({ chart: { type: "donut" } }).chart.type, "donut");
     assert.deepEqual(validate({ chart }, data), { valid: true, errors: [], warnings: [] });
     // unknown settings fall back to their defaults and are reported
@@ -345,7 +345,7 @@ test("every issue carries a severity: errors leave a part out, warnings keep it"
     assert.equal(valid, true);
     assert.deepEqual(errors, []);
     assert.deepEqual(warnings, [{
-        path: "filters[0].items", message: 'item "north" is no item of "Region"; did you mean "North"?', code: "itemCase", severity: "warning",
+        path: "filters[0].items", message: 'item "north" is no item of "Region": the data spells it otherwise', code: "itemCase", severity: "warning",
         params: { field: "Region", value: "north", suggestion: "North" }
     }]);
     // the item stays as it was written: a warning changes nothing

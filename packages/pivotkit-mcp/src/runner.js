@@ -4,7 +4,7 @@
  * expose and exits. The flags are one table (FLAGS): the parser and the help are made from it.
  */
 
-import { ConfigError, SHARED_FLAGS, flagLines, httpFlags, optionsFrom as sharedOptionsFrom } from "pivotkit-server";
+import { ConfigError, SHARED_FLAGS, flagLines, httpFlags, optionsFrom as sharedOptionsFrom, startErrorLine, startFields, startFormatOf, stopOnSignals } from "pivotkit-server";
 import { VERSION, createMcpContext } from "./context.js";
 
 /** @type {Readonly<Record<string, { type: "string" | "boolean", multiple?: boolean, short?: string, value?: string, text: string }>>} */
@@ -17,6 +17,8 @@ export const FLAGS = Object.freeze({
     http: { type: "boolean", text: "Serve Streamable HTTP instead of stdio." },
     ...httpFlags("HTTP: "),
     log: SHARED_FLAGS.log,
+    "log-format": SHARED_FLAGS["log-format"],
+    "log-address": SHARED_FLAGS["log-address"],
     "check-config": SHARED_FLAGS["check-config"],
     version: { type: "boolean", short: "v", text: "Print the version and exit." },
     help: SHARED_FLAGS.help
@@ -25,7 +27,7 @@ export const FLAGS = Object.freeze({
 /** The help text, from the table. */
 export function helpText() {
     const lines = flagLines(FLAGS);
-    return `pivotkit-mcp ${VERSION}: an MCP server for pivotkit reports.\n\nUsage: pivotkit-mcp [options]\n\n${lines.join("\n")}\n\nDocs: https://pivotkit.eize.dev/reference/mcp/\n`;
+    return `pivotkit-mcp ${VERSION}: an MCP server for pivotkit reports.\n\nUsage: pivotkit-mcp [options]\n       pivotkit-mcp --version\n\nOptions:\n${lines.join("\n")}\n\nA token for --auth token ($PIVOTKIT_MCP_TOKEN or auth.tokens): npx -y pivotkit-server token new [--file <path>].\nDocs: https://pivotkit.eize.dev/reference/mcp/\n`;
 }
 
 /**
@@ -34,14 +36,14 @@ export function helpText() {
  * @param {Record<string, string | undefined>} env
  */
 export async function optionsFrom(argv, env) {
-    return sharedOptionsFrom(argv, env, { flags: FLAGS, configEnv: "PIVOTKIT_MCP_CONFIG" });
+    return sharedOptionsFrom(argv, env, { flags: FLAGS, configEnv: "PIVOTKIT_MCP_CONFIG", program: "pivotkit-mcp" });
 }
 
 /**
  * Runs the server; resolves when it has started (stdio, HTTP) or with the exit code (help, version,
  * check-config, an error).
  * @param {string[]} argv
- * @param {{ env: Record<string, string | undefined>, stdout: { write(t: string): unknown }, stderr: { write(t: string): unknown } }} io
+ * @param {{ env: Record<string, string | undefined>, stdout: { write(t: string): unknown }, stderr: { write(t: string): unknown, isTTY?: boolean } }} io
  * @returns {Promise<number | null>}  an exit code, or null while it serves
  */
 export async function run(argv, io) {
@@ -54,38 +56,35 @@ export async function run(argv, io) {
             io.stdout.write(`pivotkit-mcp ${VERSION}\n`);
             return 0;
         }
-        const { options, values } = await optionsFrom(argv, io.env);
+        const { options, values, stateDir } = await optionsFrom(argv, io.env);
         if (values["check-config"]) {
-            const { checkConfig } = await import("pivotkit-server");
-            const { text, problems } = await checkConfig(options, { http: Boolean(values.http), env: io.env });
+            const { checkConfig, discover } = await import("pivotkit-server");
+            // the issuer is asked only where it is used: over HTTP
+            const { text, problems } = await checkConfig(options, { http: Boolean(values.http), env: io.env, ...(values.http ? { discover, stateDir } : {}) });
             io.stdout.write(text);
             return problems ? 1 : 0;
         }
         if (values.http) {
             const { listen } = await import("./http.js");
-            const server = await listen(options, { env: io.env, stderr: io.stderr });
-            const stop = async () => {
-                try {
-                    await server.close();
-                } finally {
-                    process.exit(0);
-                }
-            };
-            process.once("SIGINT", stop);
-            process.once("SIGTERM", stop);
+            const server = await listen(options, { env: io.env, stderr: io.stderr, stateDir });
+            stopOnSignals(server, { log: server.context.log, stderr: io.stderr });
             return null;
         }
-        const context = await createMcpContext(options, { showPaths: true, stderr: io.stderr });
+        const context = await createMcpContext(options, { showPaths: true, stderr: io.stderr, env: io.env });
         if ((options.auth?.mode ?? "none") !== "none" || options.http?.host || options.http?.port) {
             // stdio takes no credentials and listens nowhere (the authorization spec: from the environment)
             context.log.warn("auth and http settings do nothing over stdio; add --http to serve HTTP");
         }
         const { serveStdio } = await import("@modelcontextprotocol/server/stdio");
-        context.log.info("started", { version: VERSION, transport: "stdio", sources: context.registry.ids().length, files: context.registry.allow.length > 0, output: Boolean(context.output) });
+        context.log.started({ version: VERSION, transport: "stdio", sources: context.registry.ids().length, files: context.registry.allow.length > 0, output: Boolean(context.output), ...startFields(options, context.registry, context.log, { http: false }) });
+        void context.countAutoValues();
         serveStdio((ctx) => context.server(ctx), { legacy: "serve", onerror: (e) => context.log.error(e, { where: "stdio" }) });
         return null;
     } catch (e) {
-        io.stderr.write(`pivotkit-mcp: ${e instanceof ConfigError ? e.message : `could not start: ${String(e?.message ?? e).slice(0, 300)}`}\n`);
+        const text = e instanceof ConfigError ? e.message : `could not start: ${String(e?.message ?? e).slice(0, 300)}`;
+        // an error before the log exists: a JSON line where the log is asked to be JSON
+        const line = argv.includes("--check-config") ? null : startErrorLine(startFormatOf(argv, io.env, io.stderr), text, { service: "pivotkit-mcp", version: VERSION, code: e instanceof ConfigError ? "CONFIG" : "START" });
+        io.stderr.write(line ?? `pivotkit-mcp: ${text}\n`);
         return 2;
     }
 }

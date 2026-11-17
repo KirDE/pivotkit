@@ -1,3 +1,4 @@
+import { MAX_DATE_MS } from "pivotkit-core";
 /*
  * The changes the first load makes to a view (placing, moving, sorting by a header, totals, the tips'
  * actions; those only the menus make are in menu-ops.js, loaded with them), as pure functions:
@@ -327,6 +328,9 @@ export function numberRange(encoded, field) {
     return min <= max ? { min, max } : null;
 }
 
+/** @type {WeakMap<import("pivotkit-core").Encoded, Map<string, {min: number, max: number} | null>>} */
+const dateSpans = new WeakMap();
+
 /**
  * The first and the last date of a date column (wall-clock ms, as the column holds them), or null
  * for another type or a column without dates: the data's span, which a relative range is measured
@@ -336,6 +340,15 @@ export function numberRange(encoded, field) {
  * @returns {{ min: number, max: number } | null}
  */
 export function dateSpan(encoded, field) {
+    let spans = dateSpans.get(encoded);
+    if (!spans) dateSpans.set(encoded, spans = new Map());
+    const key = field.toLowerCase();
+    if (spans.has(key)) {
+        const span = spans.get(key) ?? null;
+        spans.delete(key);
+        spans.set(key, span);
+        return span;
+    }
     const column = encoded.column(field);
     if (!column || column.type !== "date") {
         return null;
@@ -343,12 +356,18 @@ export function dateSpan(encoded, field) {
     let min = Infinity;
     let max = -Infinity;
     for (const v of column.dict) {
-        if (typeof v === "number") {
+        if (typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= MAX_DATE_MS) {
             min = Math.min(min, v);
             max = Math.max(max, v);
         }
     }
-    return min <= max ? { min, max } : null;
+    const span = min <= max ? { min, max } : null;
+    spans.set(key, span);
+    if (spans.size > LIMITS.cacheEntries) {
+        const oldest = spans.keys().next().value;
+        if (oldest !== undefined) spans.delete(oldest);
+    }
+    return span;
 }
 
 /**
@@ -634,15 +653,27 @@ export function setChart(view, name) {
 }
 
 /**
- * Changes how the chart is drawn: { valueLabels, legend, title, smooth } (pivotkit-core's chart
+ * Changes how the chart is drawn: { valueLabels, legend, title, smooth, ... } (pivotkit-core's chart
  * settings); the chart type stays.
  * @param {any} view
- * @param {{ valueLabels?: string, legend?: string, title?: string | null, smooth?: boolean }} patch
+ * @param {Partial<import("pivotkit-core").View["chart"]>} patch
  */
 export function setChartDisplay(view, patch) {
     const next = clone(view);
     next.chart = { ...next.chart, ...patch };
     return next;
+}
+
+/**
+ * The chart's hidden legend entries (chart.hidden) after `name` is shown or hidden: a click on the
+ * legend, or a checkbox of the Display settings.
+ * @param {readonly string[] | undefined} hidden
+ * @param {string} name
+ * @param {boolean} shown
+ */
+export function hiddenAfter(hidden, name, shown) {
+    const rest = (hidden ?? []).filter((n) => n !== name);
+    return shown ? rest : [...rest, name];
 }
 
 /** Rows and Columns swapped (pivotkit-core's swapAxes): the chart's swap, the zones' Swap button. */

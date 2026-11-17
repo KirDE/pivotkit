@@ -108,8 +108,10 @@ test("conditional colours: a colour scale per cell and data bars, as rules witho
 test("conditional colours without the view's own: the host's tokens in the HTML table and the workbook", async () => {
     const view = { rows: ["Region"], values: [{ field: "Units", agg: "sum", conditional: { type: "colorScale" } }, { field: "Price", agg: "sum", conditional: { type: "dataBar" } }] };
     const ends = (text) => {
-        const scale = [...text.matchAll(/class="pk-td pk-num pk-has-scale (pk-c\d+)">(\d+)</g)].map((m) => [m[2], m[1]]);
-        const ruleOf = (cls) => new RegExp(`\\.${cls}\\{--pk-cell-bg:(#[0-9a-f]{6})\\}`).exec(text)?.[1];
+        // a theme's scale also marks its half (pk-scale-lo, pk-scale-hi) for a dark screen (#370)
+        const scale = [...text.matchAll(/class="pk-td pk-num pk-has-scale (?:pk-scale-(?:lo|hi) )?(pk-c\d+)">(\d+)</g)].map((m) => [m[2], m[1]]);
+        // the light colour; a theme's scale also writes its colour for a dark screen after it (#370)
+        const ruleOf = (cls) => new RegExp(`\\.${cls}\\{--pk-cell-bg:(#[0-9a-f]{6})[;}]`).exec(text)?.[1];
         return [ruleOf(scale.find(([v]) => v === "4")[1]), ruleOf(scale.find(([v]) => v === "12")[1])];
     };
     const workbook = async (options) => {
@@ -150,10 +152,10 @@ test("a view file: its name is the title, its description is shown; a view's own
     assert.match(plain.text, /<h1>Report<\/h1>/);
 });
 
-test("the details: source, rows of the data, the filters in words and the generated time from now", async () => {
+test("the details: source, the rows the filters keep of the data's, the filters in words and the generated time from now", async () => {
     const view = { ...BY_REGION, filters: [{ field: "Region", type: "in", items: ["North", "South"] }] };
     const r = await render(view, SALES, { format: "html", source: "sales.csv", ...FIXED });
-    assert.match(r.text, /<dl class="pk-report-details"><dt>Source<\/dt><dd>sales\.csv<\/dd><dt>Rows<\/dt><dd>8<\/dd><dt>Filters<\/dt><dd>Region is one of &quot;North&quot;, &quot;South&quot; \(blanks dropped\)<\/dd><dt>Generated<\/dt><dd>Nov 13, 2026, 10:00\s?AM<\/dd><\/dl>/);
+    assert.match(r.text, /<dl class="pk-report-details"><dt>Source<\/dt><dd>sales\.csv<\/dd><dt>Rows<\/dt><dd>6 of 8<\/dd><dt>Filters<\/dt><dd>Region is one of &quot;North&quot;, &quot;South&quot; \(blanks dropped\)<\/dd><dt>Generated<\/dt><dd>Nov 13, 2026, 10:00\s?AM<\/dd><\/dl>/);
 });
 
 test("a German report: German words around the table, the locale's numbers and CSV separator", async () => {
@@ -217,6 +219,22 @@ test("options are checked: an unknown format, a chart size out of range, SVG wit
     await assert.rejects(render(BY_REGION, SALES, { format: "csv", bom: "no" }), option("bom"));
 });
 
+test("tokens and darkTokens of a wrong type are refused, not ignored", async () => {
+    const option = (o) => (e) => e instanceof PivotkitError && e.code === "INVALID_OPTION" && e.details.option === o;
+    // a CSS text, a list, null or a number: a host's mistake that would give the default colours without a word
+    for (const wrong of ["--pk-accent: #c00", [["--pk-accent", "#c00"]], null, 42]) {
+        await assert.rejects(render(BY_REGION, SALES, { format: "html", tokens: /** @type {any} */ (wrong), ...FIXED }), option("tokens"), JSON.stringify(wrong));
+        await assert.rejects(render(BY_REGION, SALES, { format: "html", darkTokens: /** @type {any} */ (wrong), ...FIXED }), option("darkTokens"), JSON.stringify(wrong));
+    }
+    // xlsx and csv read tokens too (a workbook's colour scale): the same check in every format
+    await assert.rejects(render(BY_REGION, SALES, { format: "xlsx", tokens: /** @type {any} */ ("#c00"), ...FIXED }), option("tokens"));
+    // in an object, a token that cannot be used is left out on its own, as documented
+    const kept = await render(BY_REGION, SALES, { format: "html", tokens: { "--pk-accent": "url(x)", "--pk-chart-1": "#c00000" }, darkTokens: {}, ...FIXED });
+    assert.equal(kept.ok, true);
+    assert.doesNotMatch(kept.text, /url\(x\)/);
+    assert.match(kept.text, /--pk-chart-1:#c00000/);
+});
+
 test("CSV: a byte order mark by default, none with bom: false", async () => {
     const withBom = await render(BY_REGION, SALES, { format: "csv", ...FIXED });
     const without = await render(BY_REGION, SALES, { format: "csv", bom: false, ...FIXED });
@@ -257,6 +275,23 @@ test("HTML with the chart: an image of the SVG when the view shows the chart, a 
     assert.ok(without.text.includes("<table"));
     // asked for by name, a chart without ECharts is a wrong option, not a warning
     await assert.rejects(render(view, SALES, { format: "html", chart: true, ...FIXED }), (e) => e instanceof PivotkitError && e.code === "INVALID_OPTION" && e.details.option === "echarts");
+});
+
+test("an Excel workbook of a view that shows the chart holds the table and says the chart is not in it (#360)", async () => {
+    const view = { ...BY_REGION, display: "chart", chart: { type: "line" } };
+    const r = await render(view, SALES, { format: "xlsx", ...FIXED });
+    assert.deepEqual(r.issues.map((i) => [i.code, i.severity]), [["chartNotInXlsx", "warning"]]);
+    assert.match(r.issues[0].message, /html or svg/);
+    assert.equal(r.ok, true);
+    // the workbook is the table, without a drawing
+    const parts = Object.keys(unzipSync(r.body));
+    assert.ok(parts.includes("xl/worksheets/sheet1.xml"));
+    assert.ok(!parts.some((p) => p.startsWith("xl/charts/") || p.startsWith("xl/drawings/")), parts.join(", "));
+    // a table view, and the other formats of a chart view, have no such warning
+    assert.deepEqual((await render(BY_REGION, SALES, { format: "xlsx", ...FIXED })).issues, []);
+    for (const format of ["csv", "json", "svg", "html"]) {
+        assert.ok(!(await render(view, SALES, { format, echarts, ...FIXED })).issues.some((i) => i.code === "chartNotInXlsx"), format);
+    }
 });
 
 test("a chart over REPORT_LIMITS.categories categories draws the first ones and says so", async () => {

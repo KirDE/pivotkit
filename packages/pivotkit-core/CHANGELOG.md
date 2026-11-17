@@ -6,6 +6,120 @@ All notable changes to `pivotkit-core` are documented in this file. The format i
 
 ## [Unreleased]
 
+### Added
+
+- Three chart settings in the view, with their schema and `CATALOG.chartZooms` ([#36](https://github.com/eizedev/pivotkit/issues/36)):
+  - `chart.zoom` (`"auto"`, `"on"`, `"off"`): `decorateOption` takes it as `zoom` and adds a zoom
+    slider (ECharts `dataZoom`) under the category axis, with the labels laid out for its window.
+  - `chart.stackPercent`: stacked bars and areas as shares of their stack. Each part is
+    `{ value: share, raw: value }`, and `tooltip.shareFormatter` writes a share.
+  - `chart.hidden`: the legend entries hidden, by name, as `legend.selected`. They count against
+    `limits.items`.
+- `chart.referenceLines` in the view: an average and a linear trend, switched on or off, and a
+  target as a number, drawn on bars, lines and areas as silent ECharts `markLine`s
+  ([#48](https://github.com/eizedev/pivotkit/issues/48)):
+    - The value axis reaches every line.
+    - A trend fits the categories' real time: a gap of 8 months counts as 8.
+    - A label writes the value as the value axis does. `decorateOption` puts the labels right of
+      the plot, a line apart, and writes the names alone below 480 px.
+    - `referenceLineRules(view, chart, data)` says which chart draws which line: none on a pie, a
+      donut or a heatmap, a stack's total only when every value adds up, a trend only along a time
+      line.
+    - `pivotkit-core/chart` exports `referenceLines(result)`, the numbers, and
+      `referenceLineChecks`, the rules with the numbers and their reasons (a stack below zero,
+      values in different units). The main entry exports `valueAddsUp(value)`, the rule of what
+      adds up, which the tooltip's total and a stack's lines share.
+    - A stack to 100 % (`chart.stackPercent`) draws no lines, and a series hidden in the legend
+      (`chart.hidden`) has none and is no part of a stack's total.
+    - `Labels.referenceLines` names the lines, and `chartThemeFrom` reads `referenceColor` from
+      `--pk-chart-reference`.
+- `decorateOption` takes `readColor`: a heatmap's colours as ECharts can mix them. An end it returns
+  `null` for takes `DEFAULT_THEME.colorScale`'s colour, so a form such as `oklch()` no longer turns
+  the cells black ([#386](https://github.com/eizedev/pivotkit/issues/386)).
+- `chart.tooltip` in the view: what the tooltip of bars, lines and areas covers. `"auto"`, the
+  default, is the element under the pointer. `"axis"` is every series at the pointer's category.
+  `CATALOG.chartTooltips` lists both ([#106](https://github.com/eizedev/pivotkit/issues/106)).
+- `CATALOG.additiveAggregators`: the aggregators whose values add up (`count`, `sum`), so a UI
+  knows when the parts of a stack have a total. `CATALOG.additiveShowAs` (from the new `addsUp` of
+  `SHOW_AS`): the "show values as" types whose results still add up, a share of the grand or the
+  row total, a difference and a running total.
+- `toCsv` and `toJson` take `numbers: "shown"`: each number rounded to the decimals its format
+  shows, without float noise such as `9.59999999999999`. The default `"full"` keeps 15 significant
+  digits; a format without plain decimals keeps 12. `toCsv` takes `flatHeader: true` for one header
+  row ([#478](https://github.com/eizedev/pivotkit/issues/478)).
+- `AGGREGATOR_ALIASES`: other tools' names of aggregators (`avg`) and the ones they mean
+  (`average`), for "did you mean". A view never accepts them (#508).
+- `rowLabelInterval` and `heatmapCellLabels` of `pivotkit-core/chart` take the heatmap's frame as an
+  optional last argument; `categoryLabelLayout` takes `reserved` in its box.
+- `toEChartsOption` is also exported from `pivotkit-core/chart`. A bundle that imports it from there
+  loads it with the chart, not first (#546).
+- `ROW_COUNT_TEXTS`: the row count in words, English and German ("8 rows", "6 of 8 rows").
+  pivotkit-react and pivotkit-report share it ([#547](https://github.com/eizedev/pivotkit/issues/547)).
+- `pluralForm(forms, count, lang)` picks the form of a count's words, and `PLURAL_CATEGORIES` lists
+  the categories. pivotkit-react and pivotkit-report share them
+  ([#547](https://github.com/eizedev/pivotkit/issues/547)).
+
+### Changed
+
+- A bar lights up alone under the pointer: `decorateOption` sets `emphasis.focus: "self"` on bars,
+  and `toEChartsOption` sets `axisPointer.triggerEmphasis: false` for them. The category under the
+  pointer no longer lights up every bar. Lines keep `focus: "series"`
+  ([#376](https://github.com/eizedev/pivotkit/issues/376)).
+
+- `unknownFilterType` lists the filter types for an unknown type too (#508).
+- `filterCompareValue` names the operators and shows a comparison written out (#508).
+- `itemCase`'s message no longer names the item meant: it is in `suggestion`, as for every other
+  finding, so a front end that shows both says it once. A client that shows only `message` should
+  show `suggestion` too (#508).
+- `rowLabelInterval` and `heatmapCellLabels` give other results for the same arguments: the frame
+  comes from the grid and the column names (102 px for straight names at 14 px, was 120 px), and a
+  row name needs a px more than the text (was 4/3 of it). Every layout function weighs CJK and
+  fullwidth characters a whole em and capitals 0.7 em. The
+  [upgrading page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-7) has the details.
+- `checkLimit`, the view link, pivotkit-cli and pivotkit-server word a limit through one internal
+  helper (`pivotkit-core/internal`, no public API). The text stays the same
+  ([#509](https://github.com/eizedev/pivotkit/issues/509)).
+
+### Fixed
+
+- With a field on Columns, a pie's, a donut's and a heatmap's series is named by the value, such
+  as "Sum of Revenue", not by the first column. The tooltip shows it as its title
+  ([#537](https://github.com/eizedev/pivotkit/issues/537)).
+- A view's locale that the runtime has no data for, such as `xx-XX`, gets the issue
+  `unknownLocale`, and the report takes the `locale` option or `"en-US"`. Such a `locale` option
+  takes `"en-US"`, and `computePivot` reports the warning `unknownLocale` at the path `locale`.
+  Before, `Intl` took the machine's locale for both, so the same view formatted differently on
+  different machines ([#552](https://github.com/eizedev/pivotkit/issues/552)).
+- A CSV in a locale with digits of its own, such as `ar-EG`, writes the decimal mark the locale uses
+  with Latin digits (`.`), not `٫` beside Latin digits, which parsers misread ([#478](https://github.com/eizedev/pivotkit/issues/478)).
+- Slanted category names take at most 40 % of the height left for the plot and them. In a low chart,
+  such as on a phone, they are cut shorter, so the plot keeps its room and its top value tick
+  ([#228](https://github.com/eizedev/pivotkit/issues/228)).
+- A pie's or a donut's labels outside stay whole and inside the chart. On a narrow chart the pie
+  gets smaller, down to 40 % of its radius, and a long label goes on lines; where a word still has
+  no room, the labels go on the slices. With a legend, each side writes as many labels as its
+  height holds, those of the larger slices first; without one, every label stays
+  ([#229](https://github.com/eizedev/pivotkit/issues/229)).
+- The value at the end of a horizontal bar is no longer cut at the right edge: the plot keeps the
+  room of the longest one, on a desktop too, so the plot of such a chart is a little narrower on
+  screen and in the SVG. A narrow value axis writes fewer, even ticks from 0
+  ([#230](https://github.com/eizedev/pivotkit/issues/230)).
+- A heatmap names every row while each row is a pixel higher than the text. The room that is not
+  cells comes from the grid and the column names as drawn, not a fixed 120 px ([#231](https://github.com/eizedev/pivotkit/issues/231)).
+
+## [0.7.0] - 2026-11-16
+
+### Added
+
+- The import table's `unnamed`: the columns the file gives no name (a blank header cell, a row
+  with more values than the header) as they are named (`Column 7`), so a host can treat them apart;
+  pivotkit-server hides them. `longRows`: the rows with more cells than the named header, whose
+  values may be shifted (none in a uniform file that ends every line with a separator).
+
+- `toXlsx(grid, { dataAsOf })`: when the data is from (`"2026-11-15T08:00:00Z"`) as the workbook's
+  custom document property `DataAsOf`, a date ([#331](https://github.com/eizedev/pivotkit/issues/331));
+  `isDataAsOf(value)`, the one check of that form (a time that exists), which pivotkit-report shares.
+
 ## [0.6.1] - 2026-11-14
 
 ### Upgrading from 0.6.0
@@ -463,7 +577,8 @@ First release.
   a cell, so a UI can leave a blank cell without rows unclickable.
 - `grid.showAs`: per value its "show values as" type, or null.
 
-[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.6.1...HEAD
+[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.7.0...HEAD
+[0.7.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.6.1...pivotkit-core@0.7.0
 [0.6.1]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.6.0...pivotkit-core@0.6.1
 [0.6.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.5.0...pivotkit-core@0.6.0
 [0.5.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-core@0.4.0...pivotkit-core@0.5.0

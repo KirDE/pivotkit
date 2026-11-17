@@ -1,10 +1,10 @@
 // Runs the REST service as a program meets it: serve() on a free port, requests with fetch or raw
 // node:http (for what fetch will not send: two Authorization headers, a lying Content-Length).
-import { mkdtempSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { request as httpRequest } from "node:http";
 import { fileURLToPath } from "node:url";
+import { tempDir as sharedTempDir } from "../../../tests/temp-dir.js";
 import { serve } from "pivotkit-server";
 
 export const BIN = fileURLToPath(new URL("../bin/pivotkit-server.js", import.meta.url));
@@ -16,8 +16,8 @@ export const SALES_CSV = ["Region,Product,Customer,Sales,OrderDate,Q", "North,A,
 export const TOKEN = "a-test-token-that-is-long-enough-0123456789";
 export const OTHER_TOKEN = "another-test-token-long-enough-9876543210";
 
-/** A new empty directory (its real path). */
-export const tempDir = (prefix = "pivotkit-server-") => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+/** A new empty directory (its real path), removed when the test file ends (tests/temp-dir.js). */
+export const tempDir = (prefix = "pivotkit-server-") => sharedTempDir(prefix);
 
 /** A directory with data/sales.csv and an empty out/. */
 export function workspace(files = { "sales.csv": SALES_CSV }) {
@@ -28,6 +28,27 @@ export function workspace(files = { "sales.csv": SALES_CSV }) {
         writeFileSync(join(dir, "data", name), text);
     }
     return dir;
+}
+
+/**
+ * check-config's text with each wrapped fact joined back into one line (check/format.js: a wrapped
+ * line goes on four spaces further in than the fact it continues), so a test can match a fact
+ * whatever the width cuts it at.
+ * @param {string} text
+ */
+export function factsOf(text) {
+    const out = [];
+    let indent = -1;
+    for (const line of text.split("\n")) {
+        const own = line.length - line.trimStart().length;
+        if (out.length && line.trim() && indent >= 0 && own >= indent + 4) {
+            out[out.length - 1] += ` ${line.trim()}`;
+            continue;
+        }
+        out.push(line);
+        indent = line.trim() ? own : -1;
+    }
+    return out.join("\n");
 }
 
 /** The REST service on a free port, its log kept as parsed lines. */

@@ -46,9 +46,15 @@ test("a regular file is read whole, up to the last byte; a file of 0 bytes is em
 
 // the file helpers are one documented entry (pivotkit-cli/files, for pivotkit-mcp); the module behind
 // it stays internal, so its other names are no API
-test("the package exports main() and the file helpers of pivotkit-cli/files, not safe-files.js", async () => {
+test("the package exports main(), the file helpers of pivotkit-cli/files and the REST contract of pivotkit-cli/rest, not safe-files.js", async () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-    assert.deepEqual(Object.keys(pkg.exports), [".", "./files", "./package.json"]);
+    assert.deepEqual(Object.keys(pkg.exports), [".", "./files", "./rest", "./package.json"]);
+    const rest = await import("pivotkit-cli/rest");
+    assert.deepEqual(Object.keys(rest).sort(), ["CLIENT_ID_SYNTAX", "PROBLEM_CODES", "REST_BASE", "REST_ERRORS", "SIGN_IN_CLIENT_FIELD", "SOURCE_ID", "TOKEN_SYNTAX", "TOKEN_SYNTAX_TEXT", "isLoopback", "resourceMetadataUrlOf"]);
+    assert.equal(rest.resourceMetadataUrlOf("https://reports.example/api/v1/"), "https://reports.example/.well-known/oauth-protected-resource/api/v1");
+    // literal loopback addresses only, as a URL's hostname writes them too
+    for (const host of ["localhost", "127.0.0.1", "127.1.2.3", "::1", "[::1]", "LOCALHOST"]) assert.equal(rest.isLoopback(host), true, host);
+    for (const host of ["127.example.com", "localhost.example.com", "128.0.0.1", "0.0.0.0", "::", "[::ffff:7f00:1]", ""]) assert.equal(rest.isLoopback(host), false, host);
     await assert.rejects(import("pivotkit-cli/safe-files"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });
     const files = await import("pivotkit-cli/files");
     assert.deepEqual(Object.keys(files).sort(), ["CliError", "DATA_FORMATS", "INFO_NOTES", "TEMP_FILE_NAME", "allowedDirs", "asCliError", "cleanFileName", "isInside", "printable", "readSafe", "readStdin", "readTable", "shortName", "writeNew", "writeSafe"]);
@@ -64,6 +70,8 @@ test("writeNew never replaces a file: a taken name gets -2, -3; the name is clea
     assert.equal(await writeNew(dir, "../../etc/passwd", "csv", new Uint8Array()), "etc-passwd.csv");
     assert.equal(await writeNew(dir, ".hidden\u202e", "csv", new Uint8Array()), "hidden.csv");
     assert.equal(await writeNew(dir, "Umsätze Q1/2026", "xlsx", new Uint8Array()), "Umsatze Q1-2026.xlsx");
+    // parentheses stay: a title such as "Orders (fake backend)" keeps its shape
+    assert.equal(await writeNew(dir, "Orders (fake backend)", "xlsx", new Uint8Array()), "Orders (fake backend).xlsx");
     assert.equal(await writeNew(dir, "", "json", new Uint8Array()), "report.json");
     assert.deepEqual(readdirSync(dir).filter((f) => f.endsWith(".tmp")), []);
     await assert.rejects(writeNew(dir, "Sales", "csv", new Uint8Array(), { tries: 3 }), (e) => e.code === "EXISTS");

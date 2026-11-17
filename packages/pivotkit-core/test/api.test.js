@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as core from "pivotkit-core";
@@ -9,19 +9,19 @@ import * as links from "pivotkit-core/link";
 import * as templates from "pivotkit-core/templates";
 import * as importer from "pivotkit-core/import";
 import * as charts from "pivotkit-core/chart";
-import { CATALOG, aggregatorsFor, encode, validate } from "pivotkit-core";
+import { AGGREGATOR_ALIASES, CATALOG, aggregatorsFor, encode, validate } from "pivotkit-core";
 
 const src = fileURLToPath(new URL("../src/", import.meta.url));
 
 test("the package exports its documented entry points and nothing else", () => {
     assert.deepEqual(Object.keys(core).sort(), [
-        "CATALOG", "CHART_COLORS", "DEFAULT_LABELS", "DEFAULT_THEME", "DESCRIBE_LIMITS", "GROUPING_NAMES", "HINT_LIMITS", "ISSUE_CAP", "LAYOUT_LIMITS", "LIMITS", "MATCH_DEFAULTS", "MAX_DATE_MS", "OUTSIDE_LIMITS", "PivotkitError", "REPORT_LABELS", "SUGGEST_LIMITS", "VIEW_FILE_FORMAT", "VIEW_FILE_LIMITS", "VIEW_FILE_SCHEMA", "VIEW_FILE_VERSION", "VIEW_ISSUES", "VIEW_ISSUE_CODES", "VIEW_VERSION", "aggregatorsFor", "autoChartType",
+        "AGGREGATOR_ALIASES", "CATALOG", "CHART_COLORS", "DEFAULT_LABELS", "DEFAULT_THEME", "DESCRIBE_LIMITS", "GROUPING_NAMES", "HINT_LIMITS", "ISSUE_CAP", "LAYOUT_LIMITS", "LIMITS", "MATCH_DEFAULTS", "MAX_DATE_MS", "OUTSIDE_LIMITS", "PLURAL_CATEGORIES", "PivotkitError", "REPORT_LABELS", "ROW_COUNT_TEXTS", "SUGGEST_LIMITS", "VIEW_FILE_FORMAT", "VIEW_FILE_LIMITS", "VIEW_FILE_SCHEMA", "VIEW_FILE_VERSION", "VIEW_ISSUES", "VIEW_ISSUE_CODES", "VIEW_VERSION", "aggregatorsFor", "autoChartType",
         "cellRows", "chartPlan", "chartThemeFrom", "closest", "computePivot", "createHistory", "dateUnitFor", "describeSource", "describeView", "emptyView", "encode", "fieldDefaultsFromSchema", "fieldItems", "fieldLabel", "findNode", "foldText", "formatter", "fromViewFile", "groupingName", "isDateMs", "isFormat", "isIdentifierName", "linkFragment", "linkParam",
-        "migrate", "normalize", "outsideLimits", "relativeDateRange", "renameFields", "reportLabels", "suggestDateUnit", "suggestLayout", "swapAxes", "toEChartsOption", "toGrid", "toSeries", "toViewFile", "validate", "viewFields", "viewFileFields", "viewFileName", "viewFileText", "viewFromLayout", "withLinkFragment"
+        "migrate", "normalize", "outsideLimits", "pluralForm", "referenceLineRules", "relativeDateRange", "renameFields", "reportLabels", "suggestDateUnit", "suggestLayout", "swapAxes", "toEChartsOption", "toGrid", "toSeries", "toViewFile", "validate", "valueAddsUp", "viewFields", "viewFileFields", "viewFileName", "viewFileText", "viewFromLayout", "withLinkFragment"
     ]);
-    assert.deepEqual(Object.keys(exporters).sort(), ["dataToCsv", "dataToCsvBytes", "dataToCsvParts", "dataToJson", "rowsToCsv", "rowsToCsvBytes", "rowsToXlsx", "scaleColor", "toCsv", "toCsvBytes", "toJson", "toTsv", "toXlsx"]);
+    assert.deepEqual(Object.keys(exporters).sort(), ["dataToCsv", "dataToCsvBytes", "dataToCsvParts", "dataToJson", "isDataAsOf", "rowsToCsv", "rowsToCsvBytes", "rowsToXlsx", "scaleColor", "toCsv", "toCsvBytes", "toJson", "toTsv", "toXlsx"]);
     assert.deepEqual(Object.keys(charts).sort(), [
-        "BOTTOM_LEGEND_ROOM", "CATEGORY_LABEL_WIDTH", "GROUP_LABEL_ROOM", "RIGHT_LEGEND_MIN_WIDTH", "SLANTED_LABEL_WIDTH", "categoryLabelLayout", "categoryLabelWidth", "columnLabelLayout", "decorateOption", "groupLabelsFit", "heatmapCellLabels", "pieLabelRoom", "ringLabelsFit", "rowLabelInterval"
+        "BOTTOM_LEGEND_ROOM", "CATEGORY_LABEL_WIDTH", "GROUP_LABEL_ROOM", "RIGHT_LEGEND_MIN_WIDTH", "SLANTED_LABEL_WIDTH", "categoryLabelLayout", "categoryLabelWidth", "columnLabelLayout", "decorateOption", "groupLabelsFit", "heatmapCellLabels", "pieLabelRoom", "referenceLineChecks", "referenceLines", "ringLabelsFit", "rowLabelInterval", "toEChartsOption"
     ]);
     assert.deepEqual(Object.keys(links).sort(), ["LINK_ISSUE_CODES", "LINK_LIMITS", "decodeViewLink", "encodeViewLink", "linkFragment", "linkParam", "readViewLink", "withLinkFragment"]);
     assert.deepEqual(Object.keys(templates).sort(), ["TEMPLATES_EXTENSION", "TEMPLATE_LIMITS", "parseTemplates", "templatesFromSchema"]);
@@ -30,7 +30,16 @@ test("the package exports its documented entry points and nothing else", () => {
         "jsonReader", "limitError", "loadReader", "noteMessage", "readFile", "readOptions", "readerFor", "retype", "shownName", "sourceIdOf", "validatePlugin"
     ]);
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-    assert.deepEqual(Object.keys(pkg.exports), [".", "./export", "./chart", "./import", "./link", "./templates", "./schema/view-file-1.json", "./schema/view-2.json", "./schema/view-file-2.json", "./package.json"]);
+    // "./internal" is for this repository's packages only (AGENTS.md): no public API, no docs page
+    assert.deepEqual(Object.keys(pkg.exports), [".", "./export", "./chart", "./import", "./link", "./templates", "./internal", "./schema/view-file-1.json", "./schema/view-2.json", "./schema/view-file-2.json", "./package.json"]);
+});
+
+test("every export of every public entry point is named on a reference page of the docs", () => {
+    const reference = new URL("../../../docs/reference/", import.meta.url);
+    const text = readdirSync(reference).filter((f) => f.endsWith(".md")).map((f) => readFileSync(new URL(f, reference), "utf8")).join("\n");
+    const entries = { "pivotkit-core": core, "pivotkit-core/export": exporters, "pivotkit-core/chart": charts, "pivotkit-core/import": importer, "pivotkit-core/link": links, "pivotkit-core/templates": templates };
+    const missing = Object.entries(entries).flatMap(([entry, mod]) => Object.keys(mod).filter((name) => !new RegExp(`\`${name}[\`(.,]`).test(text)).map((name) => `${entry}: ${name}`));
+    assert.deepEqual(missing, [], "name each export in code font on its reference page");
 });
 
 /** Every module the file imports, transitively, as paths relative to src/, and the bare imports. */
@@ -84,7 +93,7 @@ test("the catalog lists exactly what normalize accepts", () => {
     for (const type of CATALOG.chartTypes) {
         assert.equal(validate({ chart: { type } }, data).valid, true, type);
     }
-    for (const [key, list] of [["valueLabels", CATALOG.chartValueLabels], ["legend", CATALOG.chartLegends], ["axisLabels", CATALOG.chartAxisLabels], ["groupLabels", CATALOG.chartGroupLabels], ["labelPosition", CATALOG.chartLabelPositions]]) {
+    for (const [key, list] of [["valueLabels", CATALOG.chartValueLabels], ["legend", CATALOG.chartLegends], ["axisLabels", CATALOG.chartAxisLabels], ["groupLabels", CATALOG.chartGroupLabels], ["labelPosition", CATALOG.chartLabelPositions], ["tooltip", CATALOG.chartTooltips], ["zoom", CATALOG.chartZooms]]) {
         for (const value of list) {
             assert.equal(validate({ chart: { [key]: value } }, data).valid, true, `${key} ${value}`);
         }
@@ -98,6 +107,10 @@ test("the catalog lists exactly what normalize accepts", () => {
     assert.ok(Object.isFrozen(CATALOG));
     // the UI's sub-lists name only entries of the full lists
     for (const agg of CATALOG.commonAggregators) assert.ok(CATALOG.aggregators.includes(agg), agg);
+    // other tools' names of aggregators point at ours and are never ours themselves (hints only)
+    assert.equal(AGGREGATOR_ALIASES.avg, "average");
+    for (const [alias, agg] of Object.entries(AGGREGATOR_ALIASES)) assert.ok(CATALOG.aggregators.includes(agg) && !CATALOG.aggregators.includes(alias), alias);
+    assert.ok(Object.isFrozen(AGGREGATOR_ALIASES));
     assert.deepEqual([...CATALOG.timelineUnits, ...CATALOG.cyclicUnits].sort(), CATALOG.deriveUnits.filter((u) => u !== "bin").sort());
 });
 
