@@ -4,14 +4,22 @@
 //   npm run build:playground && node scripts/docs-screenshots.js
 //   SHOTS=quick-rows,chart node scripts/docs-screenshots.js   # only these shots
 //
+// The print templates' shots (REPORT_SHOTS) are HTML reports pivotkit-report renders, opened as pages.
 // Every shot is one entry in SHOTS: the playground's URL parameters, a view for the fragment, the
 // window size, whether to wait for the chart and what to open before the picture is taken. Each shot is taken in both themes,
 // `<name>-light.png` and `<name>-dark.png`, which the pages show with `#only-light` and `#only-dark`.
 // The generated data has a fixed seed and the real data is a committed snapshot, so the numbers are
 // the same on every run.
+//
+// One picture is not taken here: xlsx-result-light.png and xlsx-result-dark.png (one image twice,
+// since a workbook has no dark theme). Take it again by hand when the export's look changes:
+//   1. pivotkit render weather.pivotkit.json --data weather.csv -o weather.xlsx
+//   2. Open it in Microsoft Excel for Mac at 100 % on a Retina screen. Set Excel's region to one that
+//      writes a decimal point (en_US): Excel formats numbers by its region (AppleLocale).
+//   3. Capture Excel's window only (screencapture -o -l <window id>) and crop it to cells A1:N16.
 import { chromium } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { toViewFile } from "pivotkit-core";
 import { encodeViewLink as encodeLink } from "pivotkit-core/link";
 import { fileURLToPath } from "node:url";
@@ -38,6 +46,35 @@ const GROUPED = encodeViewLink({
     sort: [{ field: "Region", by: "value", order: "desc" }, { field: "Country", by: "value", order: "desc" }],
     display: "chart",
     chart: { type: "bar", title: "The three largest countries of each region (2024)" }
+});
+
+/** Monthly revenue as a line with its reference lines: the average, the trend and a target. */
+const LINES = encodeViewLink({
+    rows: ["Month (Year and month)"],
+    derived: [{ name: "Month (Year and month)", field: "Month", by: "yearMonth" }],
+    values: [{ field: "Revenue", agg: "sum", format: "currency:EUR" }],
+    display: "chart",
+    chart: { type: "line", title: "Monthly revenue", referenceLines: { average: true, trend: true, target: 500000 } }
+});
+
+/** Revenue per region, stacked by category: the tooltip of one segment names it with the stack's total. */
+const STACKED = encodeViewLink({
+    rows: ["Region"],
+    cols: ["Category"],
+    values: [{ field: "Revenue", agg: "sum", format: "currency:EUR" }],
+    sort: [{ field: "Region", by: "value", order: "desc" }],
+    display: "chart",
+    chart: { type: "bar", stacked: true }
+});
+
+/** The 40 largest countries by population on a phone: the axis cannot name them all, a zoom slider shows a part. */
+const ZOOMED = encodeViewLink({
+    rows: ["Country"],
+    values: [{ field: "Population", agg: "sum", format: "compact" }],
+    filters: [{ field: "Year", type: "include", items: [2024] }, { field: "Country", type: "top", count: 40, by: { field: "Population", agg: "sum" } }],
+    sort: [{ field: "Country", by: "value", order: "desc" }],
+    display: "chart",
+    chart: { type: "bar" }
 });
 
 /** Regions with more than 2 million revenue, by the second value of two: the chip says so, the menu has the form open. */
@@ -272,11 +309,61 @@ const SHOTS = [
         size: WIDE,
         chart: true,
         open: async (page) => {
+            // the legend at the bottom (its level), back on the first level: the chart types and the topic rows
             await toolbar(page, "chart-type");
+            await page.getByTestId("topic-legend").click();
             await page.getByTestId("legend-bottom").click();
         }
     },
     { name: "chart-groups", query: "data=countries", hash: GROUPED, size: WIDE, chart: true },
+    // a phone's chart of 40 countries: the zoom slider under the axis, every country in its window named
+    {
+        name: "chart-zoom",
+        query: "data=countries&height=640",
+        hash: ZOOMED,
+        size: PHONE,
+        chart: true,
+        open: async (page) => {
+            await page.addStyleTag({ content: ".pk-toast { visibility: hidden; }" });
+            await page.getByTestId("pivot-chart").evaluate((el) => el.scrollIntoView({ block: "end" }));
+        }
+    },
+    // a line with its average (dashed), its trend (dotted) and a target (solid)
+    { name: "chart-lines", query: "data=sales", hash: LINES, size: WIDE, chart: true },
+    {
+        // Display › Reference lines open over the same chart: the switches, the target and its row's level
+        name: "chart-lines-level",
+        query: "data=sales",
+        hash: LINES,
+        size: WIDE,
+        chart: true,
+        open: async (page) => {
+            await page.addStyleTag({ content: ".pk-toast { visibility: hidden; }" });
+            await toolbar(page, "chart-type");
+            await page.getByTestId("topic-lines").click();
+        }
+    },
+    {
+        // the pointer on a segment of stacked bars: the tooltip names it and adds the stack's total
+        name: "chart-tooltip",
+        query: "data=sales",
+        hash: STACKED,
+        size: WIDE,
+        chart: true,
+        open: async (page) => {
+            await page.addStyleTag({ content: ".pk-toast { visibility: hidden; }" });
+            const chart = page.getByTestId("pivot-chart");
+            const box = await chart.boundingBox();
+            // along a line through the middle of the bars until the pointer is on a segment: the
+            // tooltip then has three lines, the region, the segment and the total
+            const lines = chart.locator(":scope > div:not(:first-child) > div > div");
+            for (let x = box.x + box.width * 0.2; x < box.x + box.width; x += 8) {
+                await page.mouse.move(x, box.y + box.height * 0.6);
+                await page.waitForTimeout(40);
+                if ((await lines.count()) === 3 && (await chart.locator(":scope > div:not(:first-child)").isVisible())) break;
+            }
+        }
+    },
     {
         // Start over open at the start view: Reset greyed out with its reason, New with what it does;
         // a window of 1920 px, where Start over is in the toolbar with the field list open
@@ -483,6 +570,21 @@ const SHOTS = [
         }
     },
     {
+        // a donut on a phone with its values outside: a smaller pie, the labels whole on two lines
+        name: "donut-phone",
+        query: "data=sales&height=760",
+        hash: encodeViewLink({ rows: ["Region"], values: [{ field: "Revenue", agg: "sum" }], display: "chart", chart: { type: "donut", valueLabels: "value", legend: "bottom" } }),
+        size: PHONE,
+        chart: true,
+        open: async (page) => {
+            await page.addStyleTag({ content: ".pk-toast-dock { visibility: hidden; }" });
+            await page.getByTestId("pivot-chart").evaluate((el) => {
+                el.style.scrollMarginTop = "12px";
+                el.scrollIntoView({ block: "start" });
+            });
+        }
+    },
+    {
         // Options: totals that change nothing say why, an "i" explains each, Help with its switches
         name: "explanations",
         query: "data=tickets",
@@ -598,6 +700,41 @@ const SHOTS = [
     }
 ];
 
+/**
+ * The print templates of `pivotkit example templates` (examples/report-templates/) over the sales
+ * example's data, rendered by pivotkit-report as the command line renders them, in the system's light
+ * and dark theme: the shots of "Your own corporate design". Corporate is light on every screen
+ * (`light: true`): one picture, written as both names.
+ */
+const REPORT_SHOTS = [
+    { name: "template-corporate", template: "corporate.template.html", view: "sales.pivotkit.json", size: { width: 1000, height: 760 }, light: true },
+    { name: "template-corporate-chart", template: "corporate.template.html", view: "sales-chart.pivotkit.json", size: { width: 1000, height: 760 }, light: true },
+    { name: "template-minimal", template: "minimal.template.html", view: "sales-chart.pivotkit.json", size: { width: 1000, height: 760 } }
+];
+
+/** Takes the report shots: the HTML report opened as a page of its own, as a reader opens the file. */
+async function reportShots(browser, only) {
+    const shots = REPORT_SHOTS.filter((s) => !only || only.includes(s.name));
+    if (!shots.length) return;
+    const [{ render }, { readFile: readTable }, echarts, { buildExamples }] = await Promise.all([import("pivotkit-report"), import("pivotkit-core/import"), import("echarts"), import("./examples.js")]);
+    const built = await buildExamples();
+    const { encode } = await import("pivotkit-core");
+    const data = encode(await readTable(new File([built.files.get("sales.csv")], "sales.csv")));
+    for (const shot of shots) {
+        const report = await render(built.files.get(shot.view), data, { format: "html", echarts, template: built.files.get(shot.template), source: "sales.csv", now: "2026-11-13T10:00:00Z" });
+        for (const theme of shot.light ? ["light"] : THEMES) {
+            const page = await browser.newPage({ viewport: shot.size, deviceScaleFactor: 1, reducedMotion: "reduce", colorScheme: theme });
+            await page.setContent(report.text);
+            const picture = await page.screenshot();
+            await page.close();
+            for (const name of shot.light ? THEMES.map((t) => `${shot.name}-${t}.png`) : [`${shot.name}-${theme}.png`]) {
+                await writeFile(`${out}${name}`, picture);
+                console.log(name);
+            }
+        }
+    }
+}
+
 const server = spawn(process.execPath, [fileURLToPath(new URL("examples/playground/serve.js", root)), String(port)], { stdio: "ignore" });
 try {
     await mkdir(out, { recursive: true });
@@ -635,6 +772,7 @@ try {
             console.log(name);
         }
     }
+    await reportShots(browser, only);
     await browser.close();
 } finally {
     server.kill();

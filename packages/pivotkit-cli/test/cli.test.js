@@ -29,10 +29,24 @@ test("help: pivotkit, a command's help and help <command>; an unknown command is
     const wrong = await run(["rendr"]);
     assert.equal(wrong.code, 2);
     assert.equal(wrong.stdout, "");
-    assert.match(wrong.stderr, /unknown command "rendr"; did you mean render\?/);
+    assert.equal(wrong.stderr, 'pivotkit: unknown command "rendr"; did you mean render? run "pivotkit --help"\n');
     const flag = await run(["render", "--formt", "csv"]);
     assert.equal(flag.code, 2);
-    assert.match(flag.stderr, /unknown option --formt for "render"; did you mean --format\?/);
+    assert.equal(flag.stderr, 'pivotkit: unknown option "--formt"; did you mean --format? run "pivotkit render --help"\n');
+    // an option before the command: where it goes; the JSON names the command, not the option
+    const early = await run(["--json", "sources"]);
+    assert.equal(early.code, 2);
+    const envelope = JSON.parse(early.stdout);
+    assert.equal(envelope.command, "sources");
+    assert.equal(envelope.error.message, '"--json" comes after the command: pivotkit sources --json; run "pivotkit --help"');
+    assert.equal((await run(["--bogus"])).stderr, 'pivotkit: unknown option "--bogus"; run "pivotkit --help"\n');
+    // run as "pivotkit-server cli", the pointers name that
+    const { main } = await import("../src/cli.js");
+    const err = [];
+    const io = { stdin: process.stdin, stdout: { write() {} }, stderr: { write: (t) => err.push(t) }, env: {}, cwd: process.cwd(), program: "pivotkit-server cli" };
+    assert.equal(await main(["render", "--bogus"], io), 2);
+    assert.equal(await main(["bogus"], io), 2);
+    assert.deepEqual(err, ['pivotkit: unknown option "--bogus"; run "pivotkit-server cli render --help"\n', 'pivotkit: unknown command "bogus"; run "pivotkit-server cli --help"\n']);
 });
 
 test("--version names the CLI, pivotkit-report and pivotkit-core", async () => {
@@ -97,6 +111,10 @@ test("--locale, --time-zone and --now are checked by every command, and name the
         assert.equal(flag.code, 2, command[0]);
         assert.match(flag.stderr, /--locale "not_a_locale" is not a locale tag/);
         assert.ok(!flag.stderr.includes("options.locale") && !flag.stderr.includes("from PIVOTKIT"));
+        // well-formed, but no locale this runtime knows: Intl would take the machine's (#552)
+        const unknown = await run([...command, "--locale", "xx-XX"], { cwd: dir });
+        assert.equal(unknown.code, 2, command[0]);
+        assert.match(unknown.stderr, /--locale "xx-XX" is not a locale tag/);
         const zone = await run([...command, "--time-zone", "Mars/Olympus"], { cwd: dir });
         assert.equal(zone.code, 2, command[0]);
         assert.match(zone.stderr, /--time-zone "Mars\/Olympus" is not a time zone/);
@@ -187,7 +205,7 @@ test("a file over fileBytes is refused before it is read (a sparse file of 101 M
     const r = await run(["describe", "huge.csv"], { cwd: dir });
     assert.equal(r.code, 2);
     assert.match(r.stderr, /huge\.csv: 105,906,176 bytes exceed the limit of 104,857,600 \(limits\.fileBytes\)/);
-    assert.ok(Date.now() - started < 10_000);
+    assert.ok(Date.now() - started < 10_000); // wall time: event latency (a child process)
 });
 
 test("--allow-dir is a hard limit: a link out of it, .. and an output outside are refused; inside works", async () => {
@@ -372,4 +390,20 @@ test("a view file's type that the data's values do not fit is not applied: a war
     // the values stay: never blanked by a type that does not fit
     assert.match(readFileSync(join(dir, "out.csv"), "utf8"), /many,1/);
     assert.equal((await run(["render", "view.pivotkit.json", "--data", "data.csv", "-f", "csv", "--strict"], { cwd: dir })).code, 1);
+});
+
+test("render: a chart view as xlsx warns that the workbook holds the table; --strict exits 1 for it (#360)", async () => {
+    const dir = fixtureDir();
+    writeFileSync(join(dir, "chart.json"), JSON.stringify({ ...BY_REGION, view: { ...BY_REGION.view, display: "chart", chart: { type: "line" } } }));
+    const r = await run(["render", "chart.json", "--data", "sales.csv", "-o", "chart.xlsx"], { cwd: dir });
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stderr, /warning chartNotInXlsx: The workbook holds the table\. The chart is in html or svg\./);
+    assert.ok(existsSync(join(dir, "chart.xlsx")));
+    const strict = await run(["render", "chart.json", "--data", "sales.csv", "-o", "strict.xlsx", "--strict"], { cwd: dir });
+    assert.equal(strict.code, 1, strict.stderr);
+    assert.match(strict.stderr, /chartNotInXlsx/);
+    // the table view: no warning
+    const table = await run(["render", "view.json", "--data", "sales.csv", "-o", "table.xlsx"], { cwd: dir });
+    assert.equal(table.code, 0);
+    assert.doesNotMatch(table.stderr, /chartNotInXlsx/);
 });

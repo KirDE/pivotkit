@@ -6,6 +6,102 @@ All notable changes to `pivotkit-cli` are documented in this file. The format is
 
 ## [Unreleased]
 
+### Added
+
+- `pivotkit login` takes the client ID the server publishes (`rest.signIn.clientId`) when neither
+  `--client-id` nor `PIVOTKIT_CLIENT_ID` gives one, and says so. `pivotkit-cli/rest` exports
+  `SIGN_IN_CLIENT_FIELD` and `CLIENT_ID_SYNTAX` (#486).
+- The example views leave out the chart settings newer than 0.7 while they hold their default
+  (`tooltip`), so a 0.7 reader takes them without a warning ([#36](https://github.com/eizedev/pivotkit/issues/36)).
+- `pivotkit login --url <server> --client-id <id>` signs in at the server's sign-in provider with
+  the OAuth 2.0 device code flow. It keeps the refresh token in the system's keychain, else in a
+  file only you read. `pivotkit token` prints a fresh access token, and `pivotkit logout` removes
+  the sign-in, revoking the refresh token where the provider offers that
+  ([sign in](https://pivotkit.eize.dev/reference/cli/#sign-in), #486).
+- Exit code 3: `pivotkit token` says the sign-in has ended and `pivotkit login` is needed again.
+- `pivotkit-cli/rest` exports `resourceMetadataUrlOf`, the address of a server's sign-in metadata.
+- `--filter Field=Item` keeps the rows of one item: `--filter Country=Germany`. Given again for
+  the same field, it keeps each item. JSON and `@file.json` work as before (#508).
+- With layout flags and local data, an item of a text field that is none of its values is a
+  warning `itemUnknown` with the item meant. Number fields and server mode get only
+  `noRowsKept` (#508).
+
+### Changed
+
+- `render --help` says the workbook holds the table and the chart is in html or svg. A chart view
+  rendered as xlsx warns `chartNotInXlsx` ([#360](https://github.com/eizedev/pivotkit/issues/360)).
+- The example views (`pivotkit example`) name the chart's `tooltip` setting, `"auto"`.
+
+- `--filter Revenue>1000`, `Country!=Germany` or `Country<>Germany` is a usage error that gives
+  the JSON filter it means. A value in neither form gets an example of each (#508).
+- `--values avg:Revenue` asks "did you mean average?", as do `mean`, `cnt`, `total`, `distinct`
+  and `stddev` (#508).
+- `itemCase` says "did you mean" once: pivotkit-core's message no longer names the item meant (#508).
+- pivotkit-core's internal limit helper words a file over its limit. The text stays the same
+  ([#509](https://github.com/eizedev/pivotkit/issues/509)).
+
+### Fixed
+
+- `--locale` that the runtime has no data for, such as `xx-XX`, is a usage error. Before, the
+  report took the machine's locale for it ([#552](https://github.com/eizedev/pivotkit/issues/552)).
+- `render --url` against a server without sign-in no longer says "with this token" when the
+  server refuses the file ([#512](https://github.com/eizedev/pivotkit/issues/512)).
+- `--format csv` in a locale whose own decimal mark is `٫` (`ar-EG`, `ar-SA`, `fa-IR`, `ur-IN`,
+  `ps-AF` and others) writes the decimal mark the locale uses with Latin digits, from pivotkit-core:
+  `9.6`, not `9٫6`, which parsers misread ([#478](https://github.com/eizedev/pivotkit/issues/478)).
+
+## [0.3.0] - 2026-11-16
+
+### Upgrading from 0.2
+
+What a script that runs `pivotkit` checks; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#cli-next) has the details.
+
+- Usage errors end with `run "pivotkit <command> --help"` (was `see "pivotkit help <command>"`),
+  and unknown options and commands read `unknown option "--bogus"`. Scripts read the exit code or
+  `--json`, not the text.
+- `--json` errors may have the new `kind` `remote`, with `status` and `retryAfter`.
+- `writeNew` (`pivotkit-cli/files`) keeps parentheses in file names
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#report-names)).
+
+### Added
+
+- `pivotkit example templates` writes two print templates for the HTML report, Corporate (a company
+  header with a logo slot, your colours as `--pk-*` tokens, a footer with the details, always light)
+  and Minimal (title, chart, table and details, light or dark after the system), and says how to
+  render them over the `sales` example ([#368](https://github.com/eizedev/pivotkit/issues/368)).
+- `render`, `validate` and `describe` run on a pivotkit-server's source with `--url` (or
+  `PIVOTKIT_URL`) and `--source`; `pivotkit sources [id]` lists a server's sources or describes one.
+  The token comes from `--token-file` or `PIVOTKIT_TOKEN` and is never printed; https only (http for
+  loopback), no redirects, a time limit (`--timeout`) and size caps; a rendered file is written with
+  mode 0600. Options that act on local files are a usage error with a server, and `pivotkit help`
+  marks them "local only" ([#306](https://github.com/eizedev/pivotkit/issues/306)).
+- `--json`: a new error `kind`, `remote` (a server's problem, an answer that is none of a
+  pivotkit-server's, or a network error), with `status` and `retryAfter`.
+- `pivotkit-cli/rest`: what the REST service and its client agree on (`REST_BASE`, `SOURCE_ID`,
+  `TOKEN_SYNTAX`, `REST_ERRORS`, `PROBLEM_CODES`, `isLoopback`); `writeSafe` takes `mode`.
+- `pivotkit serve` says to use `pivotkit-server serve`.
+- `--param name=value` gives a server's source its parameters (render, validate, describe and
+  `pivotkit sources <id>`, which then asks `POST /sources/describe`); `pivotkit sources` marks a
+  source with required parameters `(needs: customer)`. A 401 is one line that says whether a token
+  was sent and from where; "render needs data" and the layout flags' message name `--source` too. A
+  missing parameter ends with "re-run with --param customer=acme", a refused value with "fix it with
+  --param customer=<value>"; a server's hints follow its words after a semicolon
+  ([#424](https://github.com/eizedev/pivotkit/issues/424)).
+
+### Changed
+
+- Usage errors end with `run "pivotkit <command> --help"` (was `see "pivotkit help <command>"`);
+  unknown options and commands read `unknown option "--bogus"`, quoted, as in pivotkit-server and
+  pivotkit-mcp. An option before the command says where it goes and `--json` names the command, not
+  the option. Run as `pivotkit-server cli`, the pointers name that. `--token-file` that is not there
+  says `--token-file missing.txt: not found`.
+- `writeNew`'s file names keep parentheses: a report pivotkit-server writes into `output.dir` under
+  the name "Orders (fake backend)" is `Orders (fake backend).pivotkit-out.xlsx`, not
+  `Orders -fake backend.pivotkit-out.xlsx`; `pivotkit render -o` writes the name it is given, as
+  before
+  ([#448](https://github.com/eizedev/pivotkit/issues/448)).
+- Depends on `pivotkit-core` `^0.7.0`, `pivotkit-report` `^0.3.0` and `pivotkit-xlsx` `^0.4.0`.
+
 ## [0.2.1] - 2026-11-14
 
 ### Upgrading from 0.2.0
@@ -164,7 +260,8 @@ First release.
   usage error instead of HTML in a `.pdf`.
 - An option that does nothing in the chosen format (`--width` with `csv`) is a warning `ignoredOption`.
 
-[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-cli@0.2.1...HEAD
+[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-cli@0.3.0...HEAD
+[0.3.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-cli@0.2.1...pivotkit-cli@0.3.0
 [0.2.1]: https://github.com/eizedev/pivotkit/compare/pivotkit-cli@0.2.0...pivotkit-cli@0.2.1
 [0.2.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-cli@0.1.0...pivotkit-cli@0.2.0
 [0.1.0]: https://github.com/eizedev/pivotkit/releases/tag/pivotkit-cli@0.1.0

@@ -9,6 +9,7 @@ import { readFile, readerFor, validatePlugin } from "pivotkit-core/import";
 import xlsxReader from "pivotkit-xlsx";
 import { read, sheets } from "pivotkit-xlsx/reader";
 import { TICKET_COLUMNS, makeXlsx, ticketRows } from "./make-xlsx.js";
+import { cpuClock } from "../../../tests/cpu-time.js";
 
 const col = (t, name) => t.data[t.columns.indexOf(name)];
 const fileOf = (bytes, name = "book.xlsx") => new File([bytes], name);
@@ -17,6 +18,58 @@ const rejects = (promise, reason, check = () => true) =>
 
 const tickets = (count, extra = {}) =>
     makeXlsx({ sheets: [{ name: "Notes", hidden: true, rows: [["internal"], ["x"]] }, { name: "Tickets", rows: () => ticketRows(count), ...extra }, { name: "Summary", rows: [["Total"], [count]] }] });
+
+/**
+ * Time bounds as ratios of times taken in the same process, so a slow runner and coverage change them
+ * little; the unit is the unpacking of the same sheet (the fastest of three). Measured for the
+ * used-range test, plain and under coverage (Node 26; CI Node 22 and 24 alike): a read is 1.0-1.2
+ * times the scan before parsing (up to 1.3 under full CPU load), the parse after it (read minus
+ * scan) 0.1-1.3 times the unpacking, the scan 3.2-5.7 times the unpacking. With the filter passing
+ * the empty rows on to the parser: 1.8-3.5 times the scan, the parse 6.5-24 times the unpacking. For
+ * the padded sheet a read is 1.1-1.7 times its scan (with the shared strings, which the scan leaves
+ * out); without the guard it took minutes and ran out of stack.
+ */
+const READ_PER_SCAN = 1.6;
+const PARSE_PER_UNPACK = 3;
+const SCAN_PER_UNPACK = 12;
+const PADDED_READ_PER_SCAN = 5;
+/**
+ * Other test workspaces running in parallel slow the phases of one measurement unevenly (a read 1.8
+ * times its scan was seen that way). The used-range test therefore measures unpack, scan and read in
+ * interleaved rounds and bounds the fastest of each, with a new round only while a bound fails, up to
+ * this many. A filter that passes the empty rows on fails in every round; measured as the fastest of
+ * five, plain, under coverage and beside the other workspaces: the parse 3.9-8.4 times the unpacking
+ * (bound 3), the read 1.7-2.8 times the scan (bound 1.6).
+ */
+const USED_RANGE_ROUNDS = 5;
+
+/**
+ * How long one sheet takes to unpack alone (the fastest of three), and to unpack and pass through
+ * the checks before parsing (createXmlCheck, createXmlGuard, createSheetFilter) as read() does, its
+ * output thrown away.
+ */
+async function sheetScanTimes(bytes, path) {
+    const { readDirectory, unpackStream } = await import("../src/zip.js");
+    const { createSheetFilter, createXmlCheck, createXmlGuard } = await import("../src/xml.js");
+    const entry = readDirectory(bytes, "book.xlsx", { archiveEntries: 100, unpackedBytes: 1e9 }).find((e) => e.name === path);
+    // the unpacking is the unit of the bounds: its fastest of three, so one slow pass on a busy
+    // runner does not loosen them
+    let unpackMs = Infinity;
+    for (let k = 0; k < 3; k++) {
+        const started = performance.now();
+        await unpackStream(bytes, entry, "book.xlsx", () => {}, () => {});
+        unpackMs = Math.min(unpackMs, performance.now() - started);
+    }
+    const started = performance.now();
+    const check = createXmlCheck("book.xlsx", path);
+    const filter = createSheetFilter(createXmlGuard({ write() {} }, "book.xlsx", path), { file: "book.xlsx", part: path });
+    await unpackStream(bytes, entry, "book.xlsx", (chunk) => {
+        check(chunk);
+        filter.push(chunk);
+    }, () => {});
+    filter.end();
+    return { unpackMs, scanMs: performance.now() - started };
+}
 
 test("a ticket export: the first visible sheet below its title block, types from the cell formats", async () => {
     const t = await read(fileOf(tickets(2_000)));
@@ -58,19 +111,37 @@ test("sheets: names, order and visibility; read one by name or by index", async 
     await rejects(read(fileOf(bytes), { sheet: 7 }), "NO_SHEET");
 });
 
-test("the used range: formatted empty cells to row 900,000 are left out before parsing, with a note", async () => {
+test("the used range: formatted empty cells to row 900,000 are left out before parsing, with a note", async (ctx) => {
     // two formatted columns down to row 900,000 (the benchmark, bench.js, formats all 20)
     const bytes = tickets(500, { usedRangeTo: 900_000, emptyCells: 2 });
-    const started = performance.now();
-    const t = await read(fileOf(bytes));
-    const ms = performance.now() - started;
+    let unpackMs = Infinity;
+    let scanMs = Infinity;
+    let ms = Infinity;
+    const holds = () => ms < READ_PER_SCAN * scanMs && ms - scanMs < PARSE_PER_UNPACK * unpackMs && scanMs < SCAN_PER_UNPACK * unpackMs;
+    let t;
+    let rounds = 0;
+    while (rounds < USED_RANGE_ROUNDS && !holds()) {
+        rounds++;
+        const times = await sheetScanTimes(bytes, "xl/worksheets/sheet2.xml");
+        unpackMs = Math.min(unpackMs, times.unpackMs);
+        scanMs = Math.min(scanMs, times.scanMs);
+        const started = performance.now();
+        t = await read(fileOf(bytes));
+        ms = Math.min(ms, performance.now() - started);
+    }
     assert.equal(t.rowCount, 500);
     const used = t.notes.find((n) => n.code === "USED_RANGE");
     assert.deepEqual(used.params, { usedRow: 900_000, lastRow: 503 });
     assert.equal(used.message, "The sheet's used range reaches row 900,000; values end at row 503, the empty rows below were skipped.");
     assert.ok(!t.notes.some((n) => n.code === "ROWS_EMPTY"), "no empty rows reached the table");
-    // 900,000 rows of styled cells unpack to about 70 MB; read in about a second, not parsed into rows
-    assert.ok(ms < 15_000, `${ms} ms`);
+    // 900,000 rows of styled cells unpack to about 90 MB. The read takes about as long as the scan
+    // before parsing (unpack, check, filter) alone, and the parse after it little more than one
+    // unpacking: the empty rows never reach the parser. The scan takes a few times the unpacking.
+    // Each is the fastest of its rounds (USED_RANGE_ROUNDS).
+    ctx.diagnostic(`read ${Math.round(ms)} ms, scan ${Math.round(scanMs)} ms, unpack ${Math.round(unpackMs)} ms, ${rounds} round(s)`);
+    assert.ok(ms < READ_PER_SCAN * scanMs, `read ${Math.round(ms)} ms, scan ${Math.round(scanMs)} ms`);
+    assert.ok(ms - scanMs < PARSE_PER_UNPACK * unpackMs, `read ${Math.round(ms)} ms, scan ${Math.round(scanMs)} ms, unpack ${Math.round(unpackMs)} ms`);
+    assert.ok(scanMs < SCAN_PER_UNPACK * unpackMs, `scan ${Math.round(scanMs)} ms, unpack ${Math.round(unpackMs)} ms`);
 });
 
 test("cells with an Excel error are empty, with a note", async () => {
@@ -140,10 +211,10 @@ test("a ZIP bomb: the unpacked size from the directory is refused before anythin
     for (let at = 0; at < big.length; at += row.length) big.set(row.subarray(0, Math.min(row.length, big.length - at)), at);
     const bytes = makeXlsx({ sheets: [{ name: "S", rows: [["A"], [1]] }], extra: { "xl/media/padding.xml": big } });
     assert.ok(bytes.length < 2_000_000, `${bytes.length} bytes`);
-    const started = performance.now();
+    const cpu = cpuClock();
     // LIMIT_EXCEEDED as for every other limit (#208), with the limit, the values and the file
     await assert.rejects(read(fileOf(bytes), { limits: { unpackedBytes: 100 * 1024 * 1024 } }), (e) => e instanceof PivotkitError && e.code === "LIMIT_EXCEEDED" && e.details.limit === "unpackedBytes" && e.details.max === 100 * 1024 * 1024 && e.details.value > e.details.max && e.details.file === "book.xlsx" && /ZIP bomb/.test(e.message) && /limits\.unpackedBytes/.test(e.message));
-    assert.ok(performance.now() - started < 1_000, "refused without unpacking");
+    assert.ok(cpu() < 1_000, "refused without unpacking");
     // a forged directory that understates a part: unpacking stops at the stated size
     const small = makeXlsx({ sheets: [{ name: "S", rows: Array.from({ length: 20_000 }, (_, i) => [i]) }] });
     const at = directory(small).get("xl/worksheets/sheet1.xml");
@@ -388,19 +459,19 @@ test("a small sheet with a value far out (row 300,000, column XFD) is refused be
     const sheet = (rows) => makeXlsxWithSheet(`<?xml version="1.0"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows}</sheetData></worksheet>`);
     const wide = sheet('<row r="1"><c r="XFD1"><v>1</v></c></row><row r="300000"><c r="A300000"><v>1</v></c></row>');
     assert.ok(wide.length < 10_000, `${wide.length} bytes`);
-    const started = performance.now();
+    const cpu = cpuClock();
     await assert.rejects(read(fileOf(wide)), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "columns" && e.details.file === "book.xlsx");
     await assert.rejects(read(fileOf(sheet('<row r="1"><c r="A1"><v>1</v></c></row><row r="999999999"><c r="A999999999"><v>1</v></c></row>'))), (e) => e.details.limit === "rows");
     await assert.rejects(read(fileOf(sheet('<row r="1"><c r="ALL1"><v>1</v></c></row><row r="200000"><c r="A200000"><v>1</v></c></row>'))), (e) => e.details.limit === "importCells");
-    assert.ok(performance.now() - started < 2_000, "refused at once");
+    assert.ok(cpu() < 2_000, "refused at once");
 });
 
 test("a list of sheets with <sheet repeated and never closed is read in linear time", async () => {
     const workbook = `<?xml version="1.0"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${"<sheet".repeat(40_000)}`; // and no ">" after them
     const bytes = rebuild(makeXlsx({ sheets: [{ name: "S", rows: [["A"]] }], level: 0 }), { "xl/workbook.xml": strToU8(workbook) });
-    const started = performance.now();
+    const cpu = cpuClock();
     await rejects(read(fileOf(bytes)), "NO_TABLE");
-    assert.ok(performance.now() - started < 2_000, `${performance.now() - started} ms`);
+    assert.ok(cpu() < 2_000, `${Math.round(cpu())} ms of CPU`);
 });
 
 test("a row that never ends is refused once it passes 64 MiB, not held whole", async () => {
@@ -439,7 +510,7 @@ test("a sheet name from the file is cleaned in notes and messages", async () => 
 // limit, it unpacks to tens of megabytes that read-excel-file parsed in quadratic time and with a
 // stack frame per piece (a minute, up to a gigabyte, then "Maximum call stack size exceeded"); the
 // 24 MiB inside a tag did that on their own, the rest cost memory in proportion to its size
-test("a sheet padded with whitespace is read in linear time and memory, with its values", async () => {
+test("a sheet padded with whitespace is read in linear time and memory, with its values", async (ctx) => {
     const MiB = 1024 * 1024;
     const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
     const pad = (n) => " ".repeat(n);
@@ -452,6 +523,7 @@ test("a sheet padded with whitespace is read in linear time and memory, with its
     const sst = `<?xml version="1.0"?>\n<sst ${NS} count="2" uniqueCount="2"><si><t>name</t></si>${pad(4 * MiB)}<si><t>x</t></si></sst>`;
     const bytes = rebuild(makeXlsx({ sheets: [{ name: "S", rows: [["A"]] }], level: 0 }), { "xl/worksheets/sheet1.xml": strToU8(sheetXml), "xl/sharedStrings.xml": strToU8(sst) });
     assert.ok(bytes.length < 200_000, `${bytes.length} bytes`);
+    const { scanMs } = await sheetScanTimes(bytes, "xl/worksheets/sheet1.xml");
     const rss = process.memoryUsage().rss;
     let peak = rss;
     const timer = setInterval(() => (peak = Math.max(peak, process.memoryUsage().rss)), 2);
@@ -466,22 +538,24 @@ test("a sheet padded with whitespace is read in linear time and memory, with its
     }
     const ms = performance.now() - started;
     peak = Math.max(peak, process.memoryUsage().rss);
-    // 50 MiB unpacked: the reader never holds the padding as text, nor all of it at once
-    // about 0.5 s on a laptop, a few seconds under coverage on a busy runner; before the fix minutes
-    assert.ok(ms < 20_000, `${Math.round(ms)} ms`);
+    // 50 MiB unpacked: the reader never holds the padding as text, nor all of it at once. The read
+    // takes about as long as the scan of the sheet before parsing; without the guard, read-excel-file
+    // took minutes and then ran out of stack
+    ctx.diagnostic(`read ${Math.round(ms)} ms, scan ${Math.round(scanMs)} ms`);
+    assert.ok(ms < PADDED_READ_PER_SCAN * scanMs, `read ${Math.round(ms)} ms, scan ${Math.round(scanMs)} ms`); // wall time: a ratio of two measurements
     assert.ok(peak - rss < 300 * MiB, `${Math.round((peak - rss) / MiB)} MiB more resident memory`);
 });
 
 test("a text of more than 1 MiB or a tag of more than 256 KiB in a sheet is refused at once, however it is padded", async () => {
     const MiB = 1024 * 1024;
     const sheet = (body) => makeXlsxWithSheet(`<?xml version="1.0"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">${body}</row></sheetData></worksheet>`);
-    const started = performance.now();
+    const cpu = cpuClock();
     // an Excel cell holds at most 32,767 characters
     await rejects(read(fileOf(sheet(`<c r="A1" t="inlineStr"><is><t>${"a".repeat(2 * MiB)}</t></is></c>`))), "DAMAGED", (e) => /1 MiB/.test(e.message));
     // a quoted attribute value of ">" is one tag to an XML parser
     await rejects(read(fileOf(sheet(`<c r="A1" x="${">".repeat(2 * MiB)}"><v>1</v></c>`))), "DAMAGED", (e) => /256 KiB/.test(e.message));
     await rejects(read(fileOf(sheet(`<c r="A1"><v>1</v></c><!--${"->".repeat(MiB)}-->`))), "DAMAGED", (e) => /1 MiB/.test(e.message));
-    assert.ok(performance.now() - started < 5_000, `${Math.round(performance.now() - started)} ms`);
+    assert.ok(cpu() < 5_000, `${Math.round(cpu())} ms of CPU`);
 });
 
 test("cell and row positions are read however the attribute is quoted or spaced, in linear time", async () => {
@@ -500,9 +574,9 @@ test("cell and row positions are read however the attribute is quoted or spaced,
     assert.deepEqual(col(t, "n"), [7]);
     // a row of half a megabyte of "<c " without a ">": the filter scans each tag once (it was
     // quadratic) and refuses the "<" in a tag the parser would read as one long tag
-    const started = performance.now();
+    const cpu = cpuClock();
     await rejects(read(fileOf(sheet(`<row r="1"><c r="A1"><v>1</v></c></row><row r="2">${"<c ".repeat(170_000)}</c></row>`))), "DAMAGED", (e) => /"<" in a tag/.test(e.message));
-    assert.ok(performance.now() - started < 3_000, `${Math.round(performance.now() - started)} ms`);
+    assert.ok(cpu() < 3_000, `${Math.round(cpu())} ms of CPU`);
 });
 
 test("rows inside a comment or CDATA section between rows are not read", async () => {
@@ -542,10 +616,10 @@ test("a </row> inside a comment, CDATA section or processing instruction in a ro
         assert.equal(parts.join(""), xml, `pieces of ${size} bytes`);
     }
     const many = `<row r="1"><c r="A1"><v>1</v></c></row><row r="2"><c r="A2"><v>2</v></c>${"<!----><?a?>".repeat(150_000)}</row>`;
-    const started = performance.now();
+    const cpu = cpuClock();
     const t = await read(fileOf(makeXlsxWithSheet(`<?xml version="1.0"?>\n<worksheet ${NS}><sheetData>${many}</sheetData></worksheet>`)));
     assert.deepEqual(t.columns, ["1"]);
-    assert.ok(performance.now() - started < 3_000, `${Math.round(performance.now() - started)} ms`);
+    assert.ok(cpu() < 3_000, `${Math.round(cpu())} ms of CPU`);
 });
 
 // 100 MiB of one-letter shared strings fit in a workbook of 257 KB, and read-excel-file keeps an entry
@@ -739,14 +813,14 @@ test("a sheet with namespace prefixes is checked and trimmed as one without", as
     const XNS = 'xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
     const prefixed = (rows) => makeXlsxWithSheet(`<?xml version="1.0"?>\n<x:worksheet ${XNS}><x:sheetData>${rows}</x:sheetData></x:worksheet>`);
     const head = '<x:row r="1"><x:c r="A1" t="inlineStr"><x:is><x:t>n</x:t></x:is></x:c></x:row>';
-    const started = performance.now();
+    const cpu = cpuClock();
     await assert.rejects(read(fileOf(prefixed(`${head}<x:row r="300000"><x:c r="ALL300000"><x:v>1</x:v></x:c></x:row>`))), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "importCells");
     await assert.rejects(read(fileOf(prefixed(`${head}<x:row r="2"><x:c r="XFD2"><x:v>1</x:v></x:c></x:row>`))), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "columns");
     // a cell with another prefix than its row, and only the sheet's data with a prefix, count the same
     await assert.rejects(read(fileOf(prefixed(`${head}<x:row r="2"><y:c xmlns:y="urn:y" r="XFD2"><x:v>1</x:v></y:c></x:row>`))), (e) => e.details?.limit === "columns");
     const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
     await assert.rejects(read(fileOf(makeXlsxWithSheet(`<worksheet ${NS} ${XNS}><x:sheetData><row r="1"><c r="A1"><v>1</v></c></row><row r="2"><c r="XFD2"><v>1</v></c></row></x:sheetData></worksheet>`))), (e) => e.details?.limit === "columns");
-    assert.ok(performance.now() - started < 3_000, `${Math.round(performance.now() - started)} ms`);
+    assert.ok(cpu() < 3_000, `${Math.round(cpu())} ms of CPU`);
     // a sheet with prefixes reads as before; its rows without a value are left out with a note
     const empty = Array.from({ length: 200 }, (_, k) => `<x:row r="${k + 3}"><x:c r="A${k + 3}" s="1"/></x:row>`).join("");
     const t = await read(fileOf(prefixed(`${head}<x:row r="2" ><x:c r="A2"><x:v>7</x:v></x:c></x:row >${empty}`)));
@@ -783,14 +857,14 @@ test("row and cell numbers are read as the parser reads them, before parsing", a
     await assert.rejects(read(fileOf(sheet('<row><c r="A2e8"><v>1</v></c></row>'))), (e) => e.details?.limit === "rows");
     // columns only the check before parsing can refuse in time (billions of cells to the parser);
     // "~" is column 62 to it, a lower-case letter 33 to 58
-    const started = performance.now();
+    const cpu = cpuClock();
     for (const cell of ['<c r="~~~~~~~2">', '<c r="zzzzzzz2">', '<c r="ZZZZZZZZ2" r="A2">', '<c x:r="ZZZZZZZZ2" r="A2">', '<c x:y:r="ZZZZZZZZ2" y:r="A2">']) {
         await assert.rejects(read(fileOf(sheet(`<row r="2">${cell}<v>1</v></c></row>`))), (e) => e.code === "LIMIT_EXCEEDED" && e.details.limit === "columns", cell);
     }
     for (const cell of ['<c r="&#90;ZZZZZZZ2">', '<c x:r="&amp;#90;ZZZZZZZ2" r="A2">', '<c r="A\u00a02">']) {
         await assert.rejects(read(fileOf(sheet(`<row r="2">${cell}<v>1</v></c></row>`))), (e) => e.code === "LIMIT_EXCEEDED", cell);
     }
-    assert.ok(performance.now() - started < 3_000, `${Math.round(performance.now() - started)} ms`);
+    assert.ok(cpu() < 3_000, `${Math.round(cpu())} ms of CPU`);
     // an xmlns:r declared on a row or cell is no r
     const t = await read(fileOf(sheet('<row r="2" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><c r="A2" xmlns:t="urn:t"><v>7</v></c></row>')));
     assert.deepEqual(col(t, "n"), [7]);
@@ -805,9 +879,9 @@ test("a row in a row is checked; a '<' in a tag and a row the sheet does not end
     await rejects(read(fileOf(sheet('<row r="2"><c a="<" r="XFD2"><v>1</v></c></row><row r="600000"><c r="A600000"><v>1</v></c></row>'))), "DAMAGED", (e) => /"<"/.test(e.message));
     await rejects(read(fileOf(sheet('<row r="2"><c r="A2" <v>1</v></c></row>'))), "DAMAGED", (e) => /"<"/.test(e.message));
     // a row cut off at the end of the sheet goes to the parser unchecked no more
-    const started = performance.now();
+    const cpu = cpuClock();
     await rejects(read(fileOf(sheet('<row r="2"><c r="ZZZZZZZZ2"><v>1</v></c>', ""))), "DAMAGED");
-    assert.ok(performance.now() - started < 1_000, `${Math.round(performance.now() - started)} ms`);
+    assert.ok(cpu() < 1_000, `${Math.round(cpu())} ms of CPU`);
     // the sheet's data starts where the parser starts it: not in a comment or CDATA section before it
     for (const before of ["<!-- <sheetData> -->", "<![CDATA[<sheetData>]]>"]) {
         const t = await read(fileOf(makeXlsxWithSheet(`<worksheet ${NS}>${before}<sheetData>${head}<row r="2"><c r="A2"><v>7</v></c></row></sheetData></worksheet>`)));

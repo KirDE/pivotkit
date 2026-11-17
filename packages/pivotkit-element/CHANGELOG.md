@@ -6,10 +6,90 @@ All notable changes to `pivotkit-element` are documented in this file. The forma
 
 ## [Unreleased]
 
+### Upgrading from 0.7
+
+- The chart type menu lists the types, then a row per Display topic that opens a level: Value
+  labels, Legend, Title, Axis, Tooltip, Series and Layout ([#106](https://github.com/eizedev/pivotkit/issues/106)). Tests open the
+  level first; a choice is a menu item with `aria-checked`.
+- Bars, lines and areas with more than 20 categories get a zoom slider. Display › Axis › Zoom slider
+  › Off draws every category as before. A click on the legend changes the view, so Undo takes it
+  back ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-7)).
+- Without `export-data`, the default, the drill-down panel has no Export menu: no copy and no
+  download of its rows. Set `drill-down-export` to keep it
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#drill-export)).
+- The row count under the result says "2,190 of 4,386 rows" when a filter leaves rows out. A page
+  whose `labels` set `rowsCount` or add a language sets the new label `rowsFiltered` too
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#rows-filtered)).
+
 ### Added
 
 - Date-field ranges in the footer and field descriptions, data-driven Group hints and
   year context for cyclic groupings, in English and German (#109).
+- The chart's zoom slider, by mouse, touch and keyboard, the legend that hides and shows series in
+  the view, and 100 % stacked bars and areas ([#36](https://github.com/eizedev/pivotkit/issues/36)), ([#575](https://github.com/eizedev/pivotkit/issues/575)).
+- Reference lines in the chart: Display › **Reference lines** with **Average**, **Trend** and a
+  **Target** ([#48](https://github.com/eizedev/pivotkit/issues/48)). ECharts' markLine component
+  draws them: about 6 KiB gzip more in the chart's chunk.
+- `drill-down-export` (boolean attribute) and the `drillDownExport` property: the drill-down panel's
+  copy and download while `export-data` is off. As pivotkit-react's `drillDownExport`.
+
+### Changed
+
+- The chart's tooltip names the element under the pointer, with a stack's total. Display →
+  **Tooltip**, **All series** lists every series at the category
+  ([#376](https://github.com/eizedev/pivotkit/issues/376), [#106](https://github.com/eizedev/pivotkit/issues/106)).
+
+- The drill-down panel's copy and download follow `export-data`. Without it, the panel shows the
+  rows but offers no copy and no download (#263).
+- The first load is about 1.7 KiB smaller: pivotkit-core's ECharts option loads with the chart
+  (#546).
+- `npm run size` names the zlib it measures with. It says when the sizes can differ from CI's, as
+  with a Node that uses the system's zlib (#546).
+- The row count under the result says how many of the data's rows the filters keep, as
+  pivotkit-react's (#108).
+
+### Fixed
+
+- The chart on a touch screen, a heatmap's colours in a form such as `oklch()` and the tooltip of a
+  pie or heatmap with a field on Columns, as pivotkit-react's ([#538](https://github.com/eizedev/pivotkit/issues/538),
+  [#386](https://github.com/eizedev/pivotkit/issues/386), [#537](https://github.com/eizedev/pivotkit/issues/537)).
+- A view's locale or a `locale` attribute that the browser has no data for, such as `xx-XX`, no
+  longer takes the machine's locale, as in pivotkit-react ([#552](https://github.com/eizedev/pivotkit/issues/552)).
+- The element bundles pivotkit-core's chart labels at small sizes: slanted category names leave the
+  plot its height, a donut's outside labels stay whole, the value at the end of a horizontal bar is
+  not cut, and a heatmap names every row that has room ([#228](https://github.com/eizedev/pivotkit/issues/228), [#229](https://github.com/eizedev/pivotkit/issues/229),
+  [#230](https://github.com/eizedev/pivotkit/issues/230), [#231](https://github.com/eizedev/pivotkit/issues/231)).
+- The zones fold when they no longer fit the element's box, also when the box keeps its size, as
+  pivotkit-react's (#93).
+
+## [0.7.0] - 2026-11-16
+
+### Upgrading from 0.6
+
+What a page checks; the [upgrade page](https://pivotkit.eize.dev/getting-started/upgrading/#from-0-6-1) has the details.
+
+- Export → HTML report carries the dark colours set on the element. On a dark screen a colour
+  scale's middle colour (`--pk-scale-mid`) is the one the dark theme sets, not the light one
+  ([upgrading](https://pivotkit.eize.dev/getting-started/upgrading/#dark-mid-colour)).
+- A field's Filter level shows its rules in a single column as wide as the menu, in every browser.
+  Tests or screenshots of that form take the new layout.
+
+### Changed
+
+- Bundles pivotkit-core 0.7.0, pivotkit-react 0.7.0 and pivotkit-report 0.3.0.
+
+### Fixed
+
+- The element bundles pivotkit-react's fix of a field's Filter level: its rules show in the WebKit
+  of Playwright 1.65 (build 2388), in a single column as wide as the menu, in every browser
+  ([#474](https://github.com/eizedev/pivotkit/issues/474)).
+- The element bundles pivotkit-react's Export → HTML report with the dark colours set on the element
+  (`pivot-report[data-pk-theme="dark"]`), for a reader on a dark screen
+  ([#385](https://github.com/eizedev/pivotkit/issues/385)).
+- The element bundles pivotkit-react's fix of Print or save as PDF: the print dialog opens in the
+  click itself, also on a hidden page ([#210](https://github.com/eizedev/pivotkit/issues/210)).
+- The element bundles pivotkit-react's fix of a menu's button in Safari and other WebKit browsers: a
+  second click on it closes the menu ([#393](https://github.com/eizedev/pivotkit/issues/393)).
 
 ## [0.6.1] - 2026-11-14
 
@@ -384,7 +464,8 @@ First release.
   thousands separators, CSV percentages and calculations as the table shows them, heatmaps without
   grey empty cells.
 
-[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-element@0.6.1...HEAD
+[Unreleased]: https://github.com/eizedev/pivotkit/compare/pivotkit-element@0.7.0...HEAD
+[0.7.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-element@0.6.1...pivotkit-element@0.7.0
 [0.6.1]: https://github.com/eizedev/pivotkit/compare/pivotkit-element@0.6.0...pivotkit-element@0.6.1
 [0.6.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-element@0.5.0...pivotkit-element@0.6.0
 [0.5.0]: https://github.com/eizedev/pivotkit/compare/pivotkit-element@0.4.0...pivotkit-element@0.5.0

@@ -13,8 +13,8 @@
 import { chartThemeFrom, toGrid } from "pivotkit-core";
 import { dataExportFor } from "./export-scope.js";
 import { copyText, dataUrlToBlob, safeFileName, saveBlob } from "./files.js";
-import { printHtml } from "./print-frame.js";
-import { lightTokens } from "./light-tokens.js";
+import { dropPrintFrame, preparePrintFrame, printHtml, releasePrintFrame, takePrintFrame } from "./print-frame.js";
+import { themeTokens } from "./theme-tokens.js";
 import { fill, messageOf } from "./labels.js";
 import { menuLabels } from "./menu-labels.js";
 
@@ -48,6 +48,8 @@ export function loadExporters() {
 
 /** @type {Promise<[typeof import("./report-run.js"), any]> | null} */
 let reportPending = null;
+/** @type {[typeof import("./report-run.js"), any] | null} */
+let reportModules = null;
 
 /**
  * pivotkit-report with ECharts (the report's chart parts, through the first load's loader, and the SVG
@@ -55,10 +57,13 @@ let reportPending = null;
  * @param {() => Promise<any>} loadECharts  chart.jsx's: dist/echarts.js is a file next to dist/index.js
  */
 function loadReport(loadECharts) {
-    reportPending ??= Promise.all([import("./report-run.js"), loadECharts()]).catch((error) => {
-        reportPending = null;
-        throw error;
-    });
+    reportPending ??= Promise.all([import("./report-run.js"), loadECharts()]).then(
+        (modules) => (reportModules = modules),
+        (error) => {
+            reportPending = null;
+            throw error;
+        }
+    );
     return reportPending;
 }
 
@@ -67,6 +72,33 @@ export const exportersNow = () => exporters;
 
 /** Starts loading the export module (a menu that copies, when it opens); a failure waits for the click. */
 export const prepareExporters = () => void loadExporters().catch(() => undefined);
+
+/**
+ * Makes the Export menu's exports ready to happen in the click (use-export.js). When the menu opens
+ * ("menu"): the export module (a copy) and an empty print frame (print-frame.js); the function it
+ * returns removes the frame when the menu closes without a print. When Print is pointed at or focused
+ * ("print"): the report's modules, ECharts with them (a chunk too large to load whenever the menu
+ * opens). A failure waits for the click.
+ * @param {"menu" | "print"} what
+ * @param {React.RefObject<HTMLElement | null>} root  the report's root
+ * @param {(() => Promise<any>) | undefined} loadECharts  chart.jsx's
+ * @returns {(() => void) | undefined}
+ */
+export function prepareExport(what, root, loadECharts) {
+    if (what === "print") {
+        if (loadECharts) {
+            void loadReport(loadECharts).catch(() => undefined);
+        }
+        return undefined;
+    }
+    prepareExporters();
+    const container = root.current;
+    if (!container) {
+        return undefined;
+    }
+    preparePrintFrame(container);
+    return () => releasePrintFrame(container);
+}
 
 /**
  * Hands the file to the host's onExport, then downloads it unless onExport returned false.
@@ -148,26 +180,36 @@ function xlsxTheme(root) {
     if (!root) {
         return undefined;
     }
-    const tokens = lightTokens(root, XLSX_TOKENS);
+    const tokens = themeTokens(root, "light", XLSX_TOKENS);
     const ctx = root.ownerDocument.createElement("canvas").getContext("2d");
     return xlsxThemeOf({ getPropertyValue: (name) => tokens[name] ?? "" }, (text) => hexColor(text, ctx));
 }
 
 /**
- * The tokens of an HTML report and an SVG from the report's root: the light theme's (report-run.js's
- * REPORT_TOKENS) in either theme, and the chart's lengths and the report's font sizes in px (the
- * chart's module resolves them: LENGTH_TOKENS, report-run.js's REPORT_LENGTHS).
+ * The tokens of an HTML report and an SVG from the report's root, in either theme it shows: the light
+ * theme's (report-run.js's REPORT_TOKENS) with the chart's lengths and the report's font sizes in px
+ * (the chart's module resolves them: LENGTH_TOKENS, report-run.js's REPORT_LENGTHS) as `tokens`, and
+ * for an HTML report the dark theme's colours (REPORT_DARK_TOKENS) as `darkTokens`, for a reader
+ * whose screen is dark (paper, a print and the SVG are light).
  * @param {HTMLElement | null} root
- * @param {{ REPORT_TOKENS: readonly string[], REPORT_LENGTHS: readonly string[] }} report
- * @param {{ LENGTH_TOKENS: readonly string[], tokenLengths: (root: HTMLElement, names: readonly string[]) => Record<string, string> }} chart
- * @returns {Record<string, string> | undefined}
+ * @param {{ REPORT_TOKENS: readonly string[], REPORT_DARK_TOKENS: readonly string[], REPORT_LENGTHS: readonly string[] }} report
+ * @param {{ LENGTH_TOKENS: readonly string[], tokenLengths: (root: HTMLElement, names: readonly string[]) => Record<string, string>,
+ *   screenColor: (doc: Document, parse: (color: string) => unknown) => (color: string) => string | null }} chart
+ *   the chart's module (echarts.js); the heatmap's colours go as the screen draws them (screenColor)
+ * @param {boolean} dark  whether the file is shown on a screen (the HTML report)
+ * @returns {{ tokens?: Record<string, string>, darkTokens?: Record<string, string> }}
  */
-function reportTokens(root, report, chart) {
+function reportTokens(root, report, chart, dark) {
     if (!root) {
-        return undefined;
+        return {};
     }
-    const tokens = lightTokens(root, report.REPORT_TOKENS, () => chart.tokenLengths(root, [...chart.LENGTH_TOKENS, ...report.REPORT_LENGTHS]));
-    return Object.keys(tokens).length ? tokens : undefined;
+    // a mixed colour in a form the file cannot mix (oklch()) as the screen draws it, so the file shows it too
+    // (as #rrggbb: what both ECharts and the report's table take)
+    const mix = chart.screenColor(root.ownerDocument, (c) => /^#[\da-f]{6}$/i.test(c));
+    const mixable = (/** @type {Record<string, string>} */ found) => Object.fromEntries(Object.entries(found).map(([name, value]) => [name, MIXED_TOKENS.includes(name) ? (mix(value) ?? value) : value]));
+    const tokens = mixable(themeTokens(root, "light", report.REPORT_TOKENS, () => chart.tokenLengths(root, [...chart.LENGTH_TOKENS, ...report.REPORT_LENGTHS])));
+    const darkTokens = dark ? mixable(themeTokens(root, "dark", report.REPORT_DARK_TOKENS)) : {};
+    return { ...(Object.keys(tokens).length ? { tokens } : {}), ...(Object.keys(darkTokens).length ? { darkTokens } : {}) };
 }
 
 /**
@@ -184,6 +226,12 @@ function reportTokens(root, report, chart) {
  */
 
 /**
+ * The colours that are mixed rather than written as they are: a heatmap's (ECharts mixes them) and a
+ * colour scale's in the HTML report's table (pivotkit-report takes #rgb and #rrggbb only).
+ */
+const MIXED_TOKENS = Object.freeze(["--pk-heat-low", "--pk-heat-high", "--pk-scale-low", "--pk-scale-mid", "--pk-scale-high"]);
+
+/**
  * One export of the Export menu.
  * @param {"xlsx" | "csv" | "png" | "html" | "svg" | "print" | "copy-table" | "copy-json" | "data-csv" | "data-json"} kind
  * @param {ExportContext} context
@@ -197,7 +245,8 @@ export async function runExport(kind, { fileName, result, encoded, exportData, l
     try {
         if (kind === "png") {
             const surface = root.current ? getComputedStyle(root.current).getPropertyValue("--pk-surface").trim() : "";
-            const url = chartRef.current?.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: surface || undefined });
+            // the picture of what is drawn, without the zoom slider (a control, not part of the chart)
+            const url = chartRef.current?.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: surface || undefined, excludeComponents: ["dataZoom"] });
             const file = `${base}.png`;
             // the host that kept the file says itself what became of it
             if (url && deliver(dataUrlToBlob(url), { kind, fileName: file, doc, onExport })) {
@@ -230,40 +279,54 @@ export async function runExport(kind, { fileName, result, encoded, exportData, l
             return;
         }
         if (kind === "html" || kind === "svg" || kind === "print") {
-            const [report, echarts] = await loadReport(/** @type {() => Promise<any>} */ (loadECharts));
-            const chart = chartRef.current;
-            // the chart's size on the screen, when it is drawn
-            const size = chart ? { width: clampSize(chart.getWidth()), height: clampSize(chart.getHeight()) } : undefined;
-            const rendered = await report.render(result.view, result.encoded, {
-                format: kind === "svg" ? "svg" : "html",
-                echarts,
-                locale,
-                trusted: true,
-                labels: labels.core,
-                ...(limits ? { limits } : {}),
-                timeZone: result.timeZone,
-                ...(title ? { title } : {}),
-                ...(source ? { source } : {}),
-                ...(size ? { size } : {}),
-                tokens: reportTokens(root.current, report, echarts),
-                chartEmbed: kind === "print" ? "inline" : "image"
-            });
-            const file = `${base}.${kind === "svg" ? "svg" : "html"}`;
-            const blob = new Blob([/** @type {BlobPart} */ (rendered.body)], { type: rendered.mediaType });
-            if (kind !== "print") {
-                if (deliver(blob, { kind, fileName: file, doc, onExport })) {
-                    announce(fill(labels.toastExported, { file }));
+            // the print's frame, taken in the click before anything is awaited (print-frame.js). With
+            // the modules loaded, what is awaited is resolved already (render() is async, its work is
+            // not), so print() comes in the microtasks right after the click's listener, still inside
+            // the click's dispatch; a click before the modules have loaded prints after it
+            const slot = kind === "print" && root.current ? takePrintFrame(root.current) : null;
+            let printing = false;
+            try {
+                const [report, echarts] = reportModules ?? (await loadReport(/** @type {() => Promise<any>} */ (loadECharts)));
+                const chart = chartRef.current;
+                // the chart's size on the screen, when it is drawn
+                const size = chart ? { width: clampSize(chart.getWidth()), height: clampSize(chart.getHeight()) } : undefined;
+                const rendered = await report.render(result.view, result.encoded, {
+                    format: kind === "svg" ? "svg" : "html",
+                    echarts,
+                    locale,
+                    trusted: true,
+                    labels: labels.core,
+                    ...(limits ? { limits } : {}),
+                    timeZone: result.timeZone,
+                    ...(title ? { title } : {}),
+                    ...(source ? { source } : {}),
+                    ...(size ? { size } : {}),
+                    ...reportTokens(root.current, report, echarts, kind === "html"),
+                    chartEmbed: kind === "print" ? "inline" : "image"
+                });
+                const file = `${base}.${kind === "svg" ? "svg" : "html"}`;
+                const blob = new Blob([/** @type {BlobPart} */ (rendered.body)], { type: rendered.mediaType });
+                if (kind !== "print") {
+                    if (deliver(blob, { kind, fileName: file, doc, onExport })) {
+                        announce(fill(labels.toastExported, { file }));
+                    }
+                    return;
+                }
+                // the host may print itself (a PDF on its server): it gets the report first
+                if (onExport?.({ kind, fileName: file, blob }) === false) {
+                    return;
+                }
+                printing = true;
+                if (!slot || !(await printHtml(/** @type {string} */ (rendered.text), slot))) {
+                    announce(labels.toastPrintBlocked, { tone: "error" });
                 }
                 return;
+            } finally {
+                // no print came of it (the host took the report, or it failed): its frame goes
+                if (slot && !printing) {
+                    dropPrintFrame(slot);
+                }
             }
-            // the host may print itself (a PDF on its server): it gets the report first
-            if (onExport?.({ kind, fileName: file, blob }) === false) {
-                return;
-            }
-            if (!root.current || !(await printHtml(/** @type {string} */ (rendered.text), root.current))) {
-                announce(labels.toastPrintBlocked, { tone: "error" });
-            }
-            return;
         }
         const m = exporters ?? (await loadExporters());
         const grid = toGrid(result, { locale, labels: labels.core, limits });

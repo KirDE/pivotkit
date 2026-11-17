@@ -1,10 +1,11 @@
 // A host matches every visual value to its design through --pk-* tokens (docs/reference/theming.md):
 // corners, the code font, the focus ring and the chart's title, text and marks (#216, #221); and the
 // files a person exports (workbook, HTML report) take the host's light colours and font sizes, from a
-// dark report too, in React and inside pivotkit-element (#217, #220).
+// dark report too, in React and inside pivotkit-element (#217, #220); the HTML report also takes the
+// host's dark colours for a dark screen (#385).
 import { readFile } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
-import { TRACE_IN_PRINT_FRAME, chipMenu, expect, test, toolbar } from "./fixtures.js";
+import { chipMenu, expect, test, toolbar } from "./fixtures.js";
 
 /** A host's theme keyed on the theme the report shows: light colours, and dark ones for the dark theme. */
 const HOST_THEME = (selector) => `
@@ -35,6 +36,12 @@ async function focusRing(page, browserName) {
 
 /** The :root rule of an HTML report: the tokens it was written with. */
 const rootRule = (html) => html.match(/<style>:root\{([^}]*)\}/)[1];
+
+/**
+ * An HTML report without its rules of a dark screen's tokens (the host's dark colours, #385): what
+ * paper and a light screen are drawn with.
+ */
+const withoutDarkScreen = (html) => html.replace(/^@media screen[^{]*\{:root(?::not\(\[data-pk-theme="light"\]\)|\[data-pk-theme="dark"\])\{.*$/gm, "");
 
 test.describe("a host's tokens for corners, the code font, the focus ring and the chart (#216)", () => {
     test("the default look: the corners, the code font and the ring widths of before", async ({ page, browserName }) => {
@@ -117,9 +124,104 @@ test.describe("a host's tokens for corners, the code font, the focus ring and th
     });
 });
 
-test.describe("exports from a dark report carry the host's light colours (#217)", () => {
-    test.use({ ignoreConsole: [TRACE_IN_PRINT_FRAME] });
+test.describe("a heatmap's colours in a form ECharts cannot mix (#386)", () => {
+    // oklch() and rgb() with spaces: ECharts' own parser reads neither and mixed them to black
+    const LIGHT = { low: "oklch(0.96 0.02 250)", high: "rgb(178 34 34)" };
+    const DARK = { low: "oklch(0.32 0.06 250)", high: "oklch(0.85 0.17 90)" };
+    const css = `.heat-host .pk-root { --pk-heat-low: ${LIGHT.low}; --pk-heat-high: ${LIGHT.high}; }
+.heat-host .pk-root[data-pk-theme="dark"] { --pk-heat-low: ${DARK.low}; --pk-heat-high: ${DARK.high}; }`;
+    // revenue per region and category: the least is South's services (5), the most East's software (40)
+    const data = [
+        { Region: "North", Category: "Hardware", Revenue: 20 }, { Region: "North", Category: "Services", Revenue: 10 }, { Region: "North", Category: "Software", Revenue: 30 },
+        { Region: "South", Category: "Hardware", Revenue: 15 }, { Region: "South", Category: "Services", Revenue: 5 }, { Region: "South", Category: "Software", Revenue: 25 },
+        { Region: "East", Category: "Hardware", Revenue: 12 }, { Region: "East", Category: "Services", Revenue: 18 }, { Region: "East", Category: "Software", Revenue: 40 }
+    ];
 
+    for (const theme of ["light", "dark"]) {
+        test(`${theme}: the cells show the host's colours, the least one in the low colour and the most in the high one`, async ({ page }) => {
+            await page.goto("pages/host.html");
+            await page.addStyleTag({ content: css });
+            await page.evaluate(async ({ data, theme }) => {
+                const React = await import("react");
+                const { createRoot } = await import("react-dom/client");
+                const { PivotReport } = await import("pivotkit-react");
+                const el = document.createElement("section");
+                el.id = "heat-chart";
+                el.className = "heat-host";
+                document.body.prepend(el);
+                const view = { rows: ["Region"], cols: ["Category"], values: [{ field: "Revenue", agg: "sum" }], display: "chart", chart: { type: "heatmap", valueLabels: "off" } };
+                createRoot(el).render(React.createElement(PivotReport, { theme, data, defaultView: view, height: 520 }));
+            }, { data, theme });
+            const chart = page.locator("#heat-chart").getByTestId("pivot-chart");
+            await expect(chart.locator("canvas").first()).toBeVisible();
+            // the colour drawn in the middle of a cell, as [r, g, b], once the chart has settled
+            const cell = (region, category) =>
+                chart.evaluate(async (el, { region, category }) => {
+                    const { getInstanceByDom } = await import("echarts/core");
+                    const instance = getInstanceByDom(el);
+                    if (!instance.getZr().animation.isFinished()) {
+                        return null;
+                    }
+                    const option = instance.getOption();
+                    const [x, y] = instance.convertToPixel({ seriesIndex: 0 }, [option.xAxis[0].data.indexOf(category), option.yAxis[0].data.indexOf(region)]);
+                    // the layers ECharts draws on (the cells have one of their own), one over the other
+                    const layers = [...el.querySelectorAll("canvas")];
+                    const scale = layers[0].width / layers[0].clientWidth;
+                    const copy = document.createElement("canvas");
+                    copy.width = layers[0].width;
+                    copy.height = layers[0].height;
+                    const ctx = copy.getContext("2d", { willReadFrequently: true });
+                    for (const layer of layers) {
+                        ctx.drawImage(layer, 0, 0);
+                    }
+                    const [r, g, b, a] = ctx.getImageData(Math.round(x * scale), Math.round(y * scale), 1, 1).data;
+                    // not drawn yet
+                    return a === 0 ? null : [r, g, b];
+                }, { region, category });
+            await expect.poll(async () => (await cell("South", "Services")) !== null && (await cell("East", "Software")) !== null).toBe(true);
+            const [least, most] = [await cell("South", "Services"), await cell("East", "Software")];
+            const sum = (c) => c[0] + c[1] + c[2];
+            if (theme === "light") {
+                // a pale blue and a firebrick red
+                expect(Math.min(...least), String(least)).toBeGreaterThan(220);
+                expect(least[2], String(least)).toBeGreaterThanOrEqual(least[0]);
+                expect(most[0] - most[2], String(most)).toBeGreaterThan(100);
+            } else {
+                // a dark blue, not black, and a light yellow
+                expect(sum(least), String(least)).toBeGreaterThan(90);
+                expect(Math.max(...least), String(least)).toBeLessThan(110);
+                expect(least[2] - least[0], String(least)).toBeGreaterThan(15);
+                expect(Math.min(most[0], most[1]) - most[2], String(most)).toBeGreaterThan(80);
+            }
+            // the SVG of the Export menu (light, as paper) draws the cells in the host's light colours too
+            const shownLight = await chart.evaluate(async (el) => {
+                const { getInstanceByDom } = await import("echarts/core");
+                return getInstanceByDom(el).getOption().visualMap[0].inRange.color;
+            });
+            await page.locator("#heat-chart").getByTestId("export").click();
+            const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-svg").click()]);
+            const svg = await readFile(await download.path(), "utf8");
+            const fills = [...svg.matchAll(/<path d="M[^"]*" fill="([^"]+)"/g)].map((m) => m[1].toLowerCase());
+            expect(fills.some((f) => /^(#000|#000000|rgb\(0,\s*0,\s*0\)|black)$/.test(f)), fills.join(" ")).toBe(false);
+            if (theme === "light") {
+                // the least and the largest cell: the scale's two ends, as the screen draws them
+                const rgb = (hex) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(",")})`;
+                expect(fills).toEqual(expect.arrayContaining(shownLight.map(rgb)));
+                // the HTML report: the heat colours and the colour scale of its table (by default the
+                // heat colours) as #rrggbb, which the report's table takes, not oklch()
+                await page.locator("#heat-chart").getByTestId("export").click();
+                const [report] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-html").click()]);
+                const tokens = rootRule(await readFile(await report.path(), "utf8"));
+                for (const [name, value] of [["--pk-heat-low", shownLight[0]], ["--pk-heat-high", shownLight[1]], ["--pk-scale-low", shownLight[0]], ["--pk-scale-high", shownLight[1]]]) {
+                    expect(tokens).toContain(`${name}:${value}`);
+                }
+                expect(tokens).not.toContain("oklch(");
+            }
+        });
+    }
+});
+
+test.describe("exports from a dark report carry the host's light colours (#217)", () => {
     test("React: the workbook and the HTML report get the light colours and --pk-scale-mid; the screen stays dark, nothing animates", async ({ page }) => {
         await page.goto("?data=sales&theme=dark");
         await page.addStyleTag({ content: HOST_THEME(".pk-root") });
@@ -160,7 +262,8 @@ test.describe("exports from a dark report carry the host's light colours (#217)"
         expect(tokens).toContain("--pk-small:14px");
         expect(tokens).toContain("--pk-report-title-size:24px");
         expect(tokens).toContain("--pk-chart-text-size:14px");
-        expect(html).not.toMatch(/#331a00|#ff9933|#553300|#c58cf2/);
+        // the dark colours only in the rules of a dark screen's tokens
+        expect(withoutDarkScreen(html)).not.toMatch(/#331a00|#ff9933|#553300|#c58cf2/);
         // the table's cells in the report: the lowest value the host's low colour, the highest its high one
         // (a colour scale of three, so a value in the middle is the host's middle colour)
         expect(html).toMatch(/--pk-cell-bg:#fff5e6/);
@@ -200,10 +303,55 @@ test.describe("exports from a dark report carry the host's light colours (#217)"
         expect(tokens).toContain("--pk-scale-mid:#ffcc00");
         expect(tokens).toContain("--pk-font-size:15px");
         expect(tokens).toContain("--pk-report-title-size:24px");
-        expect(html).not.toMatch(/#331a00|#ff9933|#553300|#c58cf2/);
+        // the dark colours only in the rules of a dark screen's tokens
+        expect(withoutDarkScreen(html)).not.toMatch(/#331a00|#ff9933|#553300|#c58cf2/);
 
         expect(await tickets.getAttribute("data-pk-theme")).toBe("dark");
         expect(await shown()).toBe("#331a00");
         expect(await page.evaluate(() => window.__runs)).toBe(0);
     });
+
+});
+
+test.describe("the HTML report carries the host's dark colours too (#385)", () => {
+    // for a reader whose screen is dark, read from the report whichever theme it shows
+    for (const theme of ["light", "dark"]) {
+        test(`React: the HTML report from a ${theme} report shows the host's dark colours on a dark screen, its light ones on a light screen and on paper (#385)`, async ({ page, context }) => {
+            await page.goto(`?data=sales&theme=${theme}`);
+            await page.addStyleTag({ content: HOST_THEME(".pk-root") });
+            await chipMenu(page, "Sum of Revenue");
+            await page.locator(".pk-chip-menu").getByTestId("cond-colorScale").click();
+            await expect(page.locator(".pk-td.pk-has-scale").first()).toBeVisible();
+            await page.keyboard.press("Escape");
+            await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
+            const root = page.locator(".pk-root");
+            const shown = () => root.evaluate((el) => ({ theme: el.getAttribute("data-pk-theme"), low: getComputedStyle(el).getPropertyValue("--pk-heat-low").trim() }));
+            const before = await shown();
+            expect(before.theme).toBe(theme);
+            await page.evaluate(() => {
+                window.__runs = 0;
+                document.querySelector(".pk-root [data-testid='pivot-table']").addEventListener("transitionrun", () => window.__runs++, true);
+            });
+
+            await toolbar(page, "export");
+            const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-html").click()]);
+            const html = await readFile(await download.path(), "utf8");
+            // the screen kept its theme, and nothing on it animated while the other theme was read
+            expect(await shown()).toEqual(before);
+            expect(await page.evaluate(() => window.__runs)).toBe(0);
+
+            const report = await context.newPage();
+            const NAMES = ["--pk-heat-low", "--pk-heat-high", "--pk-scale-mid", "--pk-chart-1"];
+            const tokensOf = async (colorScheme, media) => {
+                await report.emulateMedia({ colorScheme, media });
+                await report.setContent(html);
+                return report.evaluate((names) => names.map((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()), NAMES);
+            };
+            const LIGHT = ["#fff5e6", "#b34700", "#ffcc00", "#6b2fa0"];
+            expect(await tokensOf("dark", "screen")).toEqual(["#331a00", "#ff9933", "#553300", "#c58cf2"]);
+            expect(await tokensOf("light", "screen")).toEqual(LIGHT);
+            expect(await tokensOf("dark", "print")).toEqual(LIGHT);
+            await report.close();
+        });
+    }
 });

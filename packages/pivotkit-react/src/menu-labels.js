@@ -30,6 +30,9 @@ export const en = {
         drillCopy: "The rows as the panel shows them, with a header row: tab-separated, pastes into Excel or Google Sheets as columns.",
         drillJson: "The rows as JSON objects, with the data's field names and raw values, for a program.",
         groupLabels: "With two or more fields in Rows: the outer field's items written once under the axis, below their categories.",
+        tooltip: "Automatic: a bar, segment or point shows only itself. Between them, every series shows. Stacked sums and counts also show the total. All series: always every series of that category.",
+        stackPercent: "Each stack fills the axis; each part shows its share. Value labels show the share too. Only for sums and counts. A stack with parts below zero does not fill the axis, and one that adds up to nothing is left out.",
+        zoom: "A slider under the axis shows a part of the categories. Automatic: with more than 20 categories, or when the axis would leave out 3 names or more between two. It cannot be moved by keyboard yet: Off shows every category. Files and prints show every category.",
         labelPosition: "Outside: each slice's name and number next to it. Inside: the number on the slice, the names in the legend; outside when a donut's ring is too thin for it.",
         sharedView: "Only admins can change shared views.",
         valuesFilter: "Values are not filtered here: filter a field on Rows or Columns through its menu, or move a field to Filters."
@@ -373,12 +376,41 @@ export const en = {
     chartTitle: "Title",
     chartTitleNone: "No title",
     smoothLines: "Smooth lines",
+    // the chart's reference lines (Average, Trend and Target are pivotkit-core's words, labels.core)
+    referenceLines: "Reference lines",
+    targetNone: "No target",
+    // the Reference lines row when none is on
+    linesOff: "Off",
+    targetPercent: "A percentage: type 25% or 0.25.",
+    targetPercent100: "A percentage: type 25 or 25%.",
+    // a bare number above 1 for a value shown as a share: {typed} as typed, {shown} what it means
+    targetPercentHigh: "{typed} is {shown}. Type {typed}% for {share}.",
+    targetRemove: "Remove the target",
+    // why a reference line is not offered (pivotkit-core's referenceLineRules notes)
+    linesNotes: {
+        noTotal: "These lines need a total. Switch to Bars, not stacked, to draw them.",
+        negative: "A stack with values below zero has no single total, so it gets no average and no trend.",
+        percentStack: "Every stack to 100 % is the same height, so it gets no lines.",
+        noTime: "A trend needs dates on Rows, in date order.",
+        byIndex: "Some categories have no date, so the trend counts them as evenly spaced.",
+        mixedUnits: "The values have different units, so one target does not fit them.",
+        table: "Show the chart to see which lines it can draw."
+    },
     labelPosition: "Labels",
     labelPositionNames: { outside: "Outside", inside: "Inside" },
     axisLabels: "Axis labels",
     axisLabelNames: { auto: "Automatic", all: "All (slanted)", nth: "Every n-th" },
     groupLabels: "Group labels under the axis",
     groupLabelNames: { auto: "Automatic", on: "On", off: "Off" },
+    tooltip: "Tooltip",
+    tooltipNames: { auto: "Automatic", axis: "All series" },
+    zoom: "Zoom slider",
+    zoomNames: { auto: "Automatic", on: "On", off: "Off" },
+    stackPercent: "Stacked to 100 %",
+    shownSeries: "Series",
+    seriesShownOf: "{shown} of {count} shown",
+    chartAxis: "Axis",
+    chartLayout: "Layout",
     defaultName: "Use the default name",
     // sharing a view (the Views menu): the group's title
     shareThisView: "Share this view",

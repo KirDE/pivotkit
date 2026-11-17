@@ -9,12 +9,12 @@
  * per section. Each section reports what it drops as an issue { path, message }.
  */
 
-import { AGGREGATOR_NAMES, aggregatorFits, aggregatorOf } from "./aggregators.js";
+import { AGGREGATOR_ALIASES, AGGREGATOR_NAMES, aggregatorFits, aggregatorOf } from "./aggregators.js";
 import { DERIVED, MIN_BIN_SIZE } from "./derive.js";
 import { FILTERS, FILTER_TYPES_V1, WEEK_START, fieldKinds, fieldTypeHint, itemFor, readItem } from "./filters.js";
 import { closest } from "./hints.js";
 import { isFormat } from "./format.js";
-import { ISSUE_CAP, resolveLimits } from "./limits.js";
+import { ISSUE_CAP, ITEM_LENGTH, resolveLimits } from "./limits.js";
 import { migrate1 } from "./migrate-1.js";
 import { SHOW_AS } from "./show-as.js";
 import { foldText } from "./text-match.js";
@@ -121,6 +121,18 @@ export const CHART_AXIS_LABELS = Object.freeze(["auto", "all", "nth"]);
  * the chart has room for them (the UI measures it; the core draws them), "on" always, "off" never.
  */
 export const CHART_GROUP_LABELS = Object.freeze(["auto", "on", "off"]);
+/**
+ * What the tooltip of bars, lines and areas covers: "auto" the element under the pointer (a bar, a
+ * stacked segment with its stack's total, a line point), every series between elements (between
+ * stacked bars the total only); "axis" every series at the pointer's category, wherever it is. Pie,
+ * donut and heatmap always show the slice or cell under the pointer.
+ */
+export const CHART_TOOLTIPS = Object.freeze(["auto", "axis"]);
+/**
+ * The zoom slider under the category axis of bars, lines and areas: "auto" while the axis cannot write
+ * every label (the UI measures it), "on" always, "off" never. A file (SVG, HTML report) draws every category.
+ */
+export const CHART_ZOOMS = Object.freeze(["auto", "on", "off"]);
 
 /** A colour of a conditional format: #rgb or #rrggbb. */
 export const COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
@@ -148,11 +160,16 @@ export const COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
  * @typedef {{ name: string, field: string, by: string, size?: number, origin?: number }} DerivedSpec
  * @typedef {{ field: string, by: "label" | "value" | "custom", order: "asc" | "desc", value?: ValueRef, items?: any[] }} SortSpec
  * @typedef {{ type: string, stacked: boolean, horizontal: boolean, valueLabels: string, legend: string,
- *   title: string | null, smooth: boolean, axisLabels: string, groupLabels: string, labelPosition: string }} ChartSpec  the chart
+ *   title: string | null, smooth: boolean, axisLabels: string, groupLabels: string, labelPosition: string, tooltip: string,
+ *   zoom: string, stackPercent: boolean, hidden: string[],
+ *   referenceLines: { average: boolean, trend: boolean, target: number | null } }} ChartSpec  the chart
  *   type and how it is drawn: value labels (CHART_VALUE_LABELS) and, on a pie or donut, where they go
  *   (CHART_LABEL_POSITIONS), legend (CHART_LEGENDS), a title over the
  *   chart, smooth lines (line, area), the category axis labels (CHART_AXIS_LABELS), and with two or more
- *   row fields the first one's items as group labels under the axis (CHART_GROUP_LABELS)
+ *   row fields the first one's items as group labels under the axis (CHART_GROUP_LABELS), what the
+ *   tooltip covers (CHART_TOOLTIPS), the zoom slider (CHART_ZOOMS), bars and areas stacked to 100 %
+ *   (stackPercent), the legend entries hidden (series, or slices of a pie), by name, and the reference
+ *   lines of bars, lines and areas (referenceLineRules)
  *   custom: `items` first in their order (reversed for "desc"), the rest after them by label
  *
  * @typedef {object} View
@@ -190,7 +207,7 @@ export function emptyView() {
         totals: { grandTotalRow: true, grandTotalColumn: true, rowSubtotals: true, colSubtotals: false },
         collapsed: { rows: [], cols: [] },
         display: "table",
-        chart: { type: "auto", stacked: false, horizontal: false, valueLabels: "auto", legend: "auto", title: null, smooth: false, axisLabels: "auto", groupLabels: "auto", labelPosition: "outside" },
+        chart: { type: "auto", stacked: false, horizontal: false, valueLabels: "auto", legend: "auto", title: null, smooth: false, axisLabels: "auto", groupLabels: "auto", labelPosition: "outside", tooltip: "auto", zoom: "auto", stackPercent: false, hidden: [], referenceLines: { average: false, trend: false, target: null } },
         formatting: { locale: null, timeZone: null, weekStart: WEEK_START }
     };
 }
@@ -304,6 +321,7 @@ export const VIEW_KEYS = Object.freeze({
     totals: Object.freeze(Object.keys(emptyView().totals)),
     collapsed: Object.freeze(["rows", "cols"]),
     chart: Object.freeze(Object.keys(emptyView().chart)),
+    referenceLines: Object.freeze(Object.keys(emptyView().chart.referenceLines)),
     formatting: Object.freeze(Object.keys(emptyView().formatting))
 });
 
@@ -460,7 +478,7 @@ function filtersSection(raw, view, ctx) {
         }
         if (!def) {
             const renamed = typeof type === "string" && Object.hasOwn(FILTER_TYPES_V1, type) ? { suggestion: FILTER_TYPES_V1[type] } : suggest(type, Object.keys(FILTERS));
-            return ctx.issue(path, type === undefined ? `a filter needs a type: one of ${Object.keys(FILTERS).join(", ")}` : `unknown filter type ${JSON.stringify(type)}`, "unknownFilterType", { value: shown(type), ...renamed });
+            return ctx.issue(path, type === undefined ? `a filter needs a type: one of ${Object.keys(FILTERS).join(", ")}` : `unknown filter type ${JSON.stringify(type)}; the types: ${Object.keys(FILTERS).join(", ")}`, "unknownFilterType", { value: shown(type), ...renamed });
         }
         ctx.keys(flt, def.keys, path);
         if (!fieldKinds(f, view).some((kind) => def.fields.includes(kind))) {
@@ -565,6 +583,13 @@ function collapsedSection(raw, view, ctx) {
     }
 }
 
+/** A list of names (legend entries) at `key`: texts up to ITEM_LENGTH characters, each once, at most `limits.items`. */
+function nameList(raw, key, ctx) {
+    const out = new Set();
+    listOf(raw, key, ctx.limits.items, ctx, (name, path) => (typeof name === "string" && name.length <= ITEM_LENGTH ? out.add(name) : ctx.issue(path, "not a name", "unknownSetting", { value: shown(name) })));
+    return [...out];
+}
+
 function displaySection(raw, view, ctx) {
     const display = get(raw, "display");
     view.display = oneOf(display, DISPLAY_MODES, view.display);
@@ -593,12 +618,28 @@ function displaySection(raw, view, ctx) {
             smooth: bool(get(chart, "smooth"), false),
             axisLabels: own("axisLabels", CHART_AXIS_LABELS, "auto"),
             groupLabels: own("groupLabels", CHART_GROUP_LABELS, "auto"),
-            labelPosition: own("labelPosition", CHART_LABEL_POSITIONS, "outside")
+            labelPosition: own("labelPosition", CHART_LABEL_POSITIONS, "outside"),
+            tooltip: own("tooltip", CHART_TOOLTIPS, "auto"),
+            zoom: own("zoom", CHART_ZOOMS, "auto"),
+            stackPercent: bool(get(chart, "stackPercent"), false),
+            hidden: nameList(raw, "chart.hidden", ctx),
+            referenceLines: referenceLinesOf(get(chart, "referenceLines"), ctx)
         };
         if (title !== undefined && title !== null && view.chart.title === null && !(typeof title === "string" && title.trim() === "")) {
             ctx.issue("chart.title", `not a text up to ${ctx.limits.name} characters`, "badTitle", { max: ctx.limits.name });
         }
     }
+}
+
+/** chart.referenceLines: an average and a trend switched on or off, a target as a finite number or null. */
+function referenceLinesOf(lines, ctx) {
+    ctx.keys(lines, VIEW_KEYS.referenceLines, "chart.referenceLines");
+    const target = get(lines, "target");
+    const out = { average: bool(get(lines, "average"), false), trend: bool(get(lines, "trend"), false), target: finite(target) };
+    if (target !== undefined && target !== null && out.target === null) {
+        ctx.issue("chart.referenceLines.target", `not a number ${JSON.stringify(shown(target))}`, "unknownSetting", { value: shown(target) });
+    }
+    return out;
 }
 
 function formattingSection(raw, view, ctx) {
@@ -642,9 +683,6 @@ function suggest(name, candidates) {
     const suggestion = closest(name, candidates);
     return suggestion === null ? {} : { suggestion };
 }
-
-/** Names of aggregators in other tools, hinted as ours ("avg": did you mean "average"?); never accepted. */
-const AGGREGATOR_ALIASES = Object.freeze({ avg: "average", mean: "average", cnt: "count", total: "sum", distinct: "countUnique", stddev: "stdev" });
 
 /** The hint for an unknown aggregator: its alias, else the closest name. */
 function suggestAggregator(agg) {
@@ -713,7 +751,8 @@ function context(schema, limits, add, strict) {
             const items = itemsOf(field.name);
             const match = items && !items.exact.has(item) ? items.byFold.get(foldText(item)) : undefined;
             if (match !== undefined) {
-                ctx.warn(path, `item ${JSON.stringify(item)} is no item of "${field.name}"; did you mean ${JSON.stringify(match)}?`, "itemCase", { field: field.name, value: shown(item), suggestion: match });
+                // the item meant is the suggestion, which front ends show as their "did you mean"
+                ctx.warn(path, `item ${JSON.stringify(item)} is no item of "${field.name}": the data spells it otherwise`, "itemCase", { field: field.name, value: shown(item), suggestion: match });
             }
         },
         text: (value) => {

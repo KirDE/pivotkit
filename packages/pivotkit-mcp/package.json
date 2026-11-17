@@ -1,7 +1,7 @@
 {
   "name": "pivotkit-mcp",
-  "version": "0.1.1",
-  "description": "An MCP server for pivotkit: let an AI client describe data sources, draft and validate pivot views, render reports to files and make links, without reading the data itself. stdio and Streamable HTTP with token or OAuth.",
+  "version": "0.2.0",
+  "description": "An MCP server for pivotkit: let an AI client describe data sources, draft and validate pivot views, render reports to files and make links; through pivotkit the model reads only what the policy shows. stdio and Streamable HTTP with token or OAuth.",
   "license": "MIT",
   "author": "eizedev <oss@eize.dev>",
   "homepage": "https://pivotkit.eize.dev/reference/mcp/",
@@ -52,20 +52,20 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.js\"",
-    "coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" \"test/*.test.js\"",
+    "test": "node ../../scripts/test-run.js node --test \"test/*.test.js\"",
+    "coverage": "node ../../scripts/test-run.js node --test --experimental-test-coverage --test-coverage-include=\"src/**\" \"test/*.test.js\"",
     "types": "tsc -p .",
     "test:types": "tsc -p test/types",
     "prepack": "npm run types && node -e \"require('node:fs').copyFileSync('../../LICENSE', 'LICENSE')\""
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.4.0",
-    "pivotkit-report": "^0.2.1",
-    "pivotkit-server": "^0.1.1"
+    "pivotkit-report": "^0.3.0",
+    "pivotkit-server": "^0.2.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",
-    "@types/node": "22.20.4",
+    "@types/node": "22.20.5",
     "jose": "6.2.17"
   },
   "types": "./types/index.d.ts",

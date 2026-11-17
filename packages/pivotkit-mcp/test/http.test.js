@@ -72,6 +72,23 @@ test("a body over 2 MiB is refused with 413 before it is parsed", async () => {
     }
 });
 
+test("pivotkit-mcp's own server: a body that is not JSON and an unsupported protocol version each get one refused line under the answer's X-Request-Id", async () => {
+    const dir = workspace();
+    const server = await httpServer({ sources: { sales: { file: "data/sales.csv" } }, baseDir: dir });
+    try {
+        const broken = await raw(server.url, { method: "POST", headers: { ...POST, "mcp-protocol-version": "2025-06-18" }, body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"MKR-BROKEN"' });
+        const version = await raw(server.url, { method: "POST", headers: { ...POST, "mcp-protocol-version": "1999-01-01" }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) });
+        for (const answer of [broken, version]) {
+            assert.equal(answer.status, 400, answer.body);
+            const mine = server.log.filter((l) => l.requestId === answer.headers["x-request-id"]);
+            assert.deepEqual(mine.map((l) => [l.event, l.level, l.status, l.reason, l.path]), [["refused", "warn", 400, "bad_request", "/mcp"]], JSON.stringify(mine));
+        }
+        assert.ok(!JSON.stringify(server.log).includes("MKR-BROKEN"), "the body is not logged");
+    } finally {
+        await server.close();
+    }
+});
+
 test("token: no token, a wrong one, one in the address, two headers: 401; the right one works; the page lists no source", async () => {
     const dir = workspace();
     const server = await httpServer({ sources: { sales: { file: "data/sales.csv" } }, auth: { mode: "token" }, baseDir: dir }, { env: { PIVOTKIT_MCP_TOKEN: TOKEN } });
@@ -133,4 +150,34 @@ test("refusals at start: no auth on another address than loopback, a short token
     // a named token of auth.tokens is named
     await assert.rejects(listen({ http: { port: 0 }, auth: { mode: "token", tokens: [{ name: "analysts", env: "T_ANALYSTS" }] } }, quiet), /the token "analysts" \(\$T_ANALYSTS\) is missing/);
     await assert.rejects(listen({ http: { port: 0, hots: "x" } }, quiet), /unknown key "hots"; did you mean "host"\?/);
+});
+
+test("a Host the server does not answer to: JSON-RPC on /mcp, problem+json elsewhere, both with the hint", async () => {
+    const dir = workspace();
+    const server = await listen({ sources: { sales: { file: "data/sales.csv" } }, http: { port: 0 }, baseDir: dir, log: "off" }, { env: {}, stderr: { write() {} } });
+    const said = "Invalid Host: evil.example; add the name with http.allowHosts or --allow-host, or set http.publicUrl";
+    try {
+        const ask = (path, init = {}) =>
+            new Promise((resolve, reject) => {
+                const u = new URL(path, server.url);
+                const req = httpRequest({ host: u.hostname, port: u.port, path: u.pathname, method: init.method ?? "GET", headers: { host: "evil.example", ...(init.headers ?? {}) } }, (res) => {
+                    let text = "";
+                    res.on("data", (c) => (text += c));
+                    res.on("end", () => resolve({ status: res.statusCode, type: String(res.headers["content-type"]), data: JSON.parse(text) }));
+                });
+                req.on("error", reject);
+                req.end(init.body);
+            });
+        for (const path of ["/", "/healthz", "/.well-known/oauth-protected-resource/mcp"]) {
+            const res = await ask(path);
+            assert.equal(res.status, 403, path);
+            assert.match(res.type, /^application\/problem\+json/, path);
+            assert.deepEqual([res.data.code, res.data.detail], ["FORBIDDEN_HOST", said], path);
+        }
+        const mcp = await ask("/mcp", { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: "{}" });
+        assert.equal(mcp.status, 403);
+        assert.deepEqual(mcp.data, { jsonrpc: "2.0", error: { code: -32000, message: said }, id: null });
+    } finally {
+        await server.close();
+    }
 });

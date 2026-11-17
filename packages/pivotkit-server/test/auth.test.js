@@ -8,7 +8,10 @@ import { createServer } from "node:http";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
-import { BY_REGION, OTHER_TOKEN, TOKEN, call, raw, restServer, workspace } from "./helpers.js";
+import { REQUEST_LIMITS } from "../src/limits.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { checkConfig, validateOptions } from "pivotkit-server";
+import { BY_REGION, OTHER_TOKEN, TOKEN, call, factsOf, raw, restServer, workspace } from "./helpers.js";
 
 const MCP_RESOURCE = "https://pk.example.com/mcp";
 const REST_RESOURCE = "https://pk.example.com/api/v1";
@@ -39,8 +42,8 @@ before(async () => {
 after(() => new Promise((resolve) => issuerServer.close(resolve)));
 
 /** A signed access token; `claims` and `header` change it. */
-async function jwt({ claims = {}, header = {}, signWith = key.privateKey, expires = "5m", aud = REST_RESOURCE } = {}) {
-    let token = new SignJWT({ scope: "pivotkit", client_id: "report-bot", ...claims }).setProtectedHeader({ alg: "RS256", kid: "k1", ...header }).setIssuer(claims.iss ?? issuer).setAudience(aud).setSubject("someone").setIssuedAt();
+async function jwt({ claims = {}, header = {}, signWith = key.privateKey, expires = "5m", aud = REST_RESOURCE, sub = "someone" } = {}) {
+    let token = new SignJWT({ scope: "pivotkit", client_id: "report-bot", ...claims }).setProtectedHeader({ alg: "RS256", kid: "k1", ...header }).setIssuer(claims.iss ?? issuer).setAudience(aud).setSubject(sub).setIssuedAt();
     if (expires) {
         token = token.setExpirationTime(expires);
     }
@@ -234,4 +237,124 @@ test("oauth: until the issuer answers, REST says 503 with Retry-After and /ready
     } finally {
         await server.close();
     }
+});
+
+test("oauth: a person's subject, groups and other claims never reach a log line, at info or debug, on REST and MCP", async () => {
+    for (const level of ["info", "debug"]) {
+        const dir = workspace();
+        const server = await restServer({ sources: SOURCES, auth: { mode: "oauth", issuer, resource: MCP_RESOURCE, allowInsecureIssuer: true, requiredScopes: ["pivotkit"] }, http: { publicUrl: "https://pk.example.com/" }, log: level, baseDir: dir }, { enable: ["rest", "mcp"] });
+        const claims = { groups: ["finance-secret-group"], customer: "acme-secret-claim", email: "person@secret.example", name: "Secret Person" };
+        const client = new Client({ name: "claims", version: "1.0.0" });
+        try {
+            await ready(server);
+            assert.equal((await call(`${server.api}/views/validate`, { body: { source: "sales", view: BY_REGION }, token: await jwt({ claims }) })).status, 200);
+            assert.equal((await call(`${server.api}/sources/nope`, { token: await jwt({ claims }) })).status, 404);
+            const token = await jwt({ claims, aud: MCP_RESOURCE });
+            await client.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`), { requestInit: { headers: { authorization: `Bearer ${token}` } } }));
+            await client.callTool({ name: "describe_source", arguments: { source: "sales" } });
+            await client.callTool({ name: "describe_source", arguments: { source: "nope" } });
+            const text = JSON.stringify(server.log);
+            assert.ok(server.log.some((l) => l.event === "call" && l.client === "report-bot"), text);
+            assert.ok(server.log.some((l) => l.event === "request" && l.client === "report-bot"), text);
+            for (const secret of ["someone", "finance-secret-group", "acme-secret-claim", "person@secret.example", "Secret Person"]) {
+                assert.ok(!text.includes(secret), `${level}: ${secret} in the log`);
+            }
+        } finally {
+            await client.close();
+            await server.close();
+        }
+    }
+});
+
+test("F3: the request limits count per person, not per OAuth client: two people of one client each get their own bucket, on REST and MCP", async () => {
+    const dir = workspace();
+    const limited = await restServer({ sources: SOURCES, auth: { mode: "oauth", issuer, resource: MCP_RESOURCE, allowInsecureIssuer: true, requiredScopes: ["pivotkit"] }, rest: { rateLimit: { perMinute: 1, burst: 2 } }, mcp: { rateLimit: { perMinute: 1, burst: 2 } }, http: { publicUrl: "https://pk.example.com/" }, baseDir: dir }, { enable: ["rest", "mcp"] });
+    try {
+        const ana = await jwt({ sub: "ana" });
+        const ben = await jwt({ sub: "ben" });
+        assert.equal((await call(`${limited.api}/sources`, { token: ana })).status, 200);
+        assert.equal((await call(`${limited.api}/sources`, { token: ana })).status, 200);
+        assert.equal((await call(`${limited.api}/sources`, { token: ana })).status, 429, "ana's bucket is empty");
+        assert.equal((await call(`${limited.api}/sources`, { token: ben })).status, 200, "ben of the same client has his own");
+        const init = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+        const mcp = async (token) => (await fetch(`${limited.url}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${token}` }, body: init })).status;
+        const anaMcp = await jwt({ sub: "ana", aud: MCP_RESOURCE });
+        const benMcp = await jwt({ sub: "ben", aud: MCP_RESOURCE });
+        assert.deepEqual([await mcp(anaMcp), await mcp(anaMcp), await mcp(anaMcp)], [200, 200, 429]);
+        assert.equal(await mcp(benMcp), 200, "on MCP too");
+    } finally {
+        await limited.close();
+    }
+});
+
+test("limits: the people of one OAuth client together are held to concurrency x clientShare; the refusal names limit clientShare", async () => {
+    const dir = workspace();
+    let open;
+    const gate = new Promise((resolve) => (open = resolve));
+    const server = await restServer({ sources: { slow: { load: async () => (await gate, [{ Region: "North" }]), policy: { default: "show" } }, slow2: { load: async () => (await gate, [{ Region: "North" }]), policy: { default: "show" } } }, auth: { mode: "oauth", issuer, resource: MCP_RESOURCE, allowInsecureIssuer: true, requiredScopes: ["pivotkit"] }, rest: { concurrency: 1 }, http: { publicUrl: "https://pk.example.com/" }, baseDir: dir }, { enable: ["rest", "mcp"] });
+    try {
+        const people = await Promise.all(Array.from({ length: REQUEST_LIMITS.clientShare + 1 }, (_, i) => jwt({ sub: `person-${i}` })));
+        // four loads of one source run at once: the held requests spread over two
+        const held = people.slice(0, -1).map((token, i) => call(`${server.api}/sources/describe`, { token, body: { source: i % 2 ? "slow2" : "slow" } }));
+        // the held requests take their places before the last one is sent
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const refused = await call(`${server.api}/sources/describe`, { token: people.at(-1), body: { source: "slow" } });
+        assert.equal(refused.status, 429, JSON.stringify(refused.data));
+        assert.ok(server.log.some((l) => l.event === "refused" && l.reason === "rate_limited" && l.limit === "clientShare"), JSON.stringify(server.log.filter((l) => l.event === "refused")));
+        open();
+        assert.ok((await Promise.all(held)).every((r) => r.status === 200));
+    } finally {
+        open();
+        await server.close();
+    }
+});
+
+test("limits: a refusal by the client's rate bucket logs limit clientRate, a person's own logs rate", async () => {
+    const dir = workspace();
+    const server = await restServer({ sources: SOURCES, auth: { mode: "oauth", issuer, resource: MCP_RESOURCE, allowInsecureIssuer: true, requiredScopes: ["pivotkit"] }, rest: { rateLimit: { perMinute: 1, burst: 1 } }, http: { publicUrl: "https://pk.example.com/" }, baseDir: dir }, { enable: ["rest", "mcp"] });
+    try {
+        const people = await Promise.all(Array.from({ length: REQUEST_LIMITS.clientShare + 1 }, (_, i) => jwt({ sub: `person-${i}` })));
+        for (const token of people.slice(0, -1)) {
+            assert.equal((await call(`${server.api}/sources`, { token })).status, 200);
+        }
+        assert.equal((await call(`${server.api}/sources`, { token: people[0] })).status, 429);
+        assert.equal((await call(`${server.api}/sources`, { token: people.at(-1) })).status, 429);
+        const limits = server.log.filter((l) => l.event === "refused" && l.reason === "rate_limited").map((l) => l.limit);
+        assert.deepEqual(limits, ["rate", "clientRate"]);
+    } finally {
+        await server.close();
+    }
+});
+
+test("rest.signIn.clientId: the REST metadata publishes the command line's public client ID; check-config shows it", async () => {
+    const dir = workspace();
+    const options = { sources: SOURCES, output: { dir: "out" }, auth: { mode: "oauth", issuer, resource: MCP_RESOURCE, allowInsecureIssuer: true, requiredScopes: ["pivotkit"] }, rest: { signIn: { clientId: "pivotkit-cli" } }, http: { publicUrl: "https://pk.example.com/" }, baseDir: dir };
+    const server = await restServer(options, { enable: ["rest", "mcp"] });
+    try {
+        await ready(server);
+        const prm = await call(`${server.url}/.well-known/oauth-protected-resource/api/v1`);
+        assert.equal(prm.status, 200);
+        assert.equal(prm.data.pivotkit_client_id, "pivotkit-cli");
+        assert.equal(prm.data.resource, REST_RESOURCE, "the RFC 9728 fields stay as they are");
+    } finally {
+        await server.close();
+    }
+    const plain = await oauthServer();
+    try {
+        await ready(plain);
+        assert.equal(Object.hasOwn((await call(`${plain.url}/.well-known/oauth-protected-resource/api/v1`)).data, "pivotkit_client_id"), false, "nothing without the setting");
+    } finally {
+        await plain.close();
+    }
+    const { text } = await checkConfig(options, { http: true, env: {}, name: "pivotkit-server", rest: true });
+    assert.match(factsOf(text), /\n {2}sign-in client for pivotkit login: pivotkit-cli \(published; a public client without a secret\)\n/);
+});
+
+test("rest.signIn: OAuth only, a client ID of the right form, and never a secret", () => {
+    const base = { sources: SOURCES, auth: { mode: "oauth", issuer: "https://auth.example.com", resource: MCP_RESOURCE } };
+    assert.doesNotThrow(() => validateOptions({ ...base, rest: { signIn: { clientId: "pivotkit-cli" } } }));
+    assert.throws(() => validateOptions({ sources: SOURCES, auth: { mode: "token", tokens: [{ name: "a", env: "A" }] }, rest: { signIn: { clientId: "pivotkit-cli" } } }), /rest\.signIn: needs auth\.mode "oauth"/);
+    assert.throws(() => validateOptions({ ...base, rest: { signIn: { clientId: "two words" } } }), /rest\.signIn\.clientId: the public client's ID/);
+    assert.throws(() => validateOptions({ ...base, rest: { signIn: {} } }), /rest\.signIn\.clientId: the public client's ID/);
+    assert.throws(() => validateOptions({ ...base, rest: { signIn: { clientId: "pivotkit-cli", clientSecret: { env: "S" } } } }), /clientSecret/);
 });

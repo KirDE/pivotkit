@@ -22,7 +22,7 @@ import { dateContext, dateRangeText, dateDisplayLocale } from "./date-context.js
 import { displayNames, fieldDefaultsFor, fieldInfoOf, typesOf } from "./field-info.js";
 import { FieldPanel } from "./fields.jsx";
 import { Icon, TYPE_ICON } from "./icons.jsx";
-import { errorText, fill, plural, resolveLabels } from "./labels.js";
+import { errorText, fill, plural, resolveLabels, rowCount } from "./labels.js";
 import { useIsoLayoutEffect } from "./iso.js";
 import { MenuPanel, loadMenus, menusNow, onMenuTexts } from "./lazy-menus.jsx";
 import { importNow, loadImport } from "./lazy-import.js";
@@ -41,14 +41,14 @@ import { Unused } from "./unused.jsx";
 import { FormNameContext, activeIn } from "./dom.js";
 import { stillApplies } from "./unused-keep.js";
 import { Toolbar } from "./toolbar.jsx";
-import { prepareExporters, useExport } from "./use-export.js";
+import { useExport } from "./use-export.js";
 import { useResolvedTheme } from "./use-theme.js";
 import { schemaKeyOf, useViewHistory } from "./use-view-history.js";
 import { forgetData, hostIdentity, keepData, keptData } from "./data-keep.js";
 import { tagFor } from "./view-history.js";
 import { useBigResult, useFitHeight } from "./use-big-result.js";
 import {
-    addField, dateSpan, filterZoneFields, groupField, isEmptyView, moveField, removeAt, rowFolding, same, setChart, setChartDisplay, setCollapsed, setDisplay, setSort, setTotal, sourceOf, swapAxes, toggleCollapsed, zoneOverLimit
+    addField, dateSpan, filterZoneFields, groupField, hiddenAfter, isEmptyView, moveField, removeAt, rowFolding, same, setChart, setChartDisplay, setCollapsed, setDisplay, setSort, setTotal, sourceOf, swapAxes, toggleCollapsed, zoneOverLimit
 } from "./view-ops.js";
 import { Zones, zoneEntries } from "./zones.jsx";
 
@@ -303,6 +303,7 @@ function Report(props) {
         fieldDefaults,
         onExport,
         exportData = false,
+        drillDownExport = false,
         label,
         tips: tipsProp = "on",
         storageKey,
@@ -414,6 +415,8 @@ function Report(props) {
     const [rowLabel, setRowLabel] = useState(/** @type {string | null} */ (null));
     const chartRef = useRef(null);
     const [chartReady, setChartReady] = useState(false);
+    // which reference lines the drawn chart can draw, with its numbers' reasons (chart.jsx onLines), and the view they are of
+    const [lineChecks, setLineChecks] = useState(/** @type {any} */ (null));
     const hintId = useId();
     const closeFilter = useCallback(() => setFilterTarget(null), []);
     const { toasts, push, dismiss, pause } = useToasts();
@@ -849,7 +852,9 @@ function Report(props) {
     }, [lang]);
     // the report's least height: it grows past a host box too low for it (use-big-result.js)
     const mainRef = useRef(/** @type {HTMLDivElement | null} */ (null));
-    const fit = useFitHeight(root, mainRef, grow);
+    // the low check below, also when the open zones need more in a box that keeps its size (#93)
+    const checkLow = useRef(() => {});
+    const fit = useFitHeight(root, mainRef, grow, () => checkLow.current());
     const big = useBigResult(root);
     // size class from the report's own width; the height class from its border box, measured before
     // the first paint, so a low report never shows its zones open for a frame. A box lower than the
@@ -865,19 +870,32 @@ function Report(props) {
         const first = compactAt(sizeOf(box.width), box.height);
         setMeasuredShort(first);
         setShort(first);
+        // low: below the size class's height, or too low for what the open zones need (then the
+        // report would grow past its box; folded, it fits)
+        const low = (/** @type {"narrow" | "medium" | "wide"} */ width, /** @type {number} */ height) => compactAt(width, height) || (fit.current.open > 0 && height <= fit.current.open + 1);
+        checkLow.current = () => {
+            const now = el.getBoundingClientRect();
+            setMeasuredShort(low(sizeOf(now.width), now.height));
+        };
         if (typeof ResizeObserver !== "function") {
             return undefined;
         }
+        // Two observers on purpose: this one reads the report's box in its callback, so the width
+        // class and the fold follow a resize in the same frame. useFitHeight's measures the column a
+        // frame later (setting min-height in the callback would loop) and calls checkLow when what
+        // the open zones need changes inside a box of the same size. A box at most 1 px higher than
+        // what they need counts as too low (`<= open + 1`): measures round, and a growing report's
+        // min-height makes its box exactly as high as it needs.
         const ro = new ResizeObserver(([entry]) => {
             const width = sizeOf(entry.contentRect.width);
             setSize(width);
-            const height = entry.borderBoxSize?.[0]?.blockSize ?? el.getBoundingClientRect().height;
-            // low: below the size class's height, or too low for what the open zones need (then the
-            // report would grow past its box; folded, it fits)
-            setMeasuredShort(compactAt(width, height) || (fit.current.open > 0 && height <= fit.current.open + 1));
+            setMeasuredShort(low(width, entry.borderBoxSize?.[0]?.blockSize ?? el.getBoundingClientRect().height));
         });
         ro.observe(el);
-        return () => ro.disconnect();
+        return () => {
+            checkLow.current = () => {};
+            ro.disconnect();
+        };
     }, []);
     useEffect(() => {
         if (measuredShort === short) {
@@ -993,7 +1011,7 @@ function Report(props) {
         [result, encodedProp, imported, data, drillDownLimit, onCellClick, drillDown, defaultsOf, nameOf, infoOf]
     );
 
-    const doExport = useExport({ fileName, result, encoded, exportData, locale, labels, limits, root, chartRef, announce, onExport, title: viewName, source: sourceName, loadECharts });
+    const { run: doExport, prepare: prepareExport } = useExport({ fileName, result, encoded, exportData, locale, labels, limits, root, chartRef, announce, onExport, title: viewName, source: sourceName, loadECharts });
 
     // loading data (allowImport): the import UI (import-host.jsx) loads on first use (the Data menu, a
     // file dragged over the report, the empty report's button) and renders the file input, the drop
@@ -1473,6 +1491,10 @@ function Report(props) {
                             <Toolbar
                                 view={view}
                                 chartPlan={plan}
+                                encoded={encoded}
+                                lineChecks={lineChecks?.view === view ? lineChecks.checks : null}
+                                locale={locale}
+                                chartSeries={series}
                                 labels={labels}
                                 size={size}
                                 canUndo={history.canUndo || dataSteps.past.length > 0}
@@ -1497,7 +1519,7 @@ function Report(props) {
                                 onLoadTemplate={openTemplate}
                                 templateActions={templateActions}
                                 onExport={doExport}
-                                prepareExport={prepareExporters}
+                                prepareExport={prepareExport}
                                 dataExport={{ exportData, encoded }}
                                 chartReady={view.display === "chart" && chartReady}
                                 empty={empty}
@@ -1611,10 +1633,17 @@ function Report(props) {
                                         root={root}
                                         valueNames={view.values.map((v) => valueLabel(v, labels))}
                                         chartOptions={stableChartOptions}
+                                        // a legend entry hidden or shown: kept in the view, said to a screen reader
+                                        onLegend={({ name, shown }) => {
+                                            commit(setChartDisplay(view, { hidden: hiddenAfter(view.chart.hidden, name, shown) }), { step: "chartDisplay" });
+                                            announce(fill(shown ? labels.chartShown : labels.chartHidden, { name }));
+                                        }}
                                         onInstance={(c) => {
                                             chartRef.current = c;
                                             setChartReady(Boolean(c));
                                         }}
+                                        // the checks with the view they are of: the menu never shows another view's
+                                        onLines={(checks) => setLineChecks(checks && { checks, view })}
                                         // a chart with rows and columns swapped names the view's paths the other way round
                                         onPoint={(p) => openCell({ rowPath: plan.swap ? p.colPath : p.rowPath, colPath: plan.swap ? p.rowPath : p.colPath, value: p.value, valueIndex: p.valueIndex, text: String(p.value ?? "") })}
                                     />
@@ -1623,7 +1652,9 @@ function Report(props) {
                                 ) : null}
                             </section>
                             <div className="pk-status">
-                                <span data-testid="row-count">{result ? plural(labels.rowsCount, result.rows.length, { lang: labels.lang, locale }) : ""}</span>
+                                <span className="pk-row-count" data-testid="row-count">
+                                    {result ? rowCount(result.rows.length, result.encoded.length, labels, locale) : ""}
+                                </span>
                                 {context.ranges.map(({ field, text }) => <span key={field} data-testid="date-range" title={field}>{context.ranges.length > 1 ? `${fieldLabel(field, labels.core)}: ` : ""}{text}</span>)}
                                 {importMod ? <importMod.SourceLine api={api} /> : null}
                                 {rowLabel && showTable ? (
@@ -1638,7 +1669,7 @@ function Report(props) {
                             </div>
                         </div>
                         {/* inside the layout: clipped to the report's box with it (its slide-in too) */}
-                        {drill ? <MenuPanel name="DrillPanel" props={{ drill, onClose: () => setDrill(null), labels: context.labels, locale, exportContext: { encoded, onExport, announce, root, exportData } }} /> : null}
+                        {drill ? <MenuPanel name="DrillPanel" props={{ drill, onClose: () => setDrill(null), labels: context.labels, locale, exportContext: { encoded, onExport, announce, root, exportData, drillDownExport } }} /> : null}
                     </div>
                     {/* the filter and the drill-down load with the menus (lazy-menus.jsx) */}
                     {filterTarget ? <MenuPanel name="FilterPopover" props={{ target: filterTarget, onClose: closeFilter, view, encoded, locale, labels, commit }} /> : null}
