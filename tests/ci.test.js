@@ -293,6 +293,74 @@ test("the release workflow runs check-release for the tagged package before it p
     assert.ok(check < release.indexOf("npm pack --workspace"), "check-release runs after the pack");
 });
 
+/**
+ * The steps of a job's text, each as its top-level keys and their text (a block value without its
+ * indentation). A step starts at "      - ", whatever key comes first; comment lines are left out.
+ * @param {string} job
+ * @returns {Array<Record<string, string>>}
+ */
+function stepsOf(job) {
+    const list = job.slice(job.indexOf("\n    steps:\n") + 1);
+    return list
+        .split(/\n {6}- /)
+        .slice(1)
+        .map((text) => {
+            /** @type {Record<string, string>} */
+            const keys = {};
+            let key = "";
+            for (const [i, line] of text.split("\n").entries()) {
+                const top = i === 0 ? /^([\w-]+):\s?(.*)$/.exec(line) : /^ {8}([\w-]+):\s?(.*)$/.exec(line);
+                if (top) {
+                    key = top[1];
+                    keys[key] = top[2] === "|" ? "" : top[2];
+                } else if (!/^\s*(#.*)?$/.test(line)) {
+                    keys[key] = `${keys[key] ? `${keys[key]}\n` : ""}${line.trim()}`;
+                }
+            }
+            return keys;
+        });
+}
+
+// A compromised dev dependency could change the packages during lint and tests (#506). So the
+// build job packs and uploads the tarball first. Only the compilers and bundlers run before the
+// pack: tsc for every workspace's declarations, and the package's own prepack. The publish job
+// stages only a tarball with the integrity the Pack step recorded.
+test("the release packs and uploads the tarball before lint and tests, and publish checks its integrity", () => {
+    const steps = stepsOf(jobOf(".github/workflows/release.yml", "build"));
+    const at = (test) => steps.findIndex(test);
+    const signatures = at((step) => step.run === "npm audit signatures");
+    const pack = at((step) => step.name === "Pack");
+    const upload = at((step) => String(step.uses).startsWith("actions/upload-artifact@"));
+    const checks = at((step) => String(step.run).includes("npm run lint"));
+    assert.ok(signatures !== -1 && pack === signatures + 2, "the pack follows the install, its signature check and one step");
+    // the pack step itself runs these commands and no other
+    assert.deepEqual(steps[pack].run.split("\n"), [
+        "set -o pipefail",
+        'mkdir -p "$RUNNER_TEMP/pack"',
+        'file="$(npm pack --workspace "$PACKAGE" --pack-destination "$RUNNER_TEMP/pack" --json | node scripts/npm-pack.js)"',
+        'test -f "$RUNNER_TEMP/pack/$file"',
+        'echo "file=$file" >> "$GITHUB_OUTPUT"',
+        'echo "integrity=sha512-$(openssl dgst -sha512 -binary "$RUNNER_TEMP/pack/$file" | base64 -w0)" >> "$GITHUB_OUTPUT"'
+    ]);
+    assert.ok(upload === pack + 1, "the upload follows the pack");
+    assert.ok(checks > upload, "lint, types and tests run after the upload");
+    // the one step between the signature check and the pack, whatever form another one takes
+    // (a run block, a run without a name, an action): only the declarations are built there
+    assert.deepEqual(steps.slice(signatures + 1, pack), [{ name: "Types", run: "npm run types --workspaces --if-present" }]);
+    // nothing changes how these two run: no env, working-directory, continue-on-error or if
+    assert.deepEqual(Object.keys(steps[signatures]).sort(), ["name", "run"]);
+    assert.deepEqual(Object.keys(steps[pack]).sort(), ["env", "id", "name", "run"]);
+    assert.deepEqual(steps[pack].env, "PACKAGE: ${{ steps.package.outputs.name }}");
+    assert.equal(steps[pack].id, "pack");
+    const build = jobOf(".github/workflows/release.yml", "build");
+    assert.match(build, /integrity: \$\{\{ steps\.pack\.outputs\.integrity \}\}/);
+    const publish = jobOf(".github/workflows/release.yml", "publish");
+    assert.match(publish, /INTEGRITY: \$\{\{ needs\.build\.outputs\.integrity \}\}/);
+    const compare = publish.indexOf('test "$actual" = "$INTEGRITY"');
+    assert.ok(compare !== -1, "the publish job compares the tarball's integrity with the recorded one");
+    assert.ok(compare < publish.indexOf("npm stage publish"), "it compares before it stages");
+});
+
 test("every package of this repository is checked, packed and released", () => {
     const pkg = JSON.parse(readFileSync(new URL("package.json", root), "utf8"));
     const release = readFileSync(new URL(".github/workflows/release.yml", root), "utf8");
