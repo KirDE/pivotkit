@@ -291,9 +291,24 @@ answers checked, a plugin's minimal table completed, failed sheets, the host's e
  * texts to 7.3 (7.0): menus goes to 49, texts to 7.5. The first load grows 0.6 to 174.36 (the view
  * keys, a view file's newer keys, the legend's announcement); the zoom and legend logic stays in the
  * chart group (chart-legend.js).
+ * A chart's reference lines (#48): ECharts' markLine component draws them, 5.9 KiB of the chart group
+ * alone; with pivotkit-core's numbers, the checks with their reasons, the labels at their lines and
+ * the tooltip's lines the chart group was 230.7 on a Mac before #36. MarkLine in a chunk of its own,
+ * loaded with the first line, was measured too: esbuild split ECharts' shared modules into more
+ * chunks, and the chart group grew with it; so markLine stays in the chart's chunk. The SVG draws
+ * twice to place the labels at their lines: the report group 23.46 with Homebrew's zlib, budget 23.8.
+ * With #36 merged, CI's zlib (an official Node 24.22.3) measures the two features adding up: the
+ * chart group 222.2 before both, 231.4 with #48 alone, 232.5 with #36 alone, 241.6 with both (no
+ * second copy of anything); budget 242.6. The menus with the Reference lines level 49.6, budget 50.5;
+ * their German texts 7.6, budget 7.8.
+ * The first load with both is 175.6 on CI's zlib (174.9 before #48): the view key, the rules of which
+ * chart draws which line (0.17 of it) and the words of the lines. The rules cannot leave the first
+ * load cleanly: the menus need them from pivotkit-core's main entry, and a new entry point would be
+ * one more bare import for a host's import map. The maintainer raised the budget for 0.8.0, about
+ * 0.5 KiB above CI: 176.1; the split of the first load is #546 (0.9.0).
  * `--size` fails above it; raise it on purpose, with the reason in the commit.
  */
-export const SIZE_BUDGET_KIB = { initial: 175.1, chart: 233, export: 12.6, link: 7.5, menus: 49, texts: 7.5, unused: 5.5, import: 22, report: 23.5, template: 3 };
+export const SIZE_BUDGET_KIB = { initial: 176.1, chart: 242.6, export: 12.6, link: 7.5, menus: 50.5, texts: 7.8, unused: 5.5, import: 22, report: 23.8, template: 3 };
 
 /**
  * What a page loads, from the build's metafile: the entry with its static imports ("initial"), and

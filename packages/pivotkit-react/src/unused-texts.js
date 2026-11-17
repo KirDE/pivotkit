@@ -43,6 +43,7 @@ export const en = {
         zoom: "zoom slider",
         stackPercent: "100 % stack",
         hidden: "hidden series",
+        target: "target line",
         other: "setting"
     },
     // what the report does instead, by the part of the view ({dropped} in a text)

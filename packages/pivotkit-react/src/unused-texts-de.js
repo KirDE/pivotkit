@@ -30,6 +30,7 @@ export const de = {
         zoom: "Zoom-Schieber",
         stackPercent: "100-%-Stapel",
         hidden: "ausgeblendete Reihen",
+        target: "Ziellinie",
         other: "Einstellung"
     },
     dropped: {

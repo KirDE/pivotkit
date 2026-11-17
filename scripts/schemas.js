@@ -135,7 +135,8 @@ function viewParts() {
                 tooltip: { enum: [...CHART_TOOLTIPS] },
                 zoom: { enum: [...CHART_ZOOMS] },
                 stackPercent: { type: "boolean" },
-                hidden: { type: "array", maxItems: LIMITS.items, items: { type: "string", maxLength: ITEM_LENGTH } }
+                hidden: { type: "array", maxItems: LIMITS.items, items: { type: "string", maxLength: ITEM_LENGTH } },
+                referenceLines: object({ average: { type: "boolean" }, trend: { type: "boolean" }, target: nullable({ type: "number" }) })
             }),
             formatting: object({ locale: nullable({ type: "string" }), timeZone: nullable({ type: "string" }), weekStart: { type: "integer", minimum: 1, maximum: 7 } })
         }),
