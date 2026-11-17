@@ -171,6 +171,9 @@ node scripts/openapi.js        # write docs/openapi.json after a route or operat
 ## Tests
 
 - `test/` drives the service over HTTP.
+- CI runs these tests on Linux, macOS and Windows.
+- A test of file modes, owners, FIFOs, symbolic links or a caught SIGTERM skips itself on Windows.
+  It names the reason, or it checks what Windows does instead.
 - `test/conformance.test.js` checks that MCP and REST answer alike.
 - `test/cli-remote.test.js` runs the CLI against the service.
 - Use the `tempDir` of `test/helpers.js` for files on disk.

@@ -82,6 +82,9 @@ All notable changes to `pivotkit-server` are documented in this file. The format
 - The drafts' caps count only drafts that still wait for approval. A draft the host approved or
   rejected (another `status`) no longer takes a waiting draft's place in the count of half of
   `output.maxFiles` ([#513](https://github.com/eizedev/pivotkit/issues/513)).
+- On Windows, the start's hint `pivotkit-server token show admin --state-dir <dir>` quotes the
+  directory for PowerShell and says "(PowerShell)". It used POSIX quotes, which broke a path with a
+  drive letter.
 - A host's script that waits on the compute pool and has nothing else to keep its process alive
   no longer ends early when a worker dies while it starts. A run keeps its worker ref'd until it
   ends. On Node 22 the process ended with an unsettled await.
